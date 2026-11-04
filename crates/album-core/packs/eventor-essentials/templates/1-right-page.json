@@ -1,0 +1,10 @@
+{
+  "id": "eventor-essentials/1-right-page",
+  "name": "Full right page",
+  "frame_count": 1,
+  "spread_aspect": "any",
+  "tags": ["bleed"],
+  "frames": [
+    { "rect_pct": { "x": 0.508, "y": 0.51, "w": 0.472, "h": 0.44 } }
+  ]
+}

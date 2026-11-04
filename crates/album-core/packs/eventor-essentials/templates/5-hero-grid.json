@@ -1,0 +1,14 @@
+{
+  "id": "eventor-essentials/5-hero-grid",
+  "name": "Hero and four",
+  "frame_count": 5,
+  "spread_aspect": "any",
+  "tags": ["hero"],
+  "frames": [
+    { "rect_pct": { "x": 0, "y": 0, "w": 0.5, "h": 1 } },
+    { "rect_pct": { "x": 0.508, "y": 0.05, "w": 0.232, "h": 0.44 } },
+    { "rect_pct": { "x": 0.748, "y": 0.05, "w": 0.232, "h": 0.44 } },
+    { "rect_pct": { "x": 0.508, "y": 0.51, "w": 0.232, "h": 0.44 } },
+    { "rect_pct": { "x": 0.748, "y": 0.51, "w": 0.232, "h": 0.44 } }
+  ]
+}

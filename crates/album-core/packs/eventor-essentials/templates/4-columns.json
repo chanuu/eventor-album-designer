@@ -1,0 +1,13 @@
+{
+  "id": "eventor-essentials/4-columns",
+  "name": "Four columns",
+  "frame_count": 4,
+  "spread_aspect": "any",
+  "tags": ["grid"],
+  "frames": [
+    { "rect_pct": { "x": 0.02, "y": 0.05, "w": 0.232, "h": 0.9 } },
+    { "rect_pct": { "x": 0.26, "y": 0.05, "w": 0.232, "h": 0.9 } },
+    { "rect_pct": { "x": 0.508, "y": 0.05, "w": 0.232, "h": 0.9 } },
+    { "rect_pct": { "x": 0.748, "y": 0.05, "w": 0.232, "h": 0.9 } }
+  ]
+}

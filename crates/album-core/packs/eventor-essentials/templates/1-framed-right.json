@@ -1,0 +1,10 @@
+{
+  "id": "eventor-essentials/1-framed-right",
+  "name": "Framed on the right",
+  "frame_count": 1,
+  "spread_aspect": "any",
+  "tags": ["airy"],
+  "frames": [
+    { "rect_pct": { "x": 0.58, "y": 0.15, "w": 0.32, "h": 0.7 } }
+  ]
+}

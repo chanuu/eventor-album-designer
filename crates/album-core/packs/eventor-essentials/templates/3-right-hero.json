@@ -1,0 +1,12 @@
+{
+  "id": "eventor-essentials/3-right-hero",
+  "name": "Two stacked, hero right",
+  "frame_count": 3,
+  "spread_aspect": "any",
+  "tags": ["hero"],
+  "frames": [
+    { "rect_pct": { "x": 0.02, "y": 0.05, "w": 0.472, "h": 0.44 } },
+    { "rect_pct": { "x": 0.02, "y": 0.51, "w": 0.472, "h": 0.44 } },
+    { "rect_pct": { "x": 0.508, "y": 0.51, "w": 0.472, "h": 0.44 } }
+  ]
+}

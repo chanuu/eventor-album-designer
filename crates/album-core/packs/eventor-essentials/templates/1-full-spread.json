@@ -1,0 +1,10 @@
+{
+  "id": "eventor-essentials/1-full-spread",
+  "name": "Across the fold",
+  "frame_count": 1,
+  "spread_aspect": "any",
+  "tags": ["panorama"],
+  "frames": [
+    { "rect_pct": { "x": 0, "y": 0, "w": 1, "h": 1 } }
+  ]
+}

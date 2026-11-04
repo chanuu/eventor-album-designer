@@ -1,0 +1,14 @@
+{
+  "id": "eventor-essentials/5-stack-and-three",
+  "name": "Two beside three",
+  "frame_count": 5,
+  "spread_aspect": "any",
+  "tags": ["clean"],
+  "frames": [
+    { "rect_pct": { "x": 0.02, "y": 0.05, "w": 0.472, "h": 0.44 } },
+    { "rect_pct": { "x": 0.02, "y": 0.51, "w": 0.472, "h": 0.44 } },
+    { "rect_pct": { "x": 0.508, "y": 0.05, "w": 0.472, "h": 0.44 } },
+    { "rect_pct": { "x": 0.508, "y": 0.51, "w": 0.232, "h": 0.44 } },
+    { "rect_pct": { "x": 0.748, "y": 0.51, "w": 0.232, "h": 0.44 } }
+  ]
+}
