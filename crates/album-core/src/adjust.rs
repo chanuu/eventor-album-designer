@@ -116,7 +116,7 @@ impl Adjustments {
             1.0 + settings.saturation
         };
 
-        for pixel in pixels.chunks_exact_mut(3) {
+        for pixel in pixels.as_chunks_mut::<3>().0 {
             let mapped = [
                 f64::from(tables[0][usize::from(pixel[0])]),
                 f64::from(tables[1][usize::from(pixel[1])]),
