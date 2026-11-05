@@ -8,7 +8,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use album_core::adjust::Adjustments;
-use album_core::autobuild::{plan_album, AlbumPlan, PhotoFacts, PlanOptions};
+use album_core::autobuild::{
+    plan_album, rate_photos, AlbumPlan, PhotoFacts, PhotoRating, PlanOptions,
+};
 use album_core::autolayout::{apply_layout, rank_layouts, Photo};
 use album_core::document::{
     Binding, ProjectSpec, SpreadDesign, TextBlock, BLEED_OPTIONS_MM, DPI_OPTIONS, DPI_TOO_LOW,
@@ -16,7 +18,7 @@ use album_core::document::{
 };
 use album_core::pack::{load_pack_dir, TemplateRegistry};
 use album_export::{check_album, export_album, ExportFormats, ExportResult, Issue};
-use album_media::analyze::analyze_photo;
+use album_media::analyze::{analyze_photo, auto_adjust};
 use album_media::{
     adjusted_preview, ensure_preview, scan_folder, PhotoInfo, PreviewTier, ScanResult,
 };
@@ -222,6 +224,8 @@ async fn analyze_photos(
                     sharpness: None,
                     hash: None,
                     mono: false,
+                    blown: 0.0,
+                    crushed: 0.0,
                 }
             });
             store.insert(photo.id.clone(), facts);
@@ -245,6 +249,38 @@ fn plan_for_album(
     let store = state.facts.lock().map_err(|e| e.to_string())?;
     let facts: Vec<PhotoFacts> = ids.iter().filter_map(|id| store.get(id).cloned()).collect();
     Ok(plan_album(&facts, &options))
+}
+
+/// Suggested ratings for photos that have already been analysed.
+#[tauri::command]
+fn suggest_ratings(
+    ids: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<Vec<PhotoRating>, String> {
+    let store = state.facts.lock().map_err(|e| e.to_string())?;
+    let facts: Vec<PhotoFacts> = ids.iter().filter_map(|id| store.get(id).cloned()).collect();
+    Ok(rate_photos(&facts))
+}
+
+/// Suggested white balance and levels for one photo.
+#[tauri::command]
+async fn suggest_colour(id: String, state: State<'_, AppState>) -> Result<Adjustments, String> {
+    let photo = state
+        .photos
+        .lock()
+        .map_err(|e| e.to_string())?
+        .get(&id)
+        .cloned()
+        .ok_or_else(|| "Unknown photo".to_string())?;
+    let cache_dir = state.cache_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let preview =
+            ensure_preview(&photo, &cache_dir, PreviewTier::Grid).map_err(|e| e.to_string())?;
+        let image = image::open(preview).map_err(|e| e.to_string())?;
+        Ok(auto_adjust(&image.to_rgb8()))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -498,6 +534,8 @@ fn main() {
             save_album,
             open_album,
             relink_photos,
+            suggest_ratings,
+            suggest_colour,
             list_fonts,
             preview_text,
             analyze_photos,

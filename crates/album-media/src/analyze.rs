@@ -7,6 +7,7 @@ use std::fs::{self, File};
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
 
+use album_core::adjust::Adjustments;
 use album_core::autobuild::PhotoFacts;
 use image::imageops::FilterType;
 use image::{DynamicImage, GrayImage, RgbImage};
@@ -14,7 +15,7 @@ use image::{DynamicImage, GrayImage, RgbImage};
 use crate::{ensure_preview, preview_path, MediaError, PhotoInfo, PreviewTier};
 
 /// Raised when the rules below change, so older saved results are worked out again.
-const FACTS_VERSION: &str = "v1";
+const FACTS_VERSION: &str = "v2";
 
 const SHARPNESS_TILES: u32 = 8;
 /// A sharp subject on a soft background is a good photo, so only the sharpest parts of
@@ -25,6 +26,20 @@ const SHARPEST_TILES_USED: usize = 8;
 const GREY_CHANNEL_SPREAD: u8 = 14;
 /// A little colour noise, or a stray coloured pixel, does not make a photo colour.
 const MAX_COLOURED_SHARE: f64 = 0.02;
+
+/// Levels this close to the ends have effectively lost their detail.
+const BLOWN_LEVEL: u8 = 250;
+const CRUSHED_LEVEL: u8 = 5;
+
+/// Assuming a photo averages to neutral is only a rough guide, so it is applied partly.
+const WHITE_BALANCE_STRENGTH: f64 = 0.6;
+const MAX_AUTO_COLOUR: f64 = 0.8;
+const TEMPERATURE_RANGE: f64 = 0.2;
+const TINT_RANGE: f64 = 0.15;
+const TARGET_MIDTONE: f64 = 0.42;
+const EXPOSURE_STRENGTH: f64 = 0.6;
+const MAX_AUTO_EXPOSURE: f64 = 1.0;
+const MAX_AUTO_CONTRAST: f64 = 0.2;
 
 const FINGERPRINT_WIDTH: u32 = 9;
 const FINGERPRINT_HEIGHT: u32 = 8;
@@ -171,6 +186,73 @@ pub fn is_black_and_white(image: &RgbImage) -> bool {
     (coloured as f64 / f64::from(total)) <= MAX_COLOURED_SHARE
 }
 
+fn clipped_shares(gray: &GrayImage) -> (f64, f64) {
+    let total = f64::from((gray.width() * gray.height()).max(1));
+    let count =
+        |test: &dyn Fn(u8) -> bool| gray.pixels().filter(|p| test(p.0[0])).count() as f64 / total;
+    (count(&|v| v >= BLOWN_LEVEL), count(&|v| v <= CRUSHED_LEVEL))
+}
+
+/// Suggests white balance and levels from the picture itself. It only sets the ordinary
+/// sliders, so the photographer sees exactly what it did and can change or undo it.
+pub fn auto_adjust(image: &RgbImage) -> Adjustments {
+    let mut sums = [0.0_f64; 3];
+    let mut histogram = [0_u32; 256];
+    let mut used = 0.0_f64;
+    for pixel in image.pixels() {
+        let [r, g, b] = pixel.0;
+        let luma = (0.2126 * f64::from(r) + 0.7152 * f64::from(g) + 0.0722 * f64::from(b)).round();
+        histogram[luma.clamp(0.0, 255.0) as usize] += 1;
+        // Clipped pixels no longer say anything about the colour of the light.
+        if r.max(g).max(b) < BLOWN_LEVEL && r.min(g).min(b) > CRUSHED_LEVEL {
+            sums[0] += f64::from(r);
+            sums[1] += f64::from(g);
+            sums[2] += f64::from(b);
+            used += 1.0;
+        }
+    }
+
+    let total: u64 = histogram.iter().map(|c| u64::from(*c)).sum();
+    if total == 0 {
+        return Adjustments::default();
+    }
+    let level_at = |share: f64| {
+        let wanted = (total as f64 * share) as u64;
+        let mut seen = 0_u64;
+        for (level, count) in histogram.iter().enumerate() {
+            seen += u64::from(*count);
+            if seen >= wanted.max(1) {
+                return level as f64 / 255.0;
+            }
+        }
+        1.0
+    };
+
+    let mut adjust = Adjustments::default();
+
+    if !is_black_and_white(image) && used > 0.0 {
+        let [r, g, b] = sums.map(|sum| sum / used);
+        if r + b > 0.0 && g > 0.0 {
+            let temperature = (b - r) / (TEMPERATURE_RANGE * (r + b));
+            let tint = (g - (r + b) / 2.0) / (TINT_RANGE * g);
+            adjust.temperature =
+                (temperature * WHITE_BALANCE_STRENGTH).clamp(-MAX_AUTO_COLOUR, MAX_AUTO_COLOUR);
+            adjust.tint = (tint * WHITE_BALANCE_STRENGTH).clamp(-MAX_AUTO_COLOUR, MAX_AUTO_COLOUR);
+        }
+    }
+
+    let linear = |v: f64| v.powf(2.2);
+    let median = level_at(0.5).max(0.02);
+    adjust.exposure = ((linear(TARGET_MIDTONE) / linear(median)).log2() * EXPOSURE_STRENGTH)
+        .clamp(-MAX_AUTO_EXPOSURE, MAX_AUTO_EXPOSURE);
+
+    let spread = level_at(0.99) - level_at(0.01);
+    if spread > 0.05 {
+        adjust.contrast = (0.9 / spread - 1.0).clamp(0.0, MAX_AUTO_CONTRAST);
+    }
+    adjust
+}
+
 fn facts_path(cache_dir: &Path, id: &str) -> PathBuf {
     let preview = preview_path(cache_dir, id, PreviewTier::Grid);
     preview.with_file_name(format!("{id}_facts_{FACTS_VERSION}.json"))
@@ -193,13 +275,17 @@ pub fn analyze_photo(photo: &PhotoInfo, cache_dir: &Path) -> Result<PhotoFacts, 
         reason: e.to_string(),
     })?;
 
+    let gray = image.to_luma8();
+    let (blown, crushed) = clipped_shares(&gray);
     let facts = PhotoFacts {
         id: photo.id.clone(),
         taken_at,
         camera,
-        sharpness: Some(sharpness(&image.to_luma8())),
+        sharpness: Some(sharpness(&gray)),
         hash: Some(fingerprint(&image)),
         mono: is_black_and_white(&image.to_rgb8()),
+        blown,
+        crushed,
     };
 
     // Only a time saver, so failing to keep the result must not fail the analysis.
@@ -468,6 +554,95 @@ mod tests {
             }
         }
         assert!(is_black_and_white(&logo));
+    }
+
+    fn mean(image: &RgbImage) -> [f64; 3] {
+        let count = f64::from(image.width() * image.height());
+        let mut sums = [0.0; 3];
+        for p in image.pixels() {
+            for (s, v) in sums.iter_mut().zip(p.0) {
+                *s += f64::from(v);
+            }
+        }
+        sums.map(|s| s / count)
+    }
+
+    /// A varied picture, tinted the way the wrong white balance would.
+    fn tinted(red: f64, green: f64, blue: f64) -> RgbImage {
+        let base = scene(11, 300, 200);
+        RgbImage::from_fn(300, 200, |x, y| {
+            let level = f64::from(base.get_pixel(x, y).0[0]) * 0.5 + 50.0;
+            Rgb([
+                (level * red) as u8,
+                (level * green) as u8,
+                (level * blue) as u8,
+            ])
+        })
+    }
+
+    fn colour_cast(image: &RgbImage) -> f64 {
+        let [r, g, b] = mean(image);
+        (r - b).abs() + (g - (r + b) / 2.0).abs()
+    }
+
+    #[test]
+    fn auto_white_balance_reduces_a_colour_cast() {
+        for picture in [
+            tinted(1.25, 1.0, 0.75),
+            tinted(0.75, 1.0, 1.25),
+            tinted(1.0, 1.2, 1.0),
+        ] {
+            let adjust = auto_adjust(&picture);
+            let mut fixed = picture.clone();
+            adjust.apply_rgb(&mut fixed);
+            assert!(
+                colour_cast(&fixed) < colour_cast(&picture) * 0.75,
+                "{} became {} with {adjust:?}",
+                colour_cast(&picture),
+                colour_cast(&fixed)
+            );
+        }
+    }
+
+    #[test]
+    fn a_warm_photo_is_cooled_and_a_cold_one_warmed() {
+        assert!(auto_adjust(&tinted(1.25, 1.0, 0.75)).temperature < 0.0);
+        assert!(auto_adjust(&tinted(0.75, 1.0, 1.25)).temperature > 0.0);
+    }
+
+    #[test]
+    fn dark_photos_are_lifted_and_bright_ones_lowered() {
+        assert!(auto_adjust(&tinted(0.3, 0.3, 0.3)).exposure > 0.2);
+        assert!(auto_adjust(&tinted(1.7, 1.7, 1.7)).exposure < -0.1);
+    }
+
+    #[test]
+    fn black_and_white_photos_get_no_colour_correction() {
+        let adjust = auto_adjust(&tinted(1.0, 1.0, 1.0));
+        assert_eq!(adjust.temperature, 0.0);
+        assert_eq!(adjust.tint, 0.0);
+    }
+
+    #[test]
+    fn auto_never_turns_a_photo_black_and_white_or_goes_wild() {
+        let adjust = auto_adjust(&RgbImage::from_pixel(50, 50, Rgb([255, 0, 0])));
+        assert!(!adjust.black_and_white);
+        assert!(adjust.temperature.abs() <= MAX_AUTO_COLOUR);
+        assert!(adjust.exposure.abs() <= MAX_AUTO_EXPOSURE);
+        assert_eq!(
+            auto_adjust(&RgbImage::new(1, 1)),
+            auto_adjust(&RgbImage::new(1, 1))
+        );
+    }
+
+    #[test]
+    fn clipped_areas_are_measured() {
+        let half_white = GrayImage::from_fn(100, 100, |x, _| {
+            image::Luma([if x < 50 { 255 } else { 120 }])
+        });
+        let (blown, crushed) = clipped_shares(&half_white);
+        assert!((blown - 0.5).abs() < 0.01);
+        assert_eq!(crushed, 0.0);
     }
 
     #[test]

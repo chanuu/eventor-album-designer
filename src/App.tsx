@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { PhotoInfo, ProjectSpec, Spread } from './api';
+import type { PhotoInfo, ProjectSpec, Rating, Spread } from './api';
 import NewAlbum from './NewAlbum';
 import Workspace from './Workspace';
 
@@ -13,6 +13,8 @@ export type Album = {
   spreads: Spread[];
   /** Photos whose original file could not be found when the album was opened. */
   missing: string[];
+  /** Ratings set by hand. */
+  ratings: Record<string, Rating>;
 };
 
 export default function App() {

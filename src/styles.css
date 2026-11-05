@@ -284,3 +284,9 @@ legend { padding: 0; margin-bottom: 7px; font-size: 12px; font-weight: 600; widt
 .photo-name { display: block; margin-top: 3px; font-size: 10px; color: var(--ink-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .badge { position: absolute; top: 4px; right: 4px; padding: 0 6px; font-size: 10px; font-weight: 700; color: var(--ink-body); background: rgb(0 0 0 / 70%); border-radius: 999px; }
 .badge.gone { color: #fff; background: #dc2626; }
+.rating { position: absolute; left: 5px; top: 5px; width: 14px; height: 14px; border: 2px solid rgb(0 0 0 / 55%); border-radius: 50%; cursor: pointer; }
+.rating.red { background: #ef4444; }
+.rating.yellow { background: #f5a524; }
+.rating.green { background: #22c55e; }
+.rating.set { border-color: #fff; }
+.rating-note { white-space: nowrap; }

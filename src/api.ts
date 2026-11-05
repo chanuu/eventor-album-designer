@@ -95,6 +95,10 @@ export type SavedSpread = {
   design: SpreadDesign;
 };
 
+export type Rating = 'red' | 'yellow' | 'green';
+
+export type PhotoRating = { id: string; rating: Rating; reasons: string[] };
+
 export type Project = {
   version: number;
   name: string;
@@ -102,6 +106,7 @@ export type Project = {
   spec: ProjectSpec;
   photos: PhotoInfo[];
   spreads: SavedSpread[];
+  ratings: Record<string, Rating>;
 };
 
 export type ScanResult = {
@@ -143,6 +148,10 @@ export const suggestLayouts = (photos: PhotoInfo[], spec: ProjectSpec) =>
     photos: photos.map((p) => ({ asset_id: p.id, aspect: p.width / p.height })),
     spec,
   });
+
+export const suggestRatings = (ids: string[]) => invoke<PhotoRating[]>('suggest_ratings', { ids });
+
+export const suggestColour = (id: string) => invoke<Adjustments>('suggest_colour', { id });
 
 export const listFonts = () => invoke<string[]>('list_fonts');
 

@@ -49,12 +49,14 @@ function shiftLabel(seconds: number): string {
 }
 
 export default function AutoBuild({
-  photos, used, spec, hasSpreads, onBuild, onClose,
+  photos, used, spec, hasSpreads, alwaysKeep, onBuild, onClose,
 }: {
   photos: PhotoInfo[];
   used: Set<string>;
   spec: ProjectSpec;
   hasSpreads: boolean;
+  /** Photos the photographer has marked as good, which are never left out. */
+  alwaysKeep: string[];
   onBuild: (spreads: Spread[]) => void;
   onClose: () => void;
 }) {
@@ -113,12 +115,12 @@ export default function AutoBuild({
       keep_mono_together: keepMono,
       leave_out_blurry: !useEvery && leaveBlurry,
       leave_out_similar: !useEvery && leaveSimilar,
-      keep,
+      keep: [...keep, ...alwaysKeep],
     })
       .then((next) => { if (current) setPlan(next); })
       .catch((e) => { if (current) setError(String(e)); });
     return () => { current = false; };
-  }, [analysed, chosenIds, wanted, splitByTime, syncClocks, keepMono, useEvery, leaveBlurry, leaveSimilar, keep]);
+  }, [analysed, chosenIds, wanted, splitByTime, syncClocks, keepMono, useEvery, leaveBlurry, leaveSimilar, keep, alwaysKeep]);
 
   async function build() {
     if (!plan) return;

@@ -609,6 +609,7 @@ mod tests {
             version: PROJECT_VERSION,
             name: "Test / Album?".to_string(),
             size_label: "5×10 in".to_string(),
+            ratings: Default::default(),
             spec: spec(),
             photos,
             spreads: vec![SavedSpread {

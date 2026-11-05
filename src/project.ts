@@ -1,4 +1,4 @@
-import { openAlbum, suggestLayouts, type PhotoInfo, type Project, type Spread } from './api';
+import { openAlbum, suggestLayouts, type PhotoInfo, type Project, type Rating, type Spread } from './api';
 import type { Album } from './App';
 
 export const ALBUM_EXTENSION = 'evalbum';
@@ -29,8 +29,14 @@ export function rememberAlbum(path: string, name: string) {
   }
 }
 
-export function toProject(album: Album, photos: PhotoInfo[], spreads: Spread[]): Project {
+export function toProject(
+  album: Album,
+  photos: PhotoInfo[],
+  spreads: Spread[],
+  ratings: Record<string, Rating>,
+): Project {
   return {
+    ratings,
     version: PROJECT_VERSION,
     name: album.name,
     size_label: album.sizeLabel,
@@ -76,5 +82,6 @@ export async function loadAlbum(path: string): Promise<Album> {
     photos: project.photos,
     spreads,
     missing,
+    ratings: project.ratings,
   };
 }

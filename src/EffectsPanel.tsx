@@ -36,13 +36,17 @@ export const NO_ADJUSTMENTS: Adjustments = {
  * exporter uses, so there is no separate on-screen version that could print differently.
  */
 export default function EffectsPanel({
-  title, hint, value, onChange, onGestureStart,
+  title, hint, value, showOriginal, autoBusy, onChange, onGestureStart, onAuto, onShowOriginal,
 }: {
   title: string;
   hint: string;
   value: Adjustments;
+  showOriginal: boolean;
+  autoBusy: boolean;
   onChange: (change: Partial<Adjustments>) => void;
   onGestureStart: () => void;
+  onAuto: () => void;
+  onShowOriginal: (show: boolean) => void;
 }) {
   const [open, setOpen] = useState<'tone' | 'colour' | null>(null);
   const changed = JSON.stringify(value) !== JSON.stringify(NO_ADJUSTMENTS);
@@ -62,6 +66,10 @@ export default function EffectsPanel({
       <h3>{title}</h3>
       <p className="muted">{hint}</p>
 
+      <button type="button" className="btn" disabled={autoBusy} onClick={onAuto}>
+        {autoBusy ? 'Working…' : 'Auto colour and levels'}
+      </button>
+
       <Group name="Tone" open={open === 'tone'} onToggle={() => setOpen(open === 'tone' ? null : 'tone')}>
         {TONE.map(row)}
       </Group>
@@ -79,6 +87,15 @@ export default function EffectsPanel({
           }}
         />
         Black and white
+      </label>
+
+      <label className="toggle">
+        <input
+          type="checkbox"
+          checked={showOriginal}
+          onChange={(e) => onShowOriginal(e.target.checked)}
+        />
+        Show the original, without effects
       </label>
 
       <button

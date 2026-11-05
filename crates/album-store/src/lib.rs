@@ -3,9 +3,11 @@
 //! An album file holds the design and where the photos are, never the photos. It may
 //! come from someone else, so opening one treats its contents as untrusted.
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
+use album_core::autobuild::Rating;
 use album_core::document::{ProjectSpec, SpreadDesign};
 use album_media::{is_photo, PhotoInfo};
 use serde::{Deserialize, Serialize};
@@ -45,6 +47,9 @@ pub struct Project {
     pub spec: ProjectSpec,
     pub photos: Vec<PhotoInfo>,
     pub spreads: Vec<SavedSpread>,
+    /// Ratings the photographer set by hand, which outrank the app's own suggestions.
+    #[serde(default)]
+    pub ratings: HashMap<String, Rating>,
 }
 
 fn invalid(reason: impl Into<String>) -> StoreError {
@@ -206,6 +211,7 @@ mod tests {
             version: PROJECT_VERSION,
             name: "Nimal & Sachini".into(),
             size_label: "12×30 in".into(),
+            ratings: Default::default(),
             spec: ProjectSpec::from_open_inches(30.0, 12.0),
             photos: vec![photo(photo_path)],
             spreads: vec![SavedSpread {

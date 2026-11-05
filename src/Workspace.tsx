@@ -11,12 +11,17 @@ import {
   printOptions,
   relinkPhotos,
   saveAlbum,
+  suggestColour,
   suggestLayouts,
+  suggestRatings,
+  analyzePhotos,
   type Adjustments,
   type Frame,
   type LayoutOption,
   type PhotoInfo,
+  type PhotoRating,
   type Project,
+  type Rating,
   type Spread,
   type SpreadDesign,
   type TextBlock,
@@ -52,7 +57,10 @@ const DEFAULT_FONT = 'Nirmala UI';
 const MIN_TEXT_BOX_MM = 8;
 
 type SaveStatus = 'saved' | 'unsaved' | 'saving' | 'failed';
-type PhotoFilter = 'all' | 'unused' | 'used' | 'missing';
+type PhotoFilter = 'all' | 'unused' | 'used' | 'missing' | Rating;
+
+/** Clicking a photo's dot steps through these, starting after its current rating. */
+const NEXT_RATING: Record<Rating, Rating> = { green: 'yellow', yellow: 'red', red: 'green' };
 
 function percent(part: number, whole: number): string {
   return `${(part / whole) * 100}%`;
@@ -116,6 +124,11 @@ export default function Workspace({ album }: { album: Album }) {
   const [importing, setImporting] = useState(false);
   const [exportProject, setExportProject] = useState<Project | null>(null);
   const [showBuild, setShowBuild] = useState(false);
+  const [ratings, setRatings] = useState<Record<string, Rating>>(album.ratings);
+  const [suggested, setSuggested] = useState<Map<string, PhotoRating>>(new Map());
+  const [reading, setReading] = useState(false);
+  const [showOriginal, setShowOriginal] = useState(false);
+  const [autoBusy, setAutoBusy] = useState(false);
   const [thresholds, setThresholds] = useState<Thresholds>({ warn: 0, tooLow: 0 });
   const [paperColours, setPaperColours] = useState<string[]>([]);
 
@@ -151,13 +164,35 @@ export default function Workspace({ album }: { album: Album }) {
     if (!spreads.some((s) => s.id === currentId)) setCurrentId(spreads[0]?.id ?? null);
   }, [spreads, currentId]);
 
-  const latest = useRef({ photos, spreads, path, dirty: false });
+  const latest = useRef({ photos, spreads, ratings, path, dirty: false });
   latest.current.path = path;
   useEffect(() => {
-    if (latest.current.photos === photos && latest.current.spreads === spreads) return;
-    latest.current = { ...latest.current, photos, spreads, dirty: true };
+    const was = latest.current;
+    if (was.photos === photos && was.spreads === spreads && was.ratings === ratings) return;
+    latest.current = { ...was, photos, spreads, ratings, dirty: true };
     setSaveStatus('unsaved');
-  }, [photos, spreads]);
+  }, [photos, spreads, ratings]);
+
+  // Reads the photos in the background, so ratings appear without being asked for.
+  useEffect(() => {
+    if (!photos.length) return;
+    let current = true;
+    const ids = photos.map((p) => p.id);
+    setReading(true);
+    analyzePhotos(ids)
+      .then(() => suggestRatings(ids))
+      .then((rated) => {
+        if (current) setSuggested(new Map(rated.map((r) => [r.id, r])));
+      })
+      .catch((e) => { if (current) setNotice(`Could not read the photos: ${String(e)}`); })
+      .finally(() => { if (current) setReading(false); });
+    return () => { current = false; };
+  }, [photos]);
+
+  const ratingOf = useCallback(
+    (id: string): Rating | undefined => ratings[id] ?? suggested.get(id)?.rating,
+    [ratings, suggested],
+  );
 
   // One save at a time, because they share a temporary file.
   const saving = useRef<Promise<unknown>>(Promise.resolve());
@@ -168,7 +203,7 @@ export default function Workspace({ album }: { album: Album }) {
       const snapshot = latest.current;
       setSaveStatus('saving');
       try {
-        await saveAlbum(target, toProject(album, snapshot.photos, snapshot.spreads));
+        await saveAlbum(target, toProject(album, snapshot.photos, snapshot.spreads, snapshot.ratings));
         if (latest.current === snapshot) {
           latest.current.dirty = false;
           setSaveStatus('saved');
@@ -243,10 +278,43 @@ export default function Workspace({ album }: { album: Album }) {
       if (filter === 'used' && !usedIds.has(p.id)) return false;
       if (filter === 'unused' && usedIds.has(p.id)) return false;
       if (filter === 'missing' && !missing.has(p.id)) return false;
+      if ((filter === 'red' || filter === 'yellow' || filter === 'green') && ratingOf(p.id) !== filter) return false;
       return p.file_name.toLowerCase().includes(term);
     });
     return sortReverse ? [...list].reverse() : list;
-  }, [photos, filter, usedIds, missing, search, sortReverse]);
+  }, [photos, filter, usedIds, missing, search, sortReverse, ratingOf]);
+
+  /** Sets a suggested fix on the selected photo, or on each photo of the spread. */
+  async function autoColour() {
+    if (!current) return;
+    const targets = current.design.frames.filter((f) => f.asset_id && (frameId === null || f.id === frameId));
+    setAutoBusy(true);
+    try {
+      const found = await Promise.all(
+        targets.map(async (f) => [f.id, await suggestColour(f.asset_id!)] as const),
+      );
+      const byFrame = new Map(found);
+      history.seal();
+      changeFrames((frames) => frames.map((f) => {
+        const fix = byFrame.get(f.id);
+        if (!fix) return f;
+        return {
+          ...f,
+          adjust: {
+            ...f.adjust,
+            exposure: fix.exposure,
+            contrast: fix.contrast,
+            temperature: fix.temperature,
+            tint: fix.tint,
+          },
+        };
+      }));
+    } catch (e) {
+      setNotice(`Could not work out the colour: ${String(e)}`);
+    } finally {
+      setAutoBusy(false);
+    }
+  }
 
   async function findMissing() {
     const folder = await open({ directory: true, title: 'Choose the folder with the moved photos' });
@@ -573,7 +641,7 @@ export default function Workspace({ album }: { album: Album }) {
           type="button"
           className="btn-primary"
           disabled={!spreads.length}
-          onClick={() => setExportProject(toProject(album, photos, spreads))}
+          onClick={() => setExportProject(toProject(album, photos, spreads, ratings))}
         >
           Export
         </button>
@@ -600,10 +668,12 @@ export default function Workspace({ album }: { album: Album }) {
 
       {showBuild && (
         <AutoBuild
-          photos={photos}
+          // A photo marked red by hand has been rejected, so it is not offered at all.
+          photos={photos.filter((p) => ratings[p.id] !== 'red')}
           used={usedIds}
           spec={spec}
           hasSpreads={spreads.length > 0}
+          alwaysKeep={photos.filter((p) => ratings[p.id] === 'green').map((p) => p.id)}
           onClose={() => setShowBuild(false)}
           onBuild={(built) => {
             setSpreads(() => built);
@@ -673,6 +743,7 @@ export default function Workspace({ album }: { album: Album }) {
                 onFit={changeFit}
                 onSwap={swapFrames}
                 onGestureStart={history.seal}
+                showOriginal={showOriginal}
                 textId={textId}
                 onSelectText={setTextId}
                 onChangeText={changeText}
@@ -761,6 +832,10 @@ export default function Workspace({ album }: { album: Album }) {
                 value={effectsValue}
                 onChange={changeEffects}
                 onGestureStart={history.seal}
+                showOriginal={showOriginal}
+                autoBusy={autoBusy}
+                onAuto={() => void autoColour()}
+                onShowOriginal={setShowOriginal}
               />
             )}
 
@@ -869,7 +944,11 @@ export default function Workspace({ album }: { album: Album }) {
               <option value="unused">Unused</option>
               <option value="used">Used</option>
               <option value="missing">Missing</option>
+              <option value="green">Green: good</option>
+              <option value="yellow">Yellow: worth a look</option>
+              <option value="red">Red: probably reject</option>
             </select>
+            {reading && <span className="muted rating-note">Reading photos…</span>}
             <select className="input" aria-label="Sort photos" value={sortReverse ? 'za' : 'az'} onChange={(e) => setSortReverse(e.target.value === 'za')}>
               <option value="az">Name, A to Z</option>
               <option value="za">Name, Z to A</option>
@@ -909,6 +988,20 @@ export default function Workspace({ album }: { album: Album }) {
               >
                 <span className="photo-box">
                   <img src={previewUrl(photo.id, GRID_PREVIEW)} alt={photo.file_name} loading="lazy" decoding="async" draggable={false} />
+                  {ratingOf(photo.id) && (
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`Rating for ${photo.file_name}: ${ratingOf(photo.id)}. Click to change.`}
+                      className={`rating ${ratingOf(photo.id)} ${ratings[photo.id] ? 'set' : ''}`}
+                      title={[...(suggested.get(photo.id)?.reasons ?? []), 'Click to change'].join('. ')}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const now = ratingOf(photo.id)!;
+                        setRatings((all) => ({ ...all, [photo.id]: NEXT_RATING[now] }));
+                      }}
+                    />
+                  )}
                   {missing.has(photo.id)
                     ? <span className="badge gone">Missing</span>
                     : usedIds.has(photo.id) && <span className="badge">Used</span>}
@@ -964,9 +1057,16 @@ function useSettledImage(url: string): string {
   return shown;
 }
 
-function FramedPhoto({ photo, frame, width }: { photo: PhotoInfo; frame: Frame; width: number }) {
+function FramedPhoto({
+  photo, frame, width, original,
+}: {
+  photo: PhotoInfo;
+  frame: Frame;
+  width: number;
+  original?: boolean;
+}) {
   const area = visibleArea(photo.width / photo.height, frame.rect_mm.w / frame.rect_mm.h, frame.fit);
-  const src = useSettledImage(previewUrl(photo.id, width, frame.adjust));
+  const src = useSettledImage(previewUrl(photo.id, width, original ? undefined : frame.adjust));
   return (
     <img
       src={src}
@@ -1192,7 +1292,7 @@ function LayoutThumb({
 
 function SpreadCanvas({
   design, spec, photos, guides, thresholds, selectedId, onSelect, onFit, onSwap, onGestureStart,
-  textId, onSelectText, onChangeText, onOverflow,
+  showOriginal, textId, onSelectText, onChangeText, onOverflow,
 }: {
   design: SpreadDesign;
   spec: Album['spec'];
@@ -1204,6 +1304,7 @@ function SpreadCanvas({
   onFit: (id: string, fit: Partial<Frame['fit']>) => void;
   onSwap: (sourceId: string, targetId: string) => void;
   onGestureStart: () => void;
+  showOriginal: boolean;
   textId: string | null;
   onSelectText: (id: string) => void;
   onChangeText: (id: string, change: Partial<TextBlock>) => void;
@@ -1276,7 +1377,7 @@ function SpreadCanvas({
             onPointerUp={() => { pan.current = null; }}
             onPointerCancel={() => { pan.current = null; }}
           >
-            {photo && <FramedPhoto photo={photo} frame={frame} width={EDIT_PREVIEW} />}
+            {photo && <FramedPhoto photo={photo} frame={frame} width={EDIT_PREVIEW} original={showOriginal} />}
             {guides && soft && dpi !== null && (
               <span className={`dpi ${dpi < thresholds.tooLow ? 'too-low' : 'low'}`}>{Math.round(dpi)} DPI</span>
             )}

@@ -920,6 +920,7 @@ dependencies = [
  "album-media",
  "album-store",
  "album-text",
+ "image",
  "rayon",
  "serde",
  "tauri",

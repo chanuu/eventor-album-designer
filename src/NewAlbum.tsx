@@ -74,6 +74,7 @@ export default function NewAlbum({ onCreate }: { onCreate: (album: Album) => voi
         photos: [],
         spreads: [],
         missing: [],
+        ratings: {},
       });
     } catch (e) {
       setError(String(e));

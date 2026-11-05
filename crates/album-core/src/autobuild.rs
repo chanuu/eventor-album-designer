@@ -27,6 +27,11 @@ const SIMILAR_WITHIN_SECONDS: i64 = 60;
 /// Below this, a run of black and white photos is not worth a spread of its own.
 const MIN_MONO_RUN: usize = 2;
 
+/// Above these, part of the picture has probably lost its detail. Weddings have white
+/// dresses and dark rooms, so these only ever ask for a look, never reject.
+const BLOWN_WARNING_SHARE: f64 = 0.08;
+const CRUSHED_WARNING_SHARE: f64 = 0.45;
+
 const SECONDS_PER_MINUTE: i64 = 60;
 const MIN_PHOTOS_FOR_CLOCK_CHECK: usize = 5;
 const MAX_CLOCK_SHIFT_MINUTES: i64 = 24 * 60;
@@ -49,6 +54,30 @@ pub struct PhotoFacts {
     pub hash: Option<u64>,
     #[serde(default)]
     pub mono: bool,
+    /// Share of the picture that is pure white, with no detail left.
+    #[serde(default)]
+    pub blown: f64,
+    /// Share of the picture that is pure black.
+    #[serde(default)]
+    pub crushed: f64,
+}
+
+/// A suggestion only. The photographer can change any rating, and nothing is ever deleted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Rating {
+    /// Probably not worth using.
+    Red,
+    /// Worth a look.
+    Yellow,
+    Green,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct PhotoRating {
+    pub id: String,
+    pub rating: Rating,
+    pub reasons: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -420,6 +449,60 @@ fn cut_run(run: &Run, count: usize, kept: &[Placed]) -> Vec<Vec<usize>> {
     result
 }
 
+/// Suggests a rating for each photo, using the same judgements as Auto Build.
+pub fn rate_photos(facts: &[PhotoFacts]) -> Vec<PhotoRating> {
+    let plan = plan_album(
+        facts,
+        &PlanOptions {
+            spreads: None,
+            split_by_time: false,
+            sync_clocks: true,
+            keep_mono_together: false,
+            leave_out_blurry: true,
+            leave_out_similar: true,
+            keep: Vec::new(),
+        },
+    );
+    let left_out: HashMap<&str, &LeftOutReason> = plan
+        .left_out
+        .iter()
+        .map(|item| (item.id.as_str(), &item.reason))
+        .collect();
+
+    facts
+        .iter()
+        .map(|fact| {
+            let mut rating = Rating::Green;
+            let mut reasons = Vec::new();
+            match left_out.get(fact.id.as_str()) {
+                Some(LeftOutReason::Blurry) => {
+                    rating = Rating::Red;
+                    reasons.push("Looks blurry".to_string());
+                }
+                Some(LeftOutReason::Similar { .. }) => {
+                    rating = Rating::Yellow;
+                    reasons.push("A sharper, similar shot exists".to_string());
+                }
+                None => {}
+            }
+            if fact.blown > BLOWN_WARNING_SHARE {
+                reasons.push("Highlights may have lost detail".to_string());
+            }
+            if fact.crushed > CRUSHED_WARNING_SHARE {
+                reasons.push("Shadows may have lost detail".to_string());
+            }
+            if rating == Rating::Green && !reasons.is_empty() {
+                rating = Rating::Yellow;
+            }
+            PhotoRating {
+                id: fact.id.clone(),
+                rating,
+                reasons,
+            }
+        })
+        .collect()
+}
+
 pub fn plan_album(facts: &[PhotoFacts], options: &PlanOptions) -> AlbumPlan {
     let clock_fixes = if options.sync_clocks {
         find_clock_fixes(facts)
@@ -503,7 +586,41 @@ mod tests {
             sharpness: Some(100.0),
             hash: None,
             mono: false,
+            blown: 0.0,
+            crushed: 0.0,
         }
+    }
+
+    #[test]
+    fn ratings_suggest_and_explain() {
+        let mut facts = session("a", 0, 8);
+        facts[1].sharpness = Some(5.0);
+        facts[3].hash = facts[2].hash;
+        facts[3].sharpness = Some(50.0);
+        facts[5].blown = 0.2;
+        facts[6].crushed = 0.6;
+        let rated = rate_photos(&facts);
+        let of = |i: usize| &rated[i];
+
+        assert_eq!(of(0).rating, Rating::Green);
+        assert!(of(0).reasons.is_empty());
+        assert_eq!(of(1).rating, Rating::Red);
+        assert_eq!(of(2).rating, Rating::Green, "the sharper of the pair");
+        assert_eq!(of(3).rating, Rating::Yellow);
+        assert_eq!(of(5).rating, Rating::Yellow);
+        assert!(of(5).reasons[0].contains("Highlights"));
+        assert_eq!(of(6).rating, Rating::Yellow);
+        assert!(of(6).reasons[0].contains("Shadows"));
+    }
+
+    #[test]
+    fn a_rejected_photo_still_mentions_its_exposure() {
+        let mut facts = session("a", 0, 8);
+        facts[1].sharpness = Some(5.0);
+        facts[1].blown = 0.5;
+        let rated = rate_photos(&facts);
+        assert_eq!(rated[1].rating, Rating::Red);
+        assert_eq!(rated[1].reasons.len(), 2);
     }
 
     fn options() -> PlanOptions {
