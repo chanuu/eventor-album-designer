@@ -10,6 +10,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 album-core = { path = "../crates/album-core" }
+album-export = { path = "../crates/album-export" }
 album-media = { path = "../crates/album-media" }
 album-store = { path = "../crates/album-store" }
 rayon = "1"

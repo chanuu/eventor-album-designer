@@ -126,6 +126,23 @@ export const openAlbum = (path: string) =>
 export const relinkPhotos = (folder: string, ids: string[]) =>
   invoke<PhotoInfo[]>('relink_photos', { folder, ids });
 
+export type ExportIssue = {
+  severity: 'blocker' | 'warning';
+  spread: number | null;
+  message: string;
+};
+
+export type ExportResult = { folder: string; files: string[] };
+
+export const checkForExport = (project: Project) =>
+  invoke<ExportIssue[]>('check_for_export', { project });
+
+export const exportPrintFiles = (
+  project: Project,
+  folder: string,
+  formats: { jpeg: boolean; pdf: boolean },
+) => invoke<ExportResult>('export_print_files', { project, folder, formats });
+
 /** Grid size and frame size. They match the two preview sizes Rust keeps. */
 export const GRID_PREVIEW = 512;
 export const EDIT_PREVIEW = 2048;

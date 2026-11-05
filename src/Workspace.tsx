@@ -12,11 +12,13 @@ import {
   suggestLayouts,
   type Frame,
   type PhotoInfo,
+  type Project,
   type Spread,
   type SpreadDesign,
 } from './api';
 import type { Album } from './App';
 import { effectiveDpi, visibleArea } from './crop';
+import ExportDialog from './ExportDialog';
 import { useHistory } from './history';
 import { ALBUM_EXTENSION, ALBUM_FILTERS, toProject } from './project';
 
@@ -52,6 +54,7 @@ export default function Workspace({ album }: { album: Album }) {
   const [guides, setGuides] = useState(true);
   const [notice, setNotice] = useState('');
   const [importing, setImporting] = useState(false);
+  const [exportProject, setExportProject] = useState<Project | null>(null);
   const [thresholds, setThresholds] = useState<Thresholds>({ warn: 0, tooLow: 0 });
 
   useEffect(() => {
@@ -415,6 +418,14 @@ export default function Workspace({ album }: { album: Album }) {
         <button type="button" className="btn-primary" disabled={importing} onClick={() => void chooseFolder()}>
           {importing ? 'Reading photos…' : 'Import photos'}
         </button>
+        <button
+          type="button"
+          className="btn"
+          disabled={!spreads.length}
+          onClick={() => setExportProject(toProject(album, photos, spreads))}
+        >
+          Export
+        </button>
       </header>
 
       {missing.size > 0 && (
@@ -430,6 +441,10 @@ export default function Workspace({ album }: { album: Album }) {
           {notice}
           <button type="button" aria-label="Dismiss" onClick={() => setNotice('')}>×</button>
         </p>
+      )}
+
+      {exportProject && (
+        <ExportDialog project={exportProject} onClose={() => setExportProject(null)} />
       )}
 
       <div className="stage">

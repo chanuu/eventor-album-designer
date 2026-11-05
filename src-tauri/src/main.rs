@@ -11,11 +11,12 @@ use album_core::document::{
     GAP_PRESETS_IN, MARGIN_PRESETS_IN, PAPER_COLOURS, SIZE_PRESETS_IN,
 };
 use album_core::pack::{load_pack_dir, TemplateRegistry};
+use album_export::{check_album, export_album, ExportFormats, ExportResult, Issue};
 use album_media::{ensure_preview, scan_folder, PhotoInfo, PreviewTier, ScanResult};
 use album_store::{load_project, save_project, Project, StoreError};
 use serde::{Deserialize, Serialize};
 use tauri::http::{header, Response, StatusCode};
-use tauri::{Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 const MM_PER_INCH: f64 = 25.4;
 
@@ -213,6 +214,40 @@ async fn relink_photos(
     Ok(found)
 }
 
+#[tauri::command]
+async fn check_for_export(project: Project) -> Result<Vec<Issue>, String> {
+    project.validate().map_err(|e| e.to_string())?;
+    tauri::async_runtime::spawn_blocking(move || check_album(&project))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn export_print_files(
+    app: AppHandle,
+    project: Project,
+    folder: String,
+    formats: ExportFormats,
+) -> Result<ExportResult, String> {
+    project.validate().map_err(|e| e.to_string())?;
+    let version = app.package_info().version.to_string();
+    tauri::async_runtime::spawn_blocking(move || {
+        export_album(
+            &project,
+            &PathBuf::from(folder),
+            formats,
+            &version,
+            |done, total| {
+                // Progress is only a courtesy, so a failed update must not stop the export.
+                let _ = app.emit("export-progress", (done, total));
+            },
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
 /// Layout packs a studio has added, alongside the built-in one.
 fn load_registry(packs_dir: &PathBuf) -> TemplateRegistry {
     let mut registry = TemplateRegistry::with_builtin();
@@ -324,7 +359,9 @@ fn main() {
             suggest_layouts,
             save_album,
             open_album,
-            relink_photos
+            relink_photos,
+            check_for_export,
+            export_print_files
         ])
         .run(tauri::generate_context!())
         .expect("the app window could not start");

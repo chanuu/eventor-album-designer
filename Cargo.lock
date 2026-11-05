@@ -867,6 +867,7 @@ name = "eventor-album-designer"
 version = "0.1.0"
 dependencies = [
  "album-core",
+ "album-export",
  "album-media",
  "album-store",
  "rayon",
