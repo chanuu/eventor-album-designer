@@ -1,0 +1,17 @@
+{
+  "id": "eventor-essentials/8-grid-and-grid",
+  "name": "Four grid + four grid",
+  "frame_count": 8,
+  "spread_aspect": "any",
+  "tags": ["grid"],
+  "frames": [
+    {"rect_pct":{"x":0,"y":0,"w":0.25,"h":0.5}},
+    {"rect_pct":{"x":0.25,"y":0,"w":0.25,"h":0.5}},
+    {"rect_pct":{"x":0,"y":0.5,"w":0.25,"h":0.5}},
+    {"rect_pct":{"x":0.25,"y":0.5,"w":0.25,"h":0.5}},
+    {"rect_pct":{"x":0.5,"y":0,"w":0.25,"h":0.5}},
+    {"rect_pct":{"x":0.75,"y":0,"w":0.25,"h":0.5}},
+    {"rect_pct":{"x":0.5,"y":0.5,"w":0.25,"h":0.5}},
+    {"rect_pct":{"x":0.75,"y":0.5,"w":0.25,"h":0.5}}
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "id": "eventor-essentials/3-full-and-side",
+  "name": "Full page + side by side",
+  "frame_count": 3,
+  "spread_aspect": "any",
+  "tags": ["hero"],
+  "frames": [
+    {"rect_pct":{"x":0,"y":0,"w":0.5,"h":1},"bleed":true},
+    {"rect_pct":{"x":0.5,"y":0,"w":0.25,"h":1}},
+    {"rect_pct":{"x":0.75,"y":0,"w":0.25,"h":1}}
+  ]
+}

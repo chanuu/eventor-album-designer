@@ -1,0 +1,14 @@
+{
+  "id": "eventor-essentials/5-lead-base-and-big-top",
+  "name": "Lead base + big top",
+  "frame_count": 5,
+  "spread_aspect": "any",
+  "tags": ["clean"],
+  "frames": [
+    {"rect_pct":{"x":0,"y":0,"w":0.25,"h":0.4}},
+    {"rect_pct":{"x":0.25,"y":0,"w":0.25,"h":0.4}},
+    {"rect_pct":{"x":0,"y":0.4,"w":0.5,"h":0.6}},
+    {"rect_pct":{"x":0.5,"y":0,"w":0.5,"h":0.64}},
+    {"rect_pct":{"x":0.5,"y":0.64,"w":0.5,"h":0.36}}
+  ]
+}

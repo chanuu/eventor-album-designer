@@ -1,0 +1,13 @@
+{
+  "id": "eventor-essentials/4-panorama-over",
+  "name": "Panorama over 3",
+  "frame_count": 4,
+  "spread_aspect": "any",
+  "tags": ["panorama"],
+  "frames": [
+    {"rect_pct":{"x":0,"y":0,"w":1,"h":0.62},"bleed":true},
+    {"rect_pct":{"x":0,"y":0.62,"w":0.25,"h":0.38}},
+    {"rect_pct":{"x":0.25,"y":0.62,"w":0.25,"h":0.38}},
+    {"rect_pct":{"x":0.5,"y":0.62,"w":0.5,"h":0.38}}
+  ]
+}

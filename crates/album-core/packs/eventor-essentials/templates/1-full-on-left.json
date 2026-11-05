@@ -1,0 +1,10 @@
+{
+  "id": "eventor-essentials/1-full-on-left",
+  "name": "Full page on the left",
+  "frame_count": 1,
+  "spread_aspect": "any",
+  "tags": ["hero"],
+  "frames": [
+    {"rect_pct":{"x":0,"y":0,"w":0.5,"h":1},"bleed":true}
+  ]
+}

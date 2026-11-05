@@ -35,7 +35,7 @@ fn builtin_pack_has_choices_for_every_count_and_valid_geometry() {
     assert!(pack.templates.len() >= 15);
 
     let registry = TemplateRegistry::with_builtin();
-    for count in 1..=6 {
+    for count in 1..=8 {
         assert!(
             registry.with_frame_count(count).count() >= 3,
             "too few for {count}"

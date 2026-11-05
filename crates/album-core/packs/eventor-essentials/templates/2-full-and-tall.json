@@ -1,0 +1,11 @@
+{
+  "id": "eventor-essentials/2-full-and-tall",
+  "name": "Full page + tall",
+  "frame_count": 2,
+  "spread_aspect": "any",
+  "tags": ["hero"],
+  "frames": [
+    {"rect_pct":{"x":0,"y":0,"w":0.5,"h":1},"bleed":true},
+    {"rect_pct":{"x":0.6,"y":0.08,"w":0.3,"h":0.84}}
+  ]
+}

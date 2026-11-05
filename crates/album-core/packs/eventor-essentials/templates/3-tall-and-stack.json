@@ -1,0 +1,12 @@
+{
+  "id": "eventor-essentials/3-tall-and-stack",
+  "name": "Tall + stacked",
+  "frame_count": 3,
+  "spread_aspect": "any",
+  "tags": ["airy"],
+  "frames": [
+    {"rect_pct":{"x":0.1,"y":0.08,"w":0.3,"h":0.84}},
+    {"rect_pct":{"x":0.5,"y":0,"w":0.5,"h":0.5}},
+    {"rect_pct":{"x":0.5,"y":0.5,"w":0.5,"h":0.5}}
+  ]
+}

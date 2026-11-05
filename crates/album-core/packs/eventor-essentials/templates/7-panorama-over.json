@@ -1,0 +1,16 @@
+{
+  "id": "eventor-essentials/7-panorama-over",
+  "name": "Panorama over 6",
+  "frame_count": 7,
+  "spread_aspect": "any",
+  "tags": ["panorama"],
+  "frames": [
+    {"rect_pct":{"x":0,"y":0,"w":1,"h":0.62},"bleed":true},
+    {"rect_pct":{"x":0,"y":0.62,"w":0.1667,"h":0.38}},
+    {"rect_pct":{"x":0.1667,"y":0.62,"w":0.1666,"h":0.38}},
+    {"rect_pct":{"x":0.3333,"y":0.62,"w":0.1667,"h":0.38}},
+    {"rect_pct":{"x":0.5,"y":0.62,"w":0.1667,"h":0.38}},
+    {"rect_pct":{"x":0.6667,"y":0.62,"w":0.1666,"h":0.38}},
+    {"rect_pct":{"x":0.8333,"y":0.62,"w":0.1667,"h":0.38}}
+  ]
+}

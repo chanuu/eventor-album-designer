@@ -1,0 +1,11 @@
+{
+  "id": "eventor-essentials/2-framed-and-tall",
+  "name": "Framed + tall",
+  "frame_count": 2,
+  "spread_aspect": "any",
+  "tags": ["airy"],
+  "frames": [
+    {"rect_pct":{"x":0.07,"y":0.14,"w":0.36,"h":0.72}},
+    {"rect_pct":{"x":0.6,"y":0.08,"w":0.3,"h":0.84}}
+  ]
+}

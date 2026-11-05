@@ -1,0 +1,16 @@
+{
+  "id": "eventor-essentials/7-lead-left-and-pinwheel",
+  "name": "Lead left + pinwheel",
+  "frame_count": 7,
+  "spread_aspect": "any",
+  "tags": ["clean"],
+  "frames": [
+    {"rect_pct":{"x":0,"y":0,"w":0.31,"h":1}},
+    {"rect_pct":{"x":0.31,"y":0,"w":0.19,"h":0.5}},
+    {"rect_pct":{"x":0.31,"y":0.5,"w":0.19,"h":0.5}},
+    {"rect_pct":{"x":0.5,"y":0,"w":0.32,"h":0.38}},
+    {"rect_pct":{"x":0.82,"y":0,"w":0.18,"h":0.62}},
+    {"rect_pct":{"x":0.68,"y":0.62,"w":0.32,"h":0.38}},
+    {"rect_pct":{"x":0.5,"y":0.38,"w":0.18,"h":0.62}}
+  ]
+}

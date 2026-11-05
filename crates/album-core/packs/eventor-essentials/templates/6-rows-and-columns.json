@@ -1,0 +1,15 @@
+{
+  "id": "eventor-essentials/6-rows-and-columns",
+  "name": "Three rows + three columns",
+  "frame_count": 6,
+  "spread_aspect": "any",
+  "tags": ["grid"],
+  "frames": [
+    {"rect_pct":{"x":0,"y":0,"w":0.5,"h":0.3333}},
+    {"rect_pct":{"x":0,"y":0.3333,"w":0.5,"h":0.3334}},
+    {"rect_pct":{"x":0,"y":0.6667,"w":0.5,"h":0.3333}},
+    {"rect_pct":{"x":0.5,"y":0,"w":0.1667,"h":1}},
+    {"rect_pct":{"x":0.6667,"y":0,"w":0.1666,"h":1}},
+    {"rect_pct":{"x":0.8333,"y":0,"w":0.1667,"h":1}}
+  ]
+}

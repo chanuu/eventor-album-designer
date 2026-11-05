@@ -1,0 +1,17 @@
+{
+  "id": "eventor-essentials/8-lead-column-and-grid",
+  "name": "Lead and column + four grid",
+  "frame_count": 8,
+  "spread_aspect": "any",
+  "tags": ["clean"],
+  "frames": [
+    {"rect_pct":{"x":0,"y":0,"w":0.33,"h":1}},
+    {"rect_pct":{"x":0.33,"y":0,"w":0.17,"h":0.3333}},
+    {"rect_pct":{"x":0.33,"y":0.3333,"w":0.17,"h":0.3334}},
+    {"rect_pct":{"x":0.33,"y":0.6667,"w":0.17,"h":0.3333}},
+    {"rect_pct":{"x":0.5,"y":0,"w":0.25,"h":0.5}},
+    {"rect_pct":{"x":0.75,"y":0,"w":0.25,"h":0.5}},
+    {"rect_pct":{"x":0.5,"y":0.5,"w":0.25,"h":0.5}},
+    {"rect_pct":{"x":0.75,"y":0.5,"w":0.25,"h":0.5}}
+  ]
+}

@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 
 /// Layouts exist for up to this many photos on a spread.
-pub const MAX_PER_SPREAD: usize = 6;
+pub const MAX_PER_SPREAD: usize = 8;
 const USUAL_PER_SPREAD: f64 = 4.0;
 
 /// A pause this long usually means the day has moved on to something new.

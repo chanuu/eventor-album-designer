@@ -1,0 +1,10 @@
+{
+  "id": "eventor-essentials/1-wide-on-left",
+  "name": "Wide on the left",
+  "frame_count": 1,
+  "spread_aspect": "any",
+  "tags": ["airy"],
+  "frames": [
+    {"rect_pct":{"x":0.04,"y":0.24,"w":0.42,"h":0.52}}
+  ]
+}

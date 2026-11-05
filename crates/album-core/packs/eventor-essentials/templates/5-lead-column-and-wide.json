@@ -1,0 +1,14 @@
+{
+  "id": "eventor-essentials/5-lead-column-and-wide",
+  "name": "Lead and column + wide",
+  "frame_count": 5,
+  "spread_aspect": "any",
+  "tags": ["airy"],
+  "frames": [
+    {"rect_pct":{"x":0,"y":0,"w":0.33,"h":1}},
+    {"rect_pct":{"x":0.33,"y":0,"w":0.17,"h":0.3333}},
+    {"rect_pct":{"x":0.33,"y":0.3333,"w":0.17,"h":0.3334}},
+    {"rect_pct":{"x":0.33,"y":0.6667,"w":0.17,"h":0.3333}},
+    {"rect_pct":{"x":0.54,"y":0.24,"w":0.42,"h":0.52}}
+  ]
+}

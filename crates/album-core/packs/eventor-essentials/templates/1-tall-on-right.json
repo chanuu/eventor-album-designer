@@ -1,0 +1,10 @@
+{
+  "id": "eventor-essentials/1-tall-on-right",
+  "name": "Tall on the right",
+  "frame_count": 1,
+  "spread_aspect": "any",
+  "tags": ["airy"],
+  "frames": [
+    {"rect_pct":{"x":0.6,"y":0.08,"w":0.3,"h":0.84}}
+  ]
+}

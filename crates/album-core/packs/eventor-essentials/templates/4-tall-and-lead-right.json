@@ -1,0 +1,13 @@
+{
+  "id": "eventor-essentials/4-tall-and-lead-right",
+  "name": "Tall + lead right",
+  "frame_count": 4,
+  "spread_aspect": "any",
+  "tags": ["airy"],
+  "frames": [
+    {"rect_pct":{"x":0.1,"y":0.08,"w":0.3,"h":0.84}},
+    {"rect_pct":{"x":0.5,"y":0,"w":0.19,"h":0.5}},
+    {"rect_pct":{"x":0.5,"y":0.5,"w":0.19,"h":0.5}},
+    {"rect_pct":{"x":0.69,"y":0,"w":0.31,"h":1}}
+  ]
+}
