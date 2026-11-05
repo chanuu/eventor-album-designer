@@ -1,8 +1,12 @@
 [workspace]
-members = ["crates/album-core"]
+members = ["crates/album-core", "crates/album-media"]
 resolver = "2"
 
 [workspace.package]
 edition = "2021"
 version = "0.1.0"
 publish = false
+
+# Decoding photos in an unoptimised build is painfully slow, even during development.
+[profile.dev.package."*"]
+opt-level = 2
