@@ -74,7 +74,27 @@ fn photo_shape_changes_which_layout_wins() {
     let wide = rank_layouts(&registry, &photos(&[LANDSCAPE; 3]), &spec());
     let tall = rank_layouts(&registry, &photos(&[PORTRAIT; 3]), &spec());
     assert_ne!(wide[0].template_id, tall[0].template_id);
-    assert!(wide.windows(2).all(|w| w[0].crop_loss <= w[1].crop_loss));
+    assert!(wide.windows(2).all(|w| w[0].score <= w[1].score));
+}
+
+#[test]
+fn the_first_choice_uses_the_page_rather_than_leaving_it_empty() {
+    let registry = TemplateRegistry::with_builtin();
+    for count in 2..=8 {
+        let selection = photos(&vec![LANDSCAPE; count]);
+        let best = &rank_layouts(&registry, &selection, &spec())[0];
+        let template = registry.get(&best.template_id).unwrap();
+        let covered: f64 = template
+            .frames
+            .iter()
+            .map(|f| f.rect_pct.w * f.rect_pct.h)
+            .sum();
+        assert!(
+            covered > 0.75,
+            "{count} photos picked {} at {covered:.2}",
+            best.template_id
+        );
+    }
 }
 
 #[test]

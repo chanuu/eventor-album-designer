@@ -22,6 +22,10 @@ const ORDER_BONUS: i64 = 1;
 
 const UNKNOWN_ASPECT: f64 = 1.5;
 
+/// How much unused paper counts against a layout. Without this, small frames always win,
+/// because a small frame can take any photo's shape, and the photos end up tiny.
+const EMPTY_PAPER_WEIGHT: f64 = 0.35;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Photo {
     pub asset_id: String,
@@ -36,6 +40,8 @@ pub struct RankedLayout {
     pub assignment: Vec<usize>,
     /// Average share of each photo lost to cropping, from 0 to 1.
     pub crop_loss: f64,
+    /// What the ranking sorts on. Lower is better.
+    pub score: f64,
 }
 
 /// The share of a photo that cover-fit throws away in a frame of this shape.
@@ -105,18 +111,25 @@ pub fn rank_layouts(
         .filter(|t| t.spread_aspect.contains(spread_aspect))
         .map(|template| {
             let (assignment, total) = assign(photos, template, spread_aspect);
+            let crop_loss = total / photos.len() as f64;
+            let covered: f64 = template
+                .frames
+                .iter()
+                .map(|f| f.rect_pct.w * f.rect_pct.h)
+                .sum();
             RankedLayout {
                 template_id: template.id.clone(),
                 assignment,
-                crop_loss: total / photos.len() as f64,
+                crop_loss,
+                score: crop_loss + EMPTY_PAPER_WEIGHT * (1.0 - covered.min(1.0)),
             }
         })
         .collect();
 
     // The id tie-break keeps the order stable, so cycling never appears to reshuffle.
     ranked.sort_by(|a, b| {
-        a.crop_loss
-            .total_cmp(&b.crop_loss)
+        a.score
+            .total_cmp(&b.score)
             .then_with(|| a.template_id.cmp(&b.template_id))
     });
     ranked
@@ -194,6 +207,7 @@ pub fn apply_layout(
     SpreadDesign {
         v: DOCUMENT_VERSION,
         template_id: Some(template.id.clone()),
+        texts: Vec::new(),
         size_mm: spec.canvas_mm(),
         background: Background::Color {
             value: spec.paper.clone(),
