@@ -3,9 +3,12 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use album_core::adjust::Adjustments;
+use album_core::autobuild::{plan_album, AlbumPlan, PhotoFacts, PlanOptions};
 use album_core::autolayout::{apply_layout, rank_layouts, Photo};
 use album_core::document::{
     Binding, ProjectSpec, SpreadDesign, BLEED_OPTIONS_MM, DPI_OPTIONS, DPI_TOO_LOW, DPI_WARN,
@@ -13,10 +16,12 @@ use album_core::document::{
 };
 use album_core::pack::{load_pack_dir, TemplateRegistry};
 use album_export::{check_album, export_album, ExportFormats, ExportResult, Issue};
+use album_media::analyze::analyze_photo;
 use album_media::{
     adjusted_preview, ensure_preview, scan_folder, PhotoInfo, PreviewTier, ScanResult,
 };
 use album_store::{load_project, save_project, Project, StoreError};
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use tauri::http::{header, Response, StatusCode};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -26,10 +31,14 @@ const MM_PER_INCH: f64 = 25.4;
 /// Decoding a large photo is heavy on memory, so previews are made a few at a time.
 const MAX_PREVIEW_WORKERS: usize = 4;
 
+/// Thousands of per-photo updates would freeze the screen they are meant to inform.
+const PROGRESS_INTERVAL: Duration = Duration::from_millis(100);
+
 struct AppState {
     /// Only photos the user imported can be served, so the preview address can never be
     /// used to read any other file on the computer.
     photos: Arc<Mutex<HashMap<String, PhotoInfo>>>,
+    facts: Arc<Mutex<HashMap<String, PhotoFacts>>>,
     registry: TemplateRegistry,
     preview_pool: Arc<rayon::ThreadPool>,
     cache_dir: PathBuf,
@@ -153,6 +162,86 @@ fn suggest_layouts(
             })
         })
         .collect()
+}
+
+#[derive(Serialize)]
+struct AnalysisSummary {
+    analyzed: usize,
+    /// Photos that could not be read, which are still placed, just without judgement.
+    unreadable: Vec<String>,
+}
+
+/// Reads what Auto Build needs from each photo. All of it stays on this computer.
+#[tauri::command]
+async fn analyze_photos(
+    app: AppHandle,
+    ids: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<AnalysisSummary, String> {
+    let photos: Vec<PhotoInfo> = {
+        let known = state.photos.lock().map_err(|e| e.to_string())?;
+        ids.iter().filter_map(|id| known.get(id).cloned()).collect()
+    };
+    let facts_store = state.facts.clone();
+    let cache_dir = state.cache_dir.clone();
+    let pool = state.preview_pool.clone();
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let total = photos.len();
+        let done = AtomicUsize::new(0);
+        let last_update = Mutex::new(Instant::now());
+        let results: Vec<(&PhotoInfo, Option<PhotoFacts>)> = pool.install(|| {
+            photos
+                .par_iter()
+                .map(|photo| {
+                    let facts = analyze_photo(photo, &cache_dir).ok();
+                    let finished = done.fetch_add(1, Ordering::Relaxed) + 1;
+                    if let Ok(mut last) = last_update.try_lock() {
+                        if last.elapsed() >= PROGRESS_INTERVAL {
+                            *last = Instant::now();
+                            let _ = app.emit("analysis-progress", (finished, total));
+                        }
+                    }
+                    (photo, facts)
+                })
+                .collect()
+        });
+
+        let mut store = facts_store.lock().map_err(|e| e.to_string())?;
+        let mut unreadable = Vec::new();
+        for (photo, facts) in results {
+            let facts = facts.unwrap_or_else(|| {
+                unreadable.push(photo.id.clone());
+                PhotoFacts {
+                    id: photo.id.clone(),
+                    taken_at: None,
+                    camera: None,
+                    sharpness: None,
+                    hash: None,
+                    mono: false,
+                }
+            });
+            store.insert(photo.id.clone(), facts);
+        }
+        Ok(AnalysisSummary {
+            analyzed: total,
+            unreadable,
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Lays out the album from what analysis found. Quick enough to run on every option change.
+#[tauri::command]
+fn plan_for_album(
+    ids: Vec<String>,
+    options: PlanOptions,
+    state: State<'_, AppState>,
+) -> Result<AlbumPlan, String> {
+    let store = state.facts.lock().map_err(|e| e.to_string())?;
+    let facts: Vec<PhotoFacts> = ids.iter().filter_map(|id| store.get(id).cloned()).collect();
+    Ok(plan_album(&facts, &options))
 }
 
 #[tauri::command]
@@ -365,6 +454,7 @@ fn main() {
                 .clamp(1, MAX_PREVIEW_WORKERS);
             app.manage(AppState {
                 photos: Arc::new(Mutex::new(HashMap::new())),
+                facts: Arc::new(Mutex::new(HashMap::new())),
                 registry: load_registry(&packs_dir),
                 preview_pool: Arc::new(
                     rayon::ThreadPoolBuilder::new()
@@ -383,6 +473,8 @@ fn main() {
             save_album,
             open_album,
             relink_photos,
+            analyze_photos,
+            plan_for_album,
             check_for_export,
             export_print_files
         ])

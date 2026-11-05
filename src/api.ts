@@ -139,6 +139,37 @@ export const openAlbum = (path: string) =>
 export const relinkPhotos = (folder: string, ids: string[]) =>
   invoke<PhotoInfo[]>('relink_photos', { folder, ids });
 
+export type PlanOptions = {
+  spreads: number | null;
+  split_by_time: boolean;
+  sync_clocks: boolean;
+  keep_mono_together: boolean;
+  leave_out_blurry: boolean;
+  leave_out_similar: boolean;
+  keep: string[];
+};
+
+export type LeftOut = { id: string; reason: 'blurry' } | { id: string; reason: 'similar'; kept: string };
+
+export type PlanPart = { start: number | null; end: number | null; photos: number; spreads: number };
+
+export type AlbumPlan = {
+  spreads: string[][];
+  parts: PlanPart[];
+  left_out: LeftOut[];
+  clock_fixes: { camera: string; shift_seconds: number }[];
+  photos_without_time: number;
+  min_spreads: number;
+  max_spreads: number;
+  suggested_spreads: number;
+};
+
+export const analyzePhotos = (ids: string[]) =>
+  invoke<{ analyzed: number; unreadable: string[] }>('analyze_photos', { ids });
+
+export const planForAlbum = (ids: string[], options: PlanOptions) =>
+  invoke<AlbumPlan>('plan_for_album', { ids, options });
+
 export type ExportIssue = {
   severity: 'blocker' | 'warning';
   spread: number | null;

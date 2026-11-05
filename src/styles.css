@@ -106,6 +106,24 @@ legend { padding: 0; margin-bottom: 7px; font-size: 12px; font-weight: 600; widt
 .build-stats dt { font-size: 11px; color: var(--ink-mid); }
 .build-stats dd { margin: 2px 0 0; font-size: 18px; font-weight: 700; color: var(--ink); }
 
+.build-columns { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 20px; }
+.build-column { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.modal-build { width: min(1020px, 100%); }
+.build-progress { display: flex; flex-direction: column; gap: 5px; padding: 10px 12px; font-size: 12px; background: var(--canvas); border-radius: 10px; }
+.build-progress progress { width: 100%; accent-color: var(--brand); }
+.build-progress .done { color: var(--good); font-weight: 600; }
+.smart-choices { display: flex; flex-direction: column; gap: 7px; }
+.smart-choices .toggle { white-space: normal; font-weight: 500; }
+.parts { margin: 0; padding: 0; list-style: none; font-size: 12px; }
+.parts li { display: flex; justify-content: space-between; gap: 10px; padding: 4px 0; border-bottom: 1px solid var(--line); }
+.parts span:last-child { color: var(--ink-mid); white-space: nowrap; }
+.clock-fix { font-size: 12px; color: var(--warn); }
+.left-out { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; max-height: 230px; overflow-y: auto; }
+.left-out-item { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: 0; background: none; border: 0; text-align: left; font-size: 10px; color: var(--ink-mid); }
+.left-out-item img { display: block; width: 100%; aspect-ratio: 3 / 2; object-fit: contain; background: var(--canvas); border-radius: 4px; }
+.left-out-item .why { color: var(--warn); font-weight: 600; }
+.left-out-item .restore { color: var(--brand-text); font-weight: 600; }
+
 /* New album */
 .welcome { height: 100%; display: grid; grid-template-columns: 250px minmax(0, 1fr); background: var(--panel); }
 .welcome-rail { display: flex; flex-direction: column; gap: 14px; padding: 22px 18px; background: var(--canvas); border-right: 1px solid var(--line); overflow-y: auto; }

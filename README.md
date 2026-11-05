@@ -11,8 +11,9 @@ Milestone 1 is in progress. The app runs, and you can:
 
 - set up an album: size, binding, margin, gap, bleed, DPI and paper
 - import a folder of photos, with previews made on demand
-- lay out a whole album with Auto Build, or select photos and get a layout picked
-  automatically, then switch with `[` and `]`
+- lay out a whole album with Auto Build, which reads capture time, camera, sharpness and
+  repeated shots on this computer, or select photos and get a layout picked automatically,
+  then switch with `[` and `]`
 - drag photos onto a spread, swap them, zoom and reposition them, and reorder spreads
 - adjust tone and colour for one photo or a whole spread, as previewed by the same code
   that prints
@@ -20,7 +21,7 @@ Milestone 1 is in progress. The app runs, and you can:
 - save and reopen albums, undo and redo, and find originals that have moved
 - export JPGs and a PDF for the lab, with a check for problems first
 
-Auto Build does not judge photos yet. See
+Auto Build does not look at faces or closed eyes yet. See
 [docs/feature-roadmap.md](docs/feature-roadmap.md) for what comes next.
 
 ## Setup on Windows

@@ -1,9 +1,17 @@
-import { useMemo, useState } from 'react';
-import { suggestLayouts, type LayoutOption, type PhotoInfo, type ProjectSpec, type Spread } from './api';
-
-/** Layouts exist for up to this many photos on a spread. */
-const MAX_PER_SPREAD = 6;
-const USUAL_PER_SPREAD = 4;
+import { useEffect, useMemo, useState } from 'react';
+import { listen } from '@tauri-apps/api/event';
+import {
+  analyzePhotos,
+  GRID_PREVIEW,
+  planForAlbum,
+  previewUrl,
+  suggestLayouts,
+  type AlbumPlan,
+  type LayoutOption,
+  type PhotoInfo,
+  type ProjectSpec,
+  type Spread,
+} from './api';
 
 type Style = { tag: string; name: string; hint: string; art: string[] };
 
@@ -15,24 +23,29 @@ const STYLES: Style[] = [
   { tag: 'grid', name: 'Grid', hint: 'Columns and rows, more photos', art: ['2,6,22,88', '26,6,22,88', '52,6,22,88', '76,6,22,88'] },
 ];
 
-/** Puts photos into spreads in order, as evenly as possible. */
-export function divideEvenly<T>(items: T[], groups: number): T[][] {
-  const result: T[][] = [];
-  let start = 0;
-  for (let i = 0; i < groups; i++) {
-    const size = Math.round((items.length - start) / (groups - i));
-    result.push(items.slice(start, start + size));
-    start += size;
-  }
-  return result.filter((group) => group.length);
-}
-
 /** Prefers the chosen style, and avoids using the same layout twice in a row. */
 function chooseLayout(options: LayoutOption[], tag: string, previous: string | null) {
   const inStyle = options.filter((o) => o.tags.includes(tag));
   const pool = inStyle.length ? inStyle : options;
   const pick = pool.find((o) => o.template_id !== previous) ?? pool[0];
   return options.indexOf(pick);
+}
+
+/** Capture times are the camera's own clock, so they are shown without any time zone. */
+function clockTime(seconds: number): string {
+  return new Date(seconds * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' });
+}
+
+function partLabel(start: number | null, end: number | null): string {
+  if (start === null || end === null) return 'No capture time';
+  return start === end ? clockTime(start) : `${clockTime(start)} to ${clockTime(end)}`;
+}
+
+function shiftLabel(seconds: number): string {
+  const minutes = Math.round(Math.abs(seconds) / 60);
+  const hours = Math.floor(minutes / 60);
+  const amount = hours ? `${hours} h ${minutes % 60} min` : `${minutes} min`;
+  return `${seconds > 0 ? 'moved forward' : 'moved back'} ${amount}`;
 }
 
 export default function AutoBuild({
@@ -48,20 +61,71 @@ export default function AutoBuild({
   const unused = useMemo(() => photos.filter((p) => !used.has(p.id)), [photos, used]);
   const [source, setSource] = useState<'all' | 'unused'>('all');
   const chosen = source === 'all' ? photos : unused;
-  const fewest = Math.max(1, Math.ceil(chosen.length / MAX_PER_SPREAD));
-  const most = Math.max(1, chosen.length);
-  const [wanted, setWanted] = useState<number | null>(null);
-  const suggested = Math.min(most, Math.max(fewest, Math.round(chosen.length / USUAL_PER_SPREAD)));
-  const count = Math.min(most, Math.max(fewest, wanted ?? suggested));
+  const chosenIds = useMemo(() => chosen.map((p) => p.id), [chosen]);
+  const byId = useMemo(() => new Map(photos.map((p) => [p.id, p])), [photos]);
+
+  const [progress, setProgress] = useState<[number, number] | null>(null);
+  const [analysed, setAnalysed] = useState(false);
+  const [unreadable, setUnreadable] = useState(0);
+
   const [tag, setTag] = useState('clean');
+  const [wanted, setWanted] = useState<number | null>(null);
+  const [splitByTime, setSplitByTime] = useState(true);
+  const [syncClocks, setSyncClocks] = useState(true);
+  const [keepMono, setKeepMono] = useState(true);
+  const [useEvery, setUseEvery] = useState(false);
+  const [leaveBlurry, setLeaveBlurry] = useState(true);
+  const [leaveSimilar, setLeaveSimilar] = useState(true);
+  const [keep, setKeep] = useState<string[]>([]);
+
+  const [plan, setPlan] = useState<AlbumPlan | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
+  // Reads the photos when the dialog opens. Results are kept, so a second time is quick.
+  useEffect(() => {
+    let current = true;
+    setAnalysed(false);
+    setProgress([0, chosenIds.length]);
+    const stop = listen<[number, number]>('analysis-progress', (event) => {
+      if (current) setProgress(event.payload);
+    });
+    analyzePhotos(chosenIds)
+      .then((summary) => {
+        if (!current) return;
+        setUnreadable(summary.unreadable.length);
+        setAnalysed(true);
+      })
+      .catch((e) => { if (current) setError(String(e)); });
+    return () => {
+      current = false;
+      void stop.then((unlisten) => unlisten());
+    };
+  }, [chosenIds]);
+
+  useEffect(() => {
+    if (!analysed) return;
+    let current = true;
+    planForAlbum(chosenIds, {
+      spreads: wanted,
+      split_by_time: splitByTime,
+      sync_clocks: syncClocks,
+      keep_mono_together: keepMono,
+      leave_out_blurry: !useEvery && leaveBlurry,
+      leave_out_similar: !useEvery && leaveSimilar,
+      keep,
+    })
+      .then((next) => { if (current) setPlan(next); })
+      .catch((e) => { if (current) setError(String(e)); });
+    return () => { current = false; };
+  }, [analysed, chosenIds, wanted, splitByTime, syncClocks, keepMono, useEvery, leaveBlurry, leaveSimilar, keep]);
+
   async function build() {
+    if (!plan) return;
     setBusy(true);
     setError('');
     try {
-      const groups = divideEvenly(chosen, count);
+      const groups = plan.spreads.map((ids) => ids.flatMap((id) => byId.get(id) ?? []));
       const allOptions = await Promise.all(groups.map((group) => suggestLayouts(group, spec)));
       let previous: string | null = null;
       const spreads: Spread[] = groups.map((group, i) => {
@@ -84,77 +148,187 @@ export default function AutoBuild({
     }
   }
 
+  const placed = plan ? plan.spreads.reduce((sum, s) => sum + s.length, 0) : 0;
+  const count = plan?.spreads.length ?? 0;
+
   return (
     <div className="modal-back" role="dialog" aria-modal="true" aria-label="Auto Build">
-      <div className="modal modal-wide">
+      <div className="modal modal-build">
         <h2>Auto Build</h2>
         <p className="muted">
-          Lays out the album in file name order, choosing the layouts that crop your photos least.
-          It does not judge the photos yet, so blurry shots and near-duplicates are not left out.
+          Reads when each photo was taken, how sharp it is and which shots repeat, then designs the
+          album. Everything stays on this computer. It does not look at faces or closed eyes yet.
         </p>
 
-        <fieldset>
-          <legend>Style</legend>
-          <div className="style-cards">
-            {STYLES.map((style) => (
-              <button
-                key={style.tag}
-                type="button"
-                aria-pressed={tag === style.tag}
-                className={`style-card ${tag === style.tag ? 'on' : ''}`}
-                onClick={() => setTag(style.tag)}
-              >
-                <span className="style-art" aria-hidden="true">
-                  {style.art.map((box) => {
-                    const [left, top, width, height] = box.split(',');
-                    return <i key={box} style={{ left: `${left}%`, top: `${top}%`, width: `${width}%`, height: `${height}%` }} />;
-                  })}
-                </span>
-                <strong>{style.name}</strong>
-                <span>{style.hint}</span>
-              </button>
+        <div className="build-progress" role="status">
+          {analysed ? (
+            <span className="done">
+              ✓ {chosen.length} photo{chosen.length === 1 ? '' : 's'} read
+              {unreadable > 0 && `, ${unreadable} could not be read and will be placed anyway`}
+            </span>
+          ) : (
+            <>
+              <span>Reading photos… {progress?.[0] ?? 0} of {progress?.[1] ?? chosen.length}</span>
+              <progress value={progress?.[0] ?? 0} max={progress?.[1] || 1} />
+            </>
+          )}
+        </div>
+
+        <div className="build-columns">
+          <div className="build-column">
+            <fieldset>
+              <legend>Style</legend>
+              <div className="style-cards">
+                {STYLES.map((style) => (
+                  <button
+                    key={style.tag}
+                    type="button"
+                    aria-pressed={tag === style.tag}
+                    className={`style-card ${tag === style.tag ? 'on' : ''}`}
+                    onClick={() => setTag(style.tag)}
+                  >
+                    <span className="style-art" aria-hidden="true">
+                      {style.art.map((box) => {
+                        const [left, top, width, height] = box.split(',');
+                        return <i key={box} style={{ left: `${left}%`, top: `${top}%`, width: `${width}%`, height: `${height}%` }} />;
+                      })}
+                    </span>
+                    <strong>{style.name}</strong>
+                    <span>{style.hint}</span>
+                  </button>
+                ))}
+              </div>
+            </fieldset>
+
+            <fieldset>
+              <legend>Photos</legend>
+              <div className="segment">
+                <button type="button" aria-pressed={source === 'all'} className={source === 'all' ? 'on' : ''} onClick={() => setSource('all')}>
+                  All ({photos.length})
+                </button>
+                <button type="button" aria-pressed={source === 'unused'} className={source === 'unused' ? 'on' : ''} disabled={!unused.length} onClick={() => setSource('unused')}>
+                  Unused ({unused.length})
+                </button>
+              </div>
+            </fieldset>
+
+            <fieldset>
+              <legend className="legend-row">
+                <span>Spreads</span>
+                <button type="button" className="link" onClick={() => setWanted(null)}>Suggest</button>
+              </legend>
+              <div className="spread-count">
+                <input
+                  type="range"
+                  aria-label="Number of spreads"
+                  className="wide-range"
+                  min={plan?.min_spreads ?? 1}
+                  max={plan?.max_spreads ?? 1}
+                  value={count}
+                  disabled={!plan || plan.min_spreads === plan.max_spreads}
+                  onChange={(e) => setWanted(Number(e.target.value))}
+                />
+                <strong>{count}</strong>
+              </div>
+            </fieldset>
+
+            <fieldset className="smart-choices">
+              <legend>Smart choices</legend>
+              <label className="toggle">
+                <input type="checkbox" checked={useEvery} onChange={(e) => setUseEvery(e.target.checked)} />
+                Use every photo
+              </label>
+              <label className="toggle">
+                <input type="checkbox" checked={!useEvery && leaveBlurry} disabled={useEvery} onChange={(e) => setLeaveBlurry(e.target.checked)} />
+                Leave out blurry photos
+              </label>
+              <label className="toggle">
+                <input type="checkbox" checked={!useEvery && leaveSimilar} disabled={useEvery} onChange={(e) => setLeaveSimilar(e.target.checked)} />
+                Keep only the best of similar shots
+              </label>
+              <label className="toggle">
+                <input type="checkbox" checked={splitByTime} onChange={(e) => setSplitByTime(e.target.checked)} />
+                Start a new spread at each part of the day
+              </label>
+              <label className="toggle">
+                <input type="checkbox" checked={keepMono} onChange={(e) => setKeepMono(e.target.checked)} />
+                Keep black and white photos together
+              </label>
+              <label className="toggle">
+                <input type="checkbox" checked={syncClocks} onChange={(e) => setSyncClocks(e.target.checked)} />
+                Correct camera clocks that disagree
+              </label>
+            </fieldset>
+          </div>
+
+          <div className="build-column">
+            <dl className="build-stats">
+              <div><dt>Spreads</dt><dd>{count}</dd></div>
+              <div><dt>Photos</dt><dd>{placed}</dd></div>
+              <div><dt>Parts</dt><dd>{plan?.parts.length ?? 0}</dd></div>
+              <div><dt>Left out</dt><dd>{plan?.left_out.length ?? 0}</dd></div>
+            </dl>
+
+            {plan && plan.parts.length > 0 && (
+              <section>
+                <h3 className="eyebrow">Parts of the day</h3>
+                <ul className="parts">
+                  {plan.parts.map((part, i) => (
+                    <li key={i}>
+                      <span>{partLabel(part.start, part.end)}</span>
+                      <span>{part.photos} photos, {part.spreads} spread{part.spreads === 1 ? '' : 's'}</span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+
+            {plan && plan.photos_without_time > 0 && (
+              <p className="muted">
+                {plan.photos_without_time} photo{plan.photos_without_time === 1 ? ' has' : 's have'} no
+                capture time, so {plan.photos_without_time === 1 ? 'it stays' : 'they stay'} beside
+                {plan.photos_without_time === 1 ? ' its' : ' their'} neighbours by file name.
+              </p>
+            )}
+
+            {plan?.clock_fixes.map((fix) => (
+              <p key={fix.camera} className="clock-fix">
+                {fix.camera}: clock {shiftLabel(fix.shift_seconds)} to match the main camera.
+                Turn off the option above if this looks wrong.
+              </p>
             ))}
-          </div>
-        </fieldset>
 
-        <fieldset>
-          <legend>Photos</legend>
-          <div className="segment">
-            <button type="button" aria-pressed={source === 'all'} className={source === 'all' ? 'on' : ''} onClick={() => setSource('all')}>
-              All ({photos.length})
-            </button>
-            <button type="button" aria-pressed={source === 'unused'} className={source === 'unused' ? 'on' : ''} disabled={!unused.length} onClick={() => setSource('unused')}>
-              Unused ({unused.length})
-            </button>
-          </div>
-        </fieldset>
+            {plan && plan.left_out.length > 0 && (
+              <section>
+                <h3 className="eyebrow">Left out. Click one to put it back</h3>
+                <div className="left-out">
+                  {plan.left_out.map((item) => {
+                    const photo = byId.get(item.id);
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        className="left-out-item"
+                        title={`Put ${photo?.file_name ?? 'this photo'} back`}
+                        onClick={() => setKeep((all) => [...all, item.id])}
+                      >
+                        <img src={previewUrl(item.id, GRID_PREVIEW)} alt={photo?.file_name ?? ''} loading="lazy" />
+                        <span className="why">{item.reason === 'blurry' ? 'Looks blurry' : 'Similar shot'}</span>
+                        <span className="restore">Put back</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
 
-        <fieldset>
-          <legend className="legend-row">
-            <span>Spreads</span>
-            <button type="button" className="link" onClick={() => setWanted(null)}>Suggest</button>
-          </legend>
-          <div className="spread-count">
-            <input
-              type="range"
-              aria-label="Number of spreads"
-              className="wide-range"
-              min={fewest}
-              max={most}
-              value={count}
-              disabled={fewest === most}
-              onChange={(e) => setWanted(Number(e.target.value))}
-            />
-            <strong>{count}</strong>
+            {keep.length > 0 && (
+              <button type="button" className="link" onClick={() => setKeep([])}>
+                Clear {keep.length} photo{keep.length === 1 ? '' : 's'} put back by hand
+              </button>
+            )}
           </div>
-        </fieldset>
-
-        <dl className="build-stats">
-          <div><dt>Spreads</dt><dd>{count}</dd></div>
-          <div><dt>Pages</dt><dd>{count * 2}</dd></div>
-          <div><dt>Photos</dt><dd>{chosen.length}</dd></div>
-          <div><dt>Per spread</dt><dd>{chosen.length ? (chosen.length / count).toFixed(1) : '0'}</dd></div>
-        </dl>
+        </div>
 
         {hasSpreads && (
           <p className="warn">This replaces your current spreads. You can bring them back with Undo.</p>
@@ -163,7 +337,7 @@ export default function AutoBuild({
 
         <div className="modal-actions">
           <button type="button" className="btn" disabled={busy} onClick={onClose}>Cancel</button>
-          <button type="button" className="btn-primary" disabled={busy || !chosen.length} onClick={() => void build()}>
+          <button type="button" className="btn-primary" disabled={busy || !plan || !count} onClick={() => void build()}>
             {busy ? 'Building…' : 'Build album'}
           </button>
         </div>

@@ -5,9 +5,12 @@ milestones in the original plan.
 
 ## Status
 
-Built: album setup, photo import, auto-layout, a first Auto Build that fills spreads in
-file name order, tone and colour effects, saving, undo, the print check and JPG and PDF
-export.
+Built: album setup, photo import, auto-layout, Auto Build, tone and colour effects, saving,
+undo, the print check and JPG and PDF export. Auto Build orders by capture time, splits at
+long pauses, leaves out blurry and repeated shots for review, keeps black and white
+together and corrects a camera clock when the evidence stands out. It still needs face and
+closed-eye detection, which means choosing and licensing a model, and a learned sense of
+which part of the day is which.
 
 Still to build from the first milestones: saved presets, star ratings and colour labels,
 quick preview, changing one page on its own, rotation, and an album overview. Effects
