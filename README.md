@@ -11,11 +11,16 @@ Milestone 1 is in progress. The app runs, and you can:
 
 - set up an album: size, binding, margin, gap, bleed, DPI and paper
 - import a folder of photos, with previews made on demand
-- select photos and get a layout picked automatically, then switch with `[` and `]`
+- lay out a whole album with Auto Build, or select photos and get a layout picked
+  automatically, then switch with `[` and `]`
 - drag photos onto a spread, swap them, zoom and reposition them, and reorder spreads
+- adjust tone and colour for one photo or a whole spread, as previewed by the same code
+  that prints
 - see the print DPI of each photo, with print guides for the trim, safe area and fold
+- save and reopen albums, undo and redo, and find originals that have moved
+- export JPGs and a PDF for the lab, with a check for problems first
 
-Albums are not saved yet, and there is no export. See
+Auto Build does not judge photos yet. See
 [docs/feature-roadmap.md](docs/feature-roadmap.md) for what comes next.
 
 ## Setup on Windows
@@ -47,6 +52,8 @@ cargo test --workspace
 - `crates/album-core`: the design document, layout packs and auto-layout. No UI.
 - `crates/album-media`: finding photos and making preview copies. Originals are never
   changed.
+- `crates/album-store`: saving and opening album files.
+- `crates/album-export`: rendering spreads from the originals and writing print files.
 - `src-tauri`: the desktop app, which connects these to the screens.
 - `src`: the screens, in React.
 

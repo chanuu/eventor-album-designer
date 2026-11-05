@@ -5,6 +5,29 @@ export const ALBUM_EXTENSION = 'evalbum';
 export const ALBUM_FILTERS = [{ name: 'Eventor album', extensions: [ALBUM_EXTENSION] }];
 
 const PROJECT_VERSION = 1;
+const RECENT_KEY = 'recent-albums';
+const MAX_RECENT = 8;
+
+export type RecentAlbum = { path: string; name: string };
+
+/** A convenience only, so failing to read or write it must never get in the way. */
+export function recentAlbums(): RecentAlbum[] {
+  try {
+    const stored: unknown = JSON.parse(localStorage.getItem(RECENT_KEY) ?? '[]');
+    return Array.isArray(stored) ? (stored as RecentAlbum[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function rememberAlbum(path: string, name: string) {
+  try {
+    const others = recentAlbums().filter((item) => item.path !== path);
+    localStorage.setItem(RECENT_KEY, JSON.stringify([{ path, name }, ...others].slice(0, MAX_RECENT)));
+  } catch {
+    // The list simply stays as it was.
+  }
+}
 
 export function toProject(album: Album, photos: PhotoInfo[], spreads: Spread[]): Project {
   return {
@@ -44,6 +67,7 @@ export async function loadAlbum(path: string): Promise<Album> {
     }),
   );
 
+  rememberAlbum(path, project.name);
   return {
     name: project.name,
     spec: project.spec,

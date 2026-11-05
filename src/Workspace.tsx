@@ -10,17 +10,21 @@ import {
   relinkPhotos,
   saveAlbum,
   suggestLayouts,
+  type Adjustments,
   type Frame,
+  type LayoutOption,
   type PhotoInfo,
   type Project,
   type Spread,
   type SpreadDesign,
 } from './api';
 import type { Album } from './App';
+import AutoBuild from './AutoBuild';
 import { effectiveDpi, visibleArea } from './crop';
+import EffectsPanel, { NO_ADJUSTMENTS } from './EffectsPanel';
 import ExportDialog from './ExportDialog';
 import { useHistory } from './history';
-import { ALBUM_EXTENSION, ALBUM_FILTERS, toProject } from './project';
+import { ALBUM_EXTENSION, ALBUM_FILTERS, rememberAlbum, toProject } from './project';
 
 type Thresholds = { warn: number; tooLow: number };
 
@@ -31,10 +35,37 @@ const MAX_ZOOM = 3;
 /** How long after the last change an already-saved album saves itself. */
 const AUTOSAVE_DELAY_MS = 1500;
 
+/** How long a slider must rest before the adjusted picture is fetched. */
+const EFFECT_SETTLE_MS = 90;
+
 type SaveStatus = 'saved' | 'unsaved' | 'saving' | 'failed';
+type PhotoFilter = 'all' | 'unused' | 'used' | 'missing';
 
 function percent(part: number, whole: number): string {
   return `${(part / whole) * 100}%`;
+}
+
+/** A new layout keeps each photo's crop and effects, and the spread's paper. */
+function carryOver(from: SpreadDesign, to: SpreadDesign): SpreadDesign {
+  const before = new Map(from.frames.map((f) => [f.asset_id, f]));
+  return {
+    ...to,
+    background: from.background,
+    frames: to.frames.map((frame) => {
+      const old = before.get(frame.asset_id);
+      return old ? { ...frame, fit: old.fit, adjust: old.adjust } : frame;
+    }),
+  };
+}
+
+function mirrored(design: SpreadDesign): SpreadDesign {
+  return {
+    ...design,
+    frames: design.frames.map((f) => ({
+      ...f,
+      rect_mm: { ...f.rect_mm, x: design.size_mm.w - f.rect_mm.x - f.rect_mm.w },
+    })),
+  };
 }
 
 export default function Workspace({ album }: { album: Album }) {
@@ -49,22 +80,32 @@ export default function Workspace({ album }: { album: Album }) {
   const [currentId, setCurrentId] = useState<string | null>(album.spreads[0]?.id ?? null);
   const [frameId, setFrameId] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [filter, setFilter] = useState<'all' | 'unused' | 'used'>('all');
+  const [filter, setFilter] = useState<PhotoFilter>('all');
+  const [sortReverse, setSortReverse] = useState(false);
   const [search, setSearch] = useState('');
+  const [thumbSize, setThumbSize] = useState(120);
   const [guides, setGuides] = useState(true);
+  const [showBrowser, setShowBrowser] = useState(true);
+  const [showSide, setShowSide] = useState(true);
   const [notice, setNotice] = useState('');
   const [importing, setImporting] = useState(false);
   const [exportProject, setExportProject] = useState<Project | null>(null);
+  const [showBuild, setShowBuild] = useState(false);
   const [thresholds, setThresholds] = useState<Thresholds>({ warn: 0, tooLow: 0 });
+  const [paperColours, setPaperColours] = useState<string[]>([]);
 
   useEffect(() => {
     printOptions()
-      .then((o) => setThresholds({ warn: o.dpi_warn, tooLow: o.dpi_too_low }))
+      .then((o) => {
+        setThresholds({ warn: o.dpi_warn, tooLow: o.dpi_too_low });
+        setPaperColours(o.paper);
+      })
       .catch((e) => setNotice(String(e)));
   }, []);
 
   const byId = useMemo(() => new Map(photos.map((p) => [p.id, p])), [photos]);
   const current = spreads.find((s) => s.id === currentId) ?? null;
+  const currentIndex = current ? spreads.indexOf(current) : -1;
   const frame = current?.design.frames.find((f) => f.id === frameId) ?? null;
 
   const usedIds = useMemo(() => new Set(spreads.flatMap((s) => s.photoIds)), [spreads]);
@@ -118,7 +159,10 @@ export default function Workspace({ album }: { album: Album }) {
     });
     if (!chosen) return false;
     const ok = await writeTo(chosen);
-    if (ok) setPath(chosen);
+    if (ok) {
+      setPath(chosen);
+      rememberAlbum(chosen, album.name);
+    }
     return ok;
   }, [album.name, writeTo]);
 
@@ -157,11 +201,16 @@ export default function Workspace({ album }: { album: Album }) {
     };
   }, [writeTo]);
 
-  const shown = photos.filter((p) => {
-    if (filter === 'used' && !usedIds.has(p.id)) return false;
-    if (filter === 'unused' && usedIds.has(p.id)) return false;
-    return p.file_name.toLowerCase().includes(search.trim().toLowerCase());
-  });
+  const shown = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    const list = photos.filter((p) => {
+      if (filter === 'used' && !usedIds.has(p.id)) return false;
+      if (filter === 'unused' && usedIds.has(p.id)) return false;
+      if (filter === 'missing' && !missing.has(p.id)) return false;
+      return p.file_name.toLowerCase().includes(term);
+    });
+    return sortReverse ? [...list].reverse() : list;
+  }, [photos, filter, usedIds, missing, search, sortReverse]);
 
   async function findMissing() {
     const folder = await open({ directory: true, title: 'Choose the folder with the moved photos' });
@@ -230,12 +279,15 @@ export default function Workspace({ album }: { album: Album }) {
     setNotice('');
     setFrameId(null);
     setSelected(new Set());
-    const update = { photoIds, options, optionIndex: 0, design: options[0].design };
     if (target) {
-      setSpreads((all) => all.map((s) => (s.id === target.id ? { ...s, ...update } : s)));
+      setSpreads((all) => all.map((s) => (
+        s.id === target.id
+          ? { ...s, photoIds, options, optionIndex: 0, design: carryOver(s.design, options[0].design) }
+          : s
+      )));
     } else {
       const id = crypto.randomUUID();
-      setSpreads((all) => [...all, { id, ...update }]);
+      setSpreads((all) => [...all, { id, photoIds, options, optionIndex: 0, design: options[0].design }]);
       setCurrentId(id);
     }
   }
@@ -250,9 +302,11 @@ export default function Workspace({ album }: { album: Album }) {
     const options = await layoutFor(photoIds);
     if (!options) return;
     setSpreads((all) =>
-      all.map((s) =>
-        s.id === spread.id ? { ...s, photoIds, options, optionIndex: 0, design: options[0].design } : s,
-      ),
+      all.map((s) => (
+        s.id === spread.id
+          ? { ...s, photoIds, options, optionIndex: 0, design: carryOver(s.design, options[0].design) }
+          : s
+      )),
     );
   }
 
@@ -275,27 +329,41 @@ export default function Workspace({ album }: { album: Album }) {
     });
   }
 
-  /** Tries the next layout. The photos stay the same, and only their places change. */
-  const cycleLayout = useCallback((step: -1 | 1) => {
+  const goToSpread = useCallback((step: -1 | 1) => {
+    setFrameId(null);
+    setCurrentId((id) => {
+      const at = spreads.findIndex((s) => s.id === id);
+      return spreads[at + step]?.id ?? id;
+    });
+  }, [spreads]);
+
+  /** Tries another layout. The photos stay the same, and only their places change. */
+  const chooseLayout = useCallback((pick: (s: Spread) => number) => {
     setFrameId(null);
     setSpreads((all) =>
       all.map((s) => {
-        if (s.id !== currentId || s.options.length < 2) return s;
-        const optionIndex = (s.optionIndex + step + s.options.length) % s.options.length;
-        return { ...s, optionIndex, design: s.options[optionIndex].design };
+        if (s.id !== currentId || !s.options.length) return s;
+        const optionIndex = pick(s);
+        if (optionIndex === s.optionIndex) return s;
+        return { ...s, optionIndex, design: carryOver(s.design, s.options[optionIndex].design) };
       }),
     );
   }, [currentId, setSpreads]);
 
-  const changeFrames = useCallback((change: (frames: Frame[]) => Frame[], mergeKey?: string) => {
+  const cycleLayout = useCallback((step: -1 | 1) => {
+    chooseLayout((s) => (s.optionIndex + step + s.options.length) % s.options.length);
+  }, [chooseLayout]);
+
+  const changeDesign = useCallback((change: (design: SpreadDesign) => SpreadDesign, mergeKey?: string) => {
     setSpreads(
-      (all) =>
-        all.map((s) =>
-          s.id === currentId ? { ...s, design: { ...s.design, frames: change(s.design.frames) } } : s,
-        ),
+      (all) => all.map((s) => (s.id === currentId ? { ...s, design: change(s.design) } : s)),
       mergeKey,
     );
   }, [currentId, setSpreads]);
+
+  const changeFrames = useCallback((change: (frames: Frame[]) => Frame[], mergeKey?: string) => {
+    changeDesign((d) => ({ ...d, frames: change(d.frames) }), mergeKey);
+  }, [changeDesign]);
 
   const changeFit = useCallback((id: string, fit: Partial<Frame['fit']>) => {
     // One drag or slider movement is one undo step, not hundreds.
@@ -305,15 +373,27 @@ export default function Workspace({ album }: { album: Album }) {
     );
   }, [changeFrames]);
 
+  /** Effects go to the selected photo, or to the whole spread when none is selected. */
+  const changeEffects = useCallback((change: Partial<Adjustments>) => {
+    const target = frameId;
+    changeFrames(
+      (frames) => frames.map((f) => (
+        target === null || f.id === target ? { ...f, adjust: { ...f.adjust, ...change } } : f
+      )),
+      `fx:${target ?? 'spread'}`,
+    );
+  }, [changeFrames, frameId]);
+
   function swapFrames(sourceId: string, targetId: string) {
     if (sourceId === targetId) return;
     changeFrames((frames) => {
       const source = frames.find((f) => f.id === sourceId);
       const target = frames.find((f) => f.id === targetId);
       if (!source || !target) return frames;
+      const contents = (f: Frame) => ({ asset_id: f.asset_id, fit: f.fit, adjust: f.adjust });
       return frames.map((f) => {
-        if (f.id === sourceId) return { ...f, asset_id: target.asset_id, fit: target.fit };
-        if (f.id === targetId) return { ...f, asset_id: source.asset_id, fit: source.fit };
+        if (f.id === sourceId) return { ...f, ...contents(target) };
+        if (f.id === targetId) return { ...f, ...contents(source) };
         return f;
       });
     });
@@ -346,11 +426,13 @@ export default function Workspace({ album }: { album: Album }) {
       }
       if (e.key === '[') cycleLayout(-1);
       if (e.key === ']') cycleLayout(1);
+      if (e.key === 'ArrowLeft') goToSpread(-1);
+      if (e.key === 'ArrowRight') goToSpread(1);
       if (e.key === 'Escape') setFrameId(null);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [cycleLayout, redo, undo, saveNow]);
+  }, [cycleLayout, goToSpread, redo, undo, saveNow]);
 
   function clickPhoto(e: React.MouseEvent, id: string) {
     setSelected((before) => {
@@ -371,10 +453,13 @@ export default function Workspace({ album }: { album: Album }) {
   const option = current?.options[current.optionIndex];
   const framePhoto = frame?.asset_id ? byId.get(frame.asset_id) : undefined;
   const frameDpi = frame && framePhoto ? Math.round(effectiveDpi(framePhoto, frame)) : null;
+  const effectsValue = frame?.adjust ?? current?.design.frames[0]?.adjust ?? NO_ADJUSTMENTS;
+  const paperNow = current?.design.background.value;
 
   return (
     <div className="workspace">
       <header className="topbar">
+        <span className="brand-mark small" aria-hidden="true">E</span>
         <div className="title">
           <strong>{album.name}</strong>
           <span>
@@ -391,36 +476,18 @@ export default function Workspace({ album }: { album: Album }) {
           }[saveStatus]}
         </span>
         <button type="button" className="btn" onClick={() => void saveNow()}>Save</button>
-        <button
-          type="button"
-          className="btn icon-btn"
-          aria-label="Undo"
-          title="Undo (Ctrl+Z)"
-          disabled={!history.canUndo}
-          onClick={() => { setFrameId(null); undo(); }}
-        >
-          ↶
-        </button>
-        <button
-          type="button"
-          className="btn icon-btn"
-          aria-label="Redo"
-          title="Redo (Ctrl+Y)"
-          disabled={!history.canRedo}
-          onClick={() => { setFrameId(null); redo(); }}
-        >
-          ↷
-        </button>
+        <button type="button" className="btn icon-btn" aria-label="Undo" title="Undo (Ctrl+Z)" disabled={!history.canUndo} onClick={() => { setFrameId(null); undo(); }}>↶</button>
+        <button type="button" className="btn icon-btn" aria-label="Redo" title="Redo (Ctrl+Y)" disabled={!history.canRedo} onClick={() => { setFrameId(null); redo(); }}>↷</button>
+        <span className="topbar-gap" />
         <label className="toggle">
           <input type="checkbox" checked={guides} onChange={(e) => setGuides(e.target.checked)} />
           Print guides
         </label>
-        <button type="button" className="btn-primary" disabled={importing} onClick={() => void chooseFolder()}>
-          {importing ? 'Reading photos…' : 'Import photos'}
-        </button>
+        <button type="button" className={`btn pane-btn ${showBrowser ? 'active' : ''}`} aria-pressed={showBrowser} onClick={() => setShowBrowser(!showBrowser)}>Photos</button>
+        <button type="button" className={`btn pane-btn ${showSide ? 'active' : ''}`} aria-pressed={showSide} onClick={() => setShowSide(!showSide)}>Panel</button>
         <button
           type="button"
-          className="btn"
+          className="btn-primary"
           disabled={!spreads.length}
           onClick={() => setExportProject(toProject(album, photos, spreads))}
         >
@@ -447,48 +514,27 @@ export default function Workspace({ album }: { album: Album }) {
         <ExportDialog project={exportProject} onClose={() => setExportProject(null)} />
       )}
 
-      <div className="stage">
-        <section
-          className="canvas-area"
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={(e) => {
-            e.preventDefault();
-            const ids = droppedPhotos(e);
-            if (ids.length) void addPhotos(ids, currentId);
+      {showBuild && (
+        <AutoBuild
+          photos={photos}
+          used={usedIds}
+          spec={spec}
+          hasSpreads={spreads.length > 0}
+          onClose={() => setShowBuild(false)}
+          onBuild={(built) => {
+            setSpreads(() => built);
+            setCurrentId(built[0]?.id ?? null);
+            setFrameId(null);
+            setSelected(new Set());
+            setShowBuild(false);
           }}
-          onPointerDown={(e) => {
-            if (e.target === e.currentTarget) setFrameId(null);
-          }}
-        >
-          {current ? (
-            <SpreadCanvas
-              design={current.design}
-              spec={album.spec}
-              photos={byId}
-              guides={guides}
-              thresholds={thresholds}
-              selectedId={frameId}
-              onSelect={setFrameId}
-              onFit={changeFit}
-              onSwap={swapFrames}
-              onGestureStart={history.seal}
-            />
-          ) : (
-            <div className="empty-stage">
-              <h2>{photos.length ? 'Drag photos here' : 'Start by importing photos'}</h2>
-              <p>
-                {photos.length
-                  ? 'Select a few below and drop them here. The layout is picked for you.'
-                  : 'Your originals stay where they are and are never changed.'}
-              </p>
-            </div>
-          )}
-        </section>
+        />
+      )}
 
-        <aside className="side">
-          {current && option ? (
-            <>
-              <h3>Layout</h3>
+      <div className={`stage ${showSide ? '' : 'no-side'}`}>
+        <div className="canvas-column">
+          {current && option && (
+            <div className="spread-tools" role="toolbar" aria-label="Spread">
               <div className="cycler">
                 <button type="button" aria-label="Previous layout" title="Previous layout ( [ )" onClick={() => cycleLayout(-1)}>‹</button>
                 <div>
@@ -499,43 +545,161 @@ export default function Workspace({ album }: { album: Album }) {
                 </div>
                 <button type="button" aria-label="Next layout" title="Next layout ( ] )" onClick={() => cycleLayout(1)}>›</button>
               </div>
-              <p className="muted">Press [ and ] to try other layouts.</p>
-            </>
-          ) : (
-            <p className="muted">Select a spread to change its layout.</p>
+              <span className="tools-rule" />
+              <button
+                type="button"
+                className="tool"
+                title="Swap the left and right sides"
+                onClick={() => { setFrameId(null); changeDesign(mirrored); }}
+              >
+                Mirror
+              </button>
+              <button
+                type="button"
+                className="tool danger"
+                onClick={() => deleteSpread(current.id)}
+              >
+                Delete
+              </button>
+            </div>
           )}
 
-          {frame && framePhoto && current && (
-            <>
-              <h3>Selected photo</h3>
-              <p className="file-name" title={framePhoto.path}>{framePhoto.file_name}</p>
-              {frameDpi !== null && (
-                <p className={frameDpi < thresholds.tooLow ? 'error' : frameDpi < thresholds.warn ? 'warn' : 'muted'}>
-                  Prints at {frameDpi} DPI
+          <section
+            className="canvas-area"
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => {
+              e.preventDefault();
+              const ids = droppedPhotos(e);
+              if (ids.length) void addPhotos(ids, currentId);
+            }}
+            onPointerDown={(e) => {
+              if (e.target === e.currentTarget) setFrameId(null);
+            }}
+          >
+            {current ? (
+              <SpreadCanvas
+                design={current.design}
+                spec={album.spec}
+                photos={byId}
+                guides={guides}
+                thresholds={thresholds}
+                selectedId={frameId}
+                onSelect={setFrameId}
+                onFit={changeFit}
+                onSwap={swapFrames}
+                onGestureStart={history.seal}
+              />
+            ) : (
+              <div className="empty-stage">
+                <span className="empty-book" aria-hidden="true"><i /><i /></span>
+                <h2>{photos.length ? 'Build the album, or drag photos here' : 'Start by importing photos'}</h2>
+                <p>
+                  {photos.length
+                    ? 'Auto Build lays out everything. Or select a few photos and drop them here.'
+                    : 'Your originals stay where they are and are never changed.'}
                 </p>
-              )}
-              <label className="field">
-                Zoom
-                <input
-                  type="range"
-                  min={1}
-                  max={MAX_ZOOM}
-                  step={0.01}
-                  value={frame.fit.scale}
-                  onPointerDown={history.seal}
-                  onChange={(e) => changeFit(frame.id, { scale: Number(e.target.value) })}
-                />
-              </label>
-              <p className="muted">Drag the photo to reposition it. Drag another photo to swap them.</p>
-              <button type="button" className="btn" onClick={() => changeFit(frame.id, { scale: 1, cx: 0.5, cy: 0.5 })}>
-                Reset crop
-              </button>
-              <button type="button" className="btn" onClick={() => void removeFromSpread(current, framePhoto.id)}>
-                Remove from spread
-              </button>
-            </>
+                <div className="empty-actions">
+                  <button type="button" className={photos.length ? 'btn' : 'btn-primary'} disabled={importing} onClick={() => void chooseFolder()}>
+                    {importing ? 'Reading photos…' : 'Import photos'}
+                  </button>
+                  {photos.length > 0 && (
+                    <button type="button" className="btn-primary" onClick={() => setShowBuild(true)}>Auto Build</button>
+                  )}
+                </div>
+              </div>
+            )}
+          </section>
+
+          {current && (
+            <p className="spread-caption">
+              Spread {currentIndex + 1} of {spreads.length} · pages {currentIndex * 2 + 1}–{currentIndex * 2 + 2}
+            </p>
           )}
-        </aside>
+        </div>
+
+        {showSide && (
+          <aside className="side">
+            {!current && <p className="muted">Select a spread to change its layout and effects.</p>}
+
+            {frame && framePhoto && current && (
+              <section>
+                <h3>Selected photo</h3>
+                <p className="file-name" title={framePhoto.path}>{framePhoto.file_name}</p>
+                {frameDpi !== null && (
+                  <p className={frameDpi < thresholds.tooLow ? 'error' : frameDpi < thresholds.warn ? 'warn' : 'muted'}>
+                    Prints at {frameDpi} DPI
+                  </p>
+                )}
+                <label className="field">
+                  Zoom
+                  <input
+                    type="range"
+                    min={1}
+                    max={MAX_ZOOM}
+                    step={0.01}
+                    value={frame.fit.scale}
+                    onPointerDown={history.seal}
+                    onChange={(e) => changeFit(frame.id, { scale: Number(e.target.value) })}
+                  />
+                </label>
+                <p className="muted">Drag the photo to reposition it. Drag another photo to swap them.</p>
+                <div className="button-row">
+                  <button type="button" className="btn" onClick={() => changeFit(frame.id, { scale: 1, cx: 0.5, cy: 0.5 })}>
+                    Reset crop
+                  </button>
+                  <button type="button" className="btn" onClick={() => void removeFromSpread(current, framePhoto.id)}>
+                    Remove from spread
+                  </button>
+                </div>
+              </section>
+            )}
+
+            {current && (
+              <EffectsPanel
+                title={frame ? 'Effects for this photo' : 'Effects for this spread'}
+                hint={frame ? 'Press Esc to adjust the whole spread.' : 'Every photo on the spread. Click a photo to change only that one.'}
+                value={effectsValue}
+                onChange={changeEffects}
+                onGestureStart={history.seal}
+              />
+            )}
+
+            {current && current.options.length > 0 && (
+              <section>
+                <h3>Layouts for {current.photoIds.length} photo{current.photoIds.length === 1 ? '' : 's'}</h3>
+                <div className="layout-grid">
+                  {current.options.map((o, i) => (
+                    <LayoutThumb
+                      key={o.template_id}
+                      option={o}
+                      on={i === current.optionIndex}
+                      onClick={() => chooseLayout(() => i)}
+                    />
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {current && paperColours.length > 0 && (
+              <section>
+                <h3>Paper for this spread</h3>
+                <div className="swatches">
+                  {paperColours.map((colour) => (
+                    <button
+                      key={colour}
+                      type="button"
+                      aria-label={`Paper colour ${colour}`}
+                      aria-pressed={paperNow === colour}
+                      className={`swatch ${paperNow === colour ? 'on' : ''}`}
+                      style={{ background: colour }}
+                      onClick={() => changeDesign((d) => ({ ...d, background: { type: 'color', value: colour } }))}
+                    />
+                  ))}
+                </div>
+              </section>
+            )}
+          </aside>
+        )}
       </div>
 
       <section className="timeline" aria-label="Spreads">
@@ -566,7 +730,7 @@ export default function Workspace({ album }: { album: Album }) {
               })}
             </button>
             <div className="spread-actions">
-              <span>{i + 1}</span>
+              <span>{String(i + 1).padStart(2, '0')}</span>
               <button type="button" aria-label={`Move spread ${i + 1} earlier`} disabled={i === 0} onClick={() => moveSpread(s.id, -1)}>←</button>
               <button type="button" aria-label={`Move spread ${i + 1} later`} disabled={i === spreads.length - 1} onClick={() => moveSpread(s.id, 1)}>→</button>
               <button type="button" aria-label={`Delete spread ${i + 1}`} onClick={() => deleteSpread(s.id)}>×</button>
@@ -591,55 +755,74 @@ export default function Workspace({ album }: { album: Album }) {
         </button>
       </section>
 
-      <section className="browser" aria-label="Photos">
-        <div className="browser-bar">
-          <strong>
-            Photos <span className="muted">{usedIds.size} of {photos.length} used</span>
-          </strong>
-          <div className="segment">
-            {(['all', 'unused', 'used'] as const).map((key) => (
-              <button key={key} type="button" aria-pressed={filter === key} className={filter === key ? 'on' : ''} onClick={() => setFilter(key)}>
-                {key === 'all' ? 'All' : key === 'unused' ? 'Unused' : 'Used'}
+      {showBrowser && (
+        <section className="browser" aria-label="Photos">
+          <div className="browser-bar">
+            <button type="button" className="btn" disabled={importing} onClick={() => void chooseFolder()}>
+              {importing ? 'Reading photos…' : 'Import photos'}
+            </button>
+            <button type="button" className="btn" disabled={!photos.length} onClick={() => setShowBuild(true)}>Auto Build</button>
+            <strong className="muted">{usedIds.size} of {photos.length} used</strong>
+            <select className="input" aria-label="Show photos" value={filter} onChange={(e) => setFilter(e.target.value as PhotoFilter)}>
+              <option value="all">All photos</option>
+              <option value="unused">Unused</option>
+              <option value="used">Used</option>
+              <option value="missing">Missing</option>
+            </select>
+            <select className="input" aria-label="Sort photos" value={sortReverse ? 'za' : 'az'} onChange={(e) => setSortReverse(e.target.value === 'za')}>
+              <option value="az">Name, A to Z</option>
+              <option value="za">Name, Z to A</option>
+            </select>
+            <input className="input search" aria-label="Search photos" placeholder="Search" value={search} onChange={(e) => setSearch(e.target.value)} />
+            <input
+              type="range"
+              aria-label="Thumbnail size"
+              className="thumb-size"
+              min={80}
+              max={220}
+              value={thumbSize}
+              onChange={(e) => setThumbSize(Number(e.target.value))}
+            />
+            {selectedIds.length > 0 && current && (
+              <button type="button" className="btn" onClick={() => void addPhotos(selectedIds, current.id)}>
+                Add {selectedIds.length} to this spread
+              </button>
+            )}
+            <span className="muted hint">Ctrl+click to select several</span>
+          </div>
+          <div className="grid" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${thumbSize}px, 1fr))` }}>
+            {shown.map((photo) => (
+              <button
+                key={photo.id}
+                type="button"
+                draggable
+                title={photo.file_name}
+                aria-pressed={selected.has(photo.id)}
+                className={`photo ${selected.has(photo.id) ? 'on' : ''} ${usedIds.has(photo.id) ? 'used' : ''}`}
+                onClick={(e) => clickPhoto(e, photo.id)}
+                onDragStart={(e) => {
+                  const ids = selected.has(photo.id) ? selectedIds : [photo.id];
+                  e.dataTransfer.setData(DRAG_PHOTOS, JSON.stringify(ids));
+                  e.dataTransfer.effectAllowed = 'copy';
+                }}
+              >
+                <span className="photo-box">
+                  <img src={previewUrl(photo.id, GRID_PREVIEW)} alt={photo.file_name} loading="lazy" decoding="async" draggable={false} />
+                  {missing.has(photo.id)
+                    ? <span className="badge gone">Missing</span>
+                    : usedIds.has(photo.id) && <span className="badge">Used</span>}
+                </span>
+                <span className="photo-name">{photo.file_name}</span>
               </button>
             ))}
+            {!shown.length && (
+              <p className="muted grid-empty">
+                {photos.length ? 'No photos match.' : 'No photos yet.'}
+              </p>
+            )}
           </div>
-          <input className="input search" aria-label="Search photos" placeholder="Search" value={search} onChange={(e) => setSearch(e.target.value)} />
-          {selectedIds.length > 0 && current && (
-            <button type="button" className="btn" onClick={() => void addPhotos(selectedIds, current.id)}>
-              Add {selectedIds.length} to this spread
-            </button>
-          )}
-          <span className="muted hint">Ctrl+click to select several</span>
-        </div>
-        <div className="grid">
-          {shown.map((photo) => (
-            <button
-              key={photo.id}
-              type="button"
-              draggable
-              title={photo.file_name}
-              aria-pressed={selected.has(photo.id)}
-              className={`photo ${selected.has(photo.id) ? 'on' : ''} ${usedIds.has(photo.id) ? 'used' : ''}`}
-              onClick={(e) => clickPhoto(e, photo.id)}
-              onDragStart={(e) => {
-                const ids = selected.has(photo.id) ? selectedIds : [photo.id];
-                e.dataTransfer.setData(DRAG_PHOTOS, JSON.stringify(ids));
-                e.dataTransfer.effectAllowed = 'copy';
-              }}
-            >
-              <img src={previewUrl(photo.id, GRID_PREVIEW)} alt={photo.file_name} loading="lazy" decoding="async" draggable={false} />
-              {missing.has(photo.id)
-                ? <span className="badge gone">Missing</span>
-                : usedIds.has(photo.id) && <span className="badge">Used</span>}
-            </button>
-          ))}
-          {!shown.length && (
-            <p className="muted grid-empty">
-              {photos.length ? 'No photos match.' : 'No photos yet.'}
-            </p>
-          )}
-        </div>
-      </section>
+        </section>
+      )}
     </div>
   );
 }
@@ -655,11 +838,37 @@ function frameStyle(frame: Frame, design: SpreadDesign): React.CSSProperties {
   };
 }
 
+/**
+ * The address to show, swapped only once the new picture has loaded.
+ *
+ * While a slider moves, each value is a new picture from Rust. Waiting for a pause and
+ * for the download avoids flicker, and avoids asking for pictures nobody will see.
+ */
+function useSettledImage(url: string): string {
+  const [shown, setShown] = useState(url);
+  useEffect(() => {
+    if (url === shown) return;
+    let current = true;
+    const timer = setTimeout(() => {
+      const image = new Image();
+      image.onload = () => { if (current) setShown(url); };
+      image.onerror = () => { if (current) setShown(url); };
+      image.src = url;
+    }, EFFECT_SETTLE_MS);
+    return () => {
+      current = false;
+      clearTimeout(timer);
+    };
+  }, [url, shown]);
+  return shown;
+}
+
 function FramedPhoto({ photo, frame, width }: { photo: PhotoInfo; frame: Frame; width: number }) {
   const area = visibleArea(photo.width / photo.height, frame.rect_mm.w / frame.rect_mm.h, frame.fit);
+  const src = useSettledImage(previewUrl(photo.id, width, frame.adjust));
   return (
     <img
-      src={previewUrl(photo.id, width)}
+      src={src}
       alt=""
       draggable={false}
       className="framed"
@@ -670,6 +879,29 @@ function FramedPhoto({ photo, frame, width }: { photo: PhotoInfo; frame: Frame; 
         top: `${(-area.sy / area.sh) * 100}%`,
       }}
     />
+  );
+}
+
+function LayoutThumb({
+  option, on, onClick,
+}: {
+  option: LayoutOption;
+  on: boolean;
+  onClick: () => void;
+}) {
+  const { design } = option;
+  return (
+    <button
+      type="button"
+      aria-pressed={on}
+      aria-label={option.name}
+      title={`${option.name} · ${Math.round(option.crop_loss * 100)}% cropped`}
+      className={`layout-thumb ${on ? 'on' : ''}`}
+      style={{ aspectRatio: String(design.size_mm.w / design.size_mm.h) }}
+      onClick={onClick}
+    >
+      {design.frames.map((f) => <i key={f.id} style={frameStyle(f, design)} />)}
+    </button>
   );
 }
 

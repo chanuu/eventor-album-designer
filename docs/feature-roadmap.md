@@ -3,6 +3,16 @@
 What the album designer should do, in the order to build it. It extends the
 milestones in the original plan.
 
+## Status
+
+Built: album setup, photo import, auto-layout, a first Auto Build that fills spreads in
+file name order, tone and colour effects, saving, undo, the print check and JPG and PDF
+export.
+
+Still to build from the first milestones: saved presets, star ratings and colour labels,
+quick preview, changing one page on its own, rotation, and an album overview. Effects
+still need whites, blacks, fade, the colour mixer and selective colour.
+
 The feature ideas come partly from studying AR ALBUM, a competing app. Ideas and
 workflows are fine to learn from. Its layouts, text designs, code, names and look are
 not ours to reuse, so everything here gets its own design and original content.
