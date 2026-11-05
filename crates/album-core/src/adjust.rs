@@ -96,7 +96,10 @@ impl Adjustments {
         let mut tables = [[0u8; 256]; 3];
         for (table, gain) in tables.iter_mut().zip(gains) {
             for (input, output) in table.iter_mut().enumerate() {
-                let value = self.tone_curve(input as f64 / 255.0) * gain;
+                // White balance comes first. Contrast applied before it would stretch a
+                // colour cast, which the balance could then only partly undo.
+                let balanced = (input as f64 / 255.0 * gain).clamp(0.0, 1.0);
+                let value = self.tone_curve(balanced);
                 *output = (value.clamp(0.0, 1.0) * 255.0).round() as u8;
             }
         }
@@ -260,6 +263,37 @@ mod tests {
         let [r, g, b] = apply(warm, [120, 120, 120]);
         assert!(r > 120 && b < 120);
         assert_eq!(g, 120);
+    }
+
+    #[test]
+    fn white_balance_happens_before_contrast() {
+        let both = Adjustments {
+            temperature: -1.0,
+            contrast: 0.5,
+            ..Adjustments::default()
+        };
+        let balance_only = Adjustments {
+            temperature: -1.0,
+            ..Adjustments::default()
+        };
+        let contrast_only = Adjustments {
+            contrast: 0.5,
+            ..Adjustments::default()
+        };
+        // Balancing a warm pixel to neutral, then adding contrast, must stay neutral.
+        let warm = [125, 100, 83];
+        let balanced = apply(balance_only, warm);
+        assert!(
+            (i32::from(balanced[0]) - i32::from(balanced[2])).abs() <= 2,
+            "{balanced:?}"
+        );
+        let [r, _, b] = apply(both, warm);
+        let spread = (i32::from(r) - i32::from(b)).abs();
+        let [r0, _, b0] = apply(contrast_only, warm);
+        assert!(
+            spread < (i32::from(r0) - i32::from(b0)).abs() / 4,
+            "{spread}"
+        );
     }
 
     #[test]
