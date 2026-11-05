@@ -13,6 +13,7 @@ album-core = { path = "../crates/album-core" }
 album-export = { path = "../crates/album-export" }
 album-media = { path = "../crates/album-media" }
 album-store = { path = "../crates/album-store" }
+album-text = { path = "../crates/album-text" }
 rayon = "1"
 serde = { version = "1", features = ["derive"] }
 tauri = { version = "2", features = [] }

@@ -13,9 +13,10 @@ use album_core::document::{
 };
 use album_media::{colour_profile_is_srgb, decode_upright, PhotoInfo};
 use album_store::Project;
+use album_text::render_block;
 use fast_image_resize as fr;
 use image::codecs::jpeg::{JpegEncoder, PixelDensity};
-use image::{imageops, Rgb, RgbImage};
+use image::{imageops, Rgb, RgbImage, RgbaImage};
 use pdf_writer::{Content, Filter, Name, Pdf, Rect, Ref};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -24,6 +25,8 @@ const MM_PER_INCH: f64 = 25.4;
 const POINTS_PER_INCH: f64 = 72.0;
 const JPEG_QUALITY: u8 = 95;
 const FALLBACK_PAPER: [u8; 3] = [255, 255, 255];
+/// Line breaks do not depend on resolution, so a quick low one is enough for checking.
+const TEXT_CHECK_DPI: f64 = 30.0;
 
 #[derive(Debug, Error)]
 pub enum ExportError {
@@ -80,6 +83,18 @@ pub fn check_album(project: &Project) -> Vec<Issue> {
 
     for (i, spread) in project.spreads.iter().enumerate() {
         let number = Some(i + 1);
+        for block in &spread.design.texts {
+            if let Ok(drawn) = render_block(block, TEXT_CHECK_DPI) {
+                if drawn.overflowed {
+                    issues.push(Issue {
+                        severity: Severity::Warning,
+                        spread: number,
+                        message: "Some text does not fit in its box and will be cut off."
+                            .to_string(),
+                    });
+                }
+            }
+        }
         let mut push = |severity, message| {
             issues.push(Issue {
                 severity,
@@ -235,7 +250,36 @@ pub fn render_spread(
         frame.adjust.apply_rgb(&mut tile);
         imageops::replace(&mut canvas, &tile, left, top);
     }
+
+    // Text sits above every photo, whatever order the frames are in.
+    for block in &design.texts {
+        let drawn = render_block(block, spec.target_dpi).map_err(ExportError::Render)?;
+        let left = (block.rect_mm.x * scale_x).round() as i64;
+        let top = (block.rect_mm.y * scale_y).round() as i64;
+        lay_over(&mut canvas, &drawn.image, left, top);
+    }
     Ok(canvas)
+}
+
+/// Blends a transparent image onto the canvas, clipping whatever falls outside it.
+fn lay_over(canvas: &mut RgbImage, layer: &RgbaImage, left: i64, top: i64) {
+    let (width, height) = canvas.dimensions();
+    for (x, y, pixel) in layer.enumerate_pixels() {
+        let [r, g, b, a] = pixel.0;
+        if a == 0 {
+            continue;
+        }
+        let (cx, cy) = (left + i64::from(x), top + i64::from(y));
+        if cx < 0 || cy < 0 || cx >= i64::from(width) || cy >= i64::from(height) {
+            continue;
+        }
+        let under = canvas.get_pixel_mut(cx as u32, cy as u32);
+        let mix = |over: u8, base: u8| {
+            let (over, base, a) = (u32::from(over), u32::from(base), u32::from(a));
+            ((over * a + base * (255 - a) + 127) / 255) as u8
+        };
+        *under = Rgb([mix(r, under.0[0]), mix(g, under.0[1]), mix(b, under.0[2])]);
+    }
 }
 
 fn write_jpeg(image: &RgbImage, path: &Path, dpi: f64) -> Result<(), ExportError> {
@@ -529,6 +573,7 @@ mod tests {
         SpreadDesign {
             v: 1,
             template_id: None,
+            texts: Vec::new(),
             size_mm: spec().canvas_mm(),
             background: Background::Color {
                 value: paper.to_string(),
@@ -675,6 +720,47 @@ mod tests {
         let image = render_spread(&d, &spec(), &photos).unwrap();
         let [r, g, b] = image.get_pixel(0, image.height() / 2).0;
         assert!(r == g && g == b, "expected grey, got {r} {g} {b}");
+    }
+
+    #[test]
+    fn text_prints_above_the_photos_at_print_resolution() {
+        use album_core::document::{TextAlign, TextBlock};
+        let dir = TempDir::new();
+        let photo = split_photo(&dir.0, "a.png", 800, 400);
+        let photos = HashMap::from([("a.png", &photo)]);
+        let block = TextBlock {
+            id: "t".to_string(),
+            rect_mm: RectMm {
+                x: 10.0,
+                y: 10.0,
+                w: 100.0,
+                h: 40.0,
+            },
+            text: "█████".to_string(),
+            font: String::new(),
+            size_pt: 40.0,
+            colour: "#00FF00".to_string(),
+            align: TextAlign::Left,
+            bold: false,
+            italic: false,
+            line_height: 1.2,
+        };
+        let mut d = design(
+            vec![frame(whole_canvas(), "a.png", Fit::default())],
+            "#FFFFFF",
+        );
+        d.texts = vec![block];
+        let image = render_spread(&d, &spec(), &photos).unwrap();
+        let green = image
+            .pixels()
+            .filter(|p| p.0[1] > 200 && p.0[0] < 60 && p.0[2] < 60)
+            .count();
+        assert!(green > 200, "only {green} green pixels");
+        let px = |mm: f64| (mm / 25.4 * 100.0).round() as u32;
+        assert!(
+            close_to(image.get_pixel(px(5.0), px(5.0)), RED),
+            "outside the box stays photo"
+        );
     }
 
     #[test]

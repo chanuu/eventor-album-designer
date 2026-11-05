@@ -1,0 +1,11 @@
+[package]
+name = "album-text"
+description = "Draws text blocks for the preview and the print, including Sinhala and Tamil."
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+album-core = { path = "../album-core" }
+cosmic-text = "0.14"
+image = { version = "0.25", default-features = false, features = ["png"] }

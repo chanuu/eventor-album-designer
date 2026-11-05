@@ -9,6 +9,7 @@ publish.workspace = true
 album-core = { path = "../album-core" }
 album-media = { path = "../album-media" }
 album-store = { path = "../album-store" }
+album-text = { path = "../album-text" }
 blake3 = "1"
 fast_image_resize = "5"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }

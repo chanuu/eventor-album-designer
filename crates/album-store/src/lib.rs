@@ -15,6 +15,7 @@ pub const PROJECT_VERSION: u32 = 1;
 pub const PROJECT_EXTENSION: &str = "evalbum";
 
 const MAX_PROJECT_BYTES: u64 = 64 * 1024 * 1024;
+const MAX_TEXT_BYTES: usize = 64 * 1024;
 
 #[derive(Debug, Error)]
 pub enum StoreError {
@@ -93,6 +94,18 @@ impl Project {
                     .all(|v| v.is_finite());
                 if !finite || r.w <= 0.0 || r.h <= 0.0 {
                     return Err(invalid("a frame has an impossible size"));
+                }
+            }
+            for text in &spread.design.texts {
+                let r = text.rect_mm;
+                let finite = [r.x, r.y, r.w, r.h, text.size_pt, text.line_height]
+                    .iter()
+                    .all(|v| v.is_finite());
+                if !finite || r.w <= 0.0 || r.h <= 0.0 || text.size_pt <= 0.0 {
+                    return Err(invalid("a text block has an impossible size"));
+                }
+                if text.text.len() > MAX_TEXT_BYTES {
+                    return Err(invalid("a text block is too long"));
                 }
             }
         }
@@ -202,6 +215,7 @@ mod tests {
                 design: SpreadDesign {
                     v: 1,
                     template_id: Some("eventor-essentials/1-full-spread".into()),
+                    texts: Vec::new(),
                     size_mm: SizeMm { w: 768.0, h: 310.8 },
                     background: Background::Color {
                         value: "#FFFFFF".into(),

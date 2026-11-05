@@ -11,8 +11,8 @@ use album_core::adjust::Adjustments;
 use album_core::autobuild::{plan_album, AlbumPlan, PhotoFacts, PlanOptions};
 use album_core::autolayout::{apply_layout, rank_layouts, Photo};
 use album_core::document::{
-    Binding, ProjectSpec, SpreadDesign, BLEED_OPTIONS_MM, DPI_OPTIONS, DPI_TOO_LOW, DPI_WARN,
-    GAP_PRESETS_IN, MARGIN_PRESETS_IN, PAPER_COLOURS, SIZE_PRESETS_IN,
+    Binding, ProjectSpec, SpreadDesign, TextBlock, BLEED_OPTIONS_MM, DPI_OPTIONS, DPI_TOO_LOW,
+    DPI_WARN, GAP_PRESETS_IN, MARGIN_PRESETS_IN, PAPER_COLOURS, SIZE_PRESETS_IN,
 };
 use album_core::pack::{load_pack_dir, TemplateRegistry};
 use album_export::{check_album, export_album, ExportFormats, ExportResult, Issue};
@@ -33,6 +33,9 @@ const MAX_PREVIEW_WORKERS: usize = 4;
 
 /// Thousands of per-photo updates would freeze the screen they are meant to inform.
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(100);
+
+/// Sharp on a large screen, without the cost of print resolution.
+const TEXT_PREVIEW_DPI: f64 = 150.0;
 
 struct AppState {
     /// Only photos the user imported can be served, so the preview address can never be
@@ -242,6 +245,28 @@ fn plan_for_album(
     let store = state.facts.lock().map_err(|e| e.to_string())?;
     let facts: Vec<PhotoFacts> = ids.iter().filter_map(|id| store.get(id).cloned()).collect();
     Ok(plan_album(&facts, &options))
+}
+
+#[tauri::command]
+async fn list_fonts() -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(album_text::font_families)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// A preview of a text block. The first byte says whether the text overflowed its box,
+/// and the rest is the PNG, which saves encoding the image as text to send it across.
+#[tauri::command]
+async fn preview_text(block: TextBlock) -> Result<tauri::ipc::Response, String> {
+    let (png, overflowed) = tauri::async_runtime::spawn_blocking(move || {
+        album_text::render_block_png(&block, TEXT_PREVIEW_DPI)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    let mut bytes = Vec::with_capacity(png.len() + 1);
+    bytes.push(u8::from(overflowed));
+    bytes.extend_from_slice(&png);
+    Ok(tauri::ipc::Response::new(bytes))
 }
 
 #[tauri::command]
@@ -473,6 +498,8 @@ fn main() {
             save_album,
             open_album,
             relink_photos,
+            list_fonts,
+            preview_text,
             analyze_photos,
             plan_for_album,
             check_for_export,

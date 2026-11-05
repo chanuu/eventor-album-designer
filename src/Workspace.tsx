@@ -5,6 +5,8 @@ import {
   EDIT_PREVIEW,
   GRID_PREVIEW,
   importFolder,
+  listFonts,
+  previewText,
   previewUrl,
   printOptions,
   relinkPhotos,
@@ -17,6 +19,7 @@ import {
   type Project,
   type Spread,
   type SpreadDesign,
+  type TextBlock,
 } from './api';
 import type { Album } from './App';
 import AutoBuild from './AutoBuild';
@@ -25,6 +28,7 @@ import EffectsPanel, { NO_ADJUSTMENTS } from './EffectsPanel';
 import ExportDialog from './ExportDialog';
 import { useHistory } from './history';
 import { ALBUM_EXTENSION, ALBUM_FILTERS, rememberAlbum, toProject } from './project';
+import TextPanel from './TextPanel';
 
 type Thresholds = { warn: number; tooLow: number };
 
@@ -37,6 +41,15 @@ const AUTOSAVE_DELAY_MS = 1500;
 
 /** How long a slider must rest before the adjusted picture is fetched. */
 const EFFECT_SETTLE_MS = 90;
+
+/** How long typing must rest before the text is drawn again. */
+const TEXT_SETTLE_MS = 120;
+
+/** How close a dragged text block must come to a guide before it snaps to it. */
+const SNAP_MM = 2;
+
+const DEFAULT_FONT = 'Nirmala UI';
+const MIN_TEXT_BOX_MM = 8;
 
 type SaveStatus = 'saved' | 'unsaved' | 'saving' | 'failed';
 type PhotoFilter = 'all' | 'unused' | 'used' | 'missing';
@@ -51,6 +64,7 @@ function carryOver(from: SpreadDesign, to: SpreadDesign): SpreadDesign {
   return {
     ...to,
     background: from.background,
+    texts: from.texts,
     frames: to.frames.map((frame) => {
       const old = before.get(frame.asset_id);
       return old ? { ...frame, fit: old.fit, adjust: old.adjust } : frame;
@@ -65,6 +79,10 @@ function mirrored(design: SpreadDesign): SpreadDesign {
       ...f,
       rect_mm: { ...f.rect_mm, x: design.size_mm.w - f.rect_mm.x - f.rect_mm.w },
     })),
+    texts: design.texts.map((t) => ({
+      ...t,
+      rect_mm: { ...t.rect_mm, x: design.size_mm.w - t.rect_mm.x - t.rect_mm.w },
+    })),
   };
 }
 
@@ -78,7 +96,14 @@ export default function Workspace({ album }: { album: Album }) {
   const [path, setPath] = useState<string | null>(album.path);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>(album.path ? 'saved' : 'unsaved');
   const [currentId, setCurrentId] = useState<string | null>(album.spreads[0]?.id ?? null);
-  const [frameId, setFrameId] = useState<string | null>(null);
+  const [frameId, setFrameIdRaw] = useState<string | null>(null);
+  const setFrameId = useCallback((id: string | null) => {
+    setFrameIdRaw(id);
+    setTextIdRaw(null);
+  }, []);
+  const [textId, setTextIdRaw] = useState<string | null>(null);
+  const [fonts, setFonts] = useState<string[]>([]);
+  const [overflowing, setOverflowing] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState<PhotoFilter>('all');
   const [sortReverse, setSortReverse] = useState(false);
@@ -94,6 +119,16 @@ export default function Workspace({ album }: { album: Album }) {
   const [thresholds, setThresholds] = useState<Thresholds>({ warn: 0, tooLow: 0 });
   const [paperColours, setPaperColours] = useState<string[]>([]);
 
+  /** Selecting text and selecting a photo rule each other out. */
+  const setTextId = useCallback((id: string | null) => {
+    setTextIdRaw(id);
+    if (id) setFrameIdRaw(null);
+  }, []);
+
+  useEffect(() => {
+    listFonts().then(setFonts).catch(() => setFonts([]));
+  }, []);
+
   useEffect(() => {
     printOptions()
       .then((o) => {
@@ -107,6 +142,7 @@ export default function Workspace({ album }: { album: Album }) {
   const current = spreads.find((s) => s.id === currentId) ?? null;
   const currentIndex = current ? spreads.indexOf(current) : -1;
   const frame = current?.design.frames.find((f) => f.id === frameId) ?? null;
+  const textBlock = current?.design.texts.find((t) => t.id === textId) ?? null;
 
   const usedIds = useMemo(() => new Set(spreads.flatMap((s) => s.photoIds)), [spreads]);
 
@@ -384,6 +420,49 @@ export default function Workspace({ album }: { album: Album }) {
     );
   }, [changeFrames, frameId]);
 
+  function addText() {
+    if (!current) return;
+    const { w, h } = current.design.size_mm;
+    const boxWidth = w * 0.3;
+    const boxHeight = h * 0.22;
+    const block: TextBlock = {
+      id: crypto.randomUUID(),
+      rect_mm: { x: w * 0.75 - boxWidth / 2, y: h / 2 - boxHeight / 2, w: boxWidth, h: boxHeight },
+      text: 'Your text',
+      font: fonts.includes(DEFAULT_FONT) ? DEFAULT_FONT : '',
+      size_pt: 36,
+      colour: '#000000',
+      align: 'center',
+      bold: false,
+      italic: false,
+      line_height: 1.3,
+    };
+    changeDesign((d) => ({ ...d, texts: [...d.texts, block] }));
+    setTextId(block.id);
+  }
+
+  const changeText = useCallback((id: string, change: Partial<TextBlock>) => {
+    changeDesign(
+      (d) => ({ ...d, texts: d.texts.map((t) => (t.id === id ? { ...t, ...change } : t)) }),
+      `text:${id}`,
+    );
+  }, [changeDesign]);
+
+  const deleteText = useCallback((id: string) => {
+    changeDesign((d) => ({ ...d, texts: d.texts.filter((t) => t.id !== id) }));
+    setTextIdRaw(null);
+  }, [changeDesign]);
+
+  const noteOverflow = useCallback((id: string, overflowed: boolean) => {
+    setOverflowing((before) => {
+      if (before.has(id) === overflowed) return before;
+      const next = new Set(before);
+      if (overflowed) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }, []);
+
   function swapFrames(sourceId: string, targetId: string) {
     if (sourceId === targetId) return;
     changeFrames((frames) => {
@@ -424,6 +503,11 @@ export default function Workspace({ album }: { album: Album }) {
         redo();
         return;
       }
+      if (textId && (e.key === 'Delete' || e.key === 'Backspace')) {
+        e.preventDefault();
+        deleteText(textId);
+        return;
+      }
       if (e.key === '[') cycleLayout(-1);
       if (e.key === ']') cycleLayout(1);
       if (e.key === 'ArrowLeft') goToSpread(-1);
@@ -432,7 +516,7 @@ export default function Workspace({ album }: { album: Album }) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [cycleLayout, goToSpread, redo, undo, saveNow]);
+  }, [cycleLayout, goToSpread, redo, undo, saveNow, textId, deleteText, setFrameId]);
 
   function clickPhoto(e: React.MouseEvent, id: string) {
     setSelected((before) => {
@@ -546,6 +630,7 @@ export default function Workspace({ album }: { album: Album }) {
                 <button type="button" aria-label="Next layout" title="Next layout ( ] )" onClick={() => cycleLayout(1)}>›</button>
               </div>
               <span className="tools-rule" />
+              <button type="button" className="tool" onClick={addText}>Add text</button>
               <button
                 type="button"
                 className="tool"
@@ -588,6 +673,10 @@ export default function Workspace({ album }: { album: Album }) {
                 onFit={changeFit}
                 onSwap={swapFrames}
                 onGestureStart={history.seal}
+                textId={textId}
+                onSelectText={setTextId}
+                onChangeText={changeText}
+                onOverflow={noteOverflow}
               />
             ) : (
               <div className="empty-stage">
@@ -620,6 +709,17 @@ export default function Workspace({ album }: { album: Album }) {
         {showSide && (
           <aside className="side">
             {!current && <p className="muted">Select a spread to change its layout and effects.</p>}
+
+            {textBlock && (
+              <TextPanel
+                block={textBlock}
+                fonts={fonts}
+                overflowed={overflowing.has(textBlock.id)}
+                onChange={(change) => changeText(textBlock.id, change)}
+                onGestureStart={history.seal}
+                onDelete={() => deleteText(textBlock.id)}
+              />
+            )}
 
             {frame && framePhoto && current && (
               <section>
@@ -728,6 +828,7 @@ export default function Workspace({ album }: { album: Album }) {
                   </span>
                 );
               })}
+              {s.design.texts.map((t) => <ThumbText key={t.id} block={t} design={s.design} />)}
             </button>
             <div className="spread-actions">
               <span>{String(i + 1).padStart(2, '0')}</span>
@@ -882,6 +983,190 @@ function FramedPhoto({ photo, frame, width }: { photo: PhotoInfo; frame: Frame; 
   );
 }
 
+/**
+ * The drawn picture of a text block. Rust draws it, using the same code as the print, so
+ * what is seen is what prints. Typing waits for a pause before asking again.
+ */
+function useTextImage(block: TextBlock, onOverflow?: (overflowed: boolean) => void): string | null {
+  const [url, setUrl] = useState<string | null>(null);
+  // Moving a box does not change its picture, so its position is left out of this.
+  const { x: _x, y: _y, ...size } = block.rect_mm;
+  const looks = JSON.stringify({ ...block, rect_mm: size });
+  const report = useRef(onOverflow);
+  report.current = onOverflow;
+
+  useEffect(() => {
+    let current = true;
+    let made: string | null = null;
+    const timer = setTimeout(() => {
+      previewText(JSON.parse(looks.replace('"rect_mm":{', '"rect_mm":{"x":0,"y":0,')) as TextBlock)
+        .then(({ png, overflowed }) => {
+          if (!current) return;
+          made = URL.createObjectURL(png);
+          setUrl(made);
+          report.current?.(overflowed);
+        })
+        .catch(() => {});
+    }, TEXT_SETTLE_MS);
+    return () => {
+      current = false;
+      clearTimeout(timer);
+      // The old picture stays on screen until the new one is ready, then this frees it.
+      if (made) {
+        const old = made;
+        setTimeout(() => URL.revokeObjectURL(old), 2000);
+      }
+    };
+  }, [looks]);
+  return url;
+}
+
+function ThumbText({ block, design }: { block: TextBlock; design: SpreadDesign }) {
+  const url = useTextImage(block);
+  const r = block.rect_mm;
+  return (
+    <span
+      className="thumb-text"
+      style={{
+        left: percent(r.x, design.size_mm.w),
+        top: percent(r.y, design.size_mm.h),
+        width: percent(r.w, design.size_mm.w),
+        height: percent(r.h, design.size_mm.h),
+        zIndex: 4,
+      }}
+    >
+      {url && <img src={url} alt="" />}
+    </span>
+  );
+}
+
+/** The lines a dragged text block snaps to, in millimetres. */
+function snapTargets(spec: Album['spec'], w: number, h: number) {
+  const inset = spec.bleed_mm + spec.safe_mm;
+  return {
+    edgesX: [inset, w / 2 - spec.safe_mm, w / 2 + spec.safe_mm, w - inset],
+    centresX: [w / 4, w / 2, (w * 3) / 4],
+    edgesY: [inset, h - inset],
+    centresY: [h / 2],
+  };
+}
+
+function nearest(values: number[], targets: number[]): { shift: number; line: number } | null {
+  let best: { shift: number; line: number } | null = null;
+  for (const value of values) {
+    for (const line of targets) {
+      const shift = line - value;
+      if (Math.abs(shift) <= SNAP_MM && (!best || Math.abs(shift) < Math.abs(best.shift))) {
+        best = { shift, line };
+      }
+    }
+  }
+  return best;
+}
+
+function TextOnSpread({
+  block, design, spec, selected, overflowing, onSelect, onChange, onGestureStart, onOverflow, onSnap,
+}: {
+  block: TextBlock;
+  design: SpreadDesign;
+  spec: Album['spec'];
+  selected: boolean;
+  overflowing: boolean;
+  onSelect: (id: string) => void;
+  onChange: (id: string, change: Partial<TextBlock>) => void;
+  onGestureStart: () => void;
+  onOverflow: (id: string, overflowed: boolean) => void;
+  onSnap: (lines: { x: number | null; y: number | null }) => void;
+}) {
+  const { w, h } = design.size_mm;
+  const url = useTextImage(block, (overflowed) => onOverflow(block.id, overflowed));
+  const drag = useRef<{ mode: 'move' | 'size'; x: number; y: number; rect: TextBlock['rect_mm']; mmPerPx: number } | null>(null);
+  const r = block.rect_mm;
+
+  const begin = (e: React.PointerEvent, mode: 'move' | 'size') => {
+    e.stopPropagation();
+    onSelect(block.id);
+    onGestureStart();
+    const spread = e.currentTarget.closest('.spread');
+    if (!spread) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    drag.current = { mode, x: e.clientX, y: e.clientY, rect: r, mmPerPx: w / spread.getBoundingClientRect().width };
+  };
+
+  const move = (e: React.PointerEvent) => {
+    const start = drag.current;
+    if (!start) return;
+    const dx = (e.clientX - start.x) * start.mmPerPx;
+    const dy = (e.clientY - start.y) * start.mmPerPx;
+    if (start.mode === 'size') {
+      onChange(block.id, {
+        rect_mm: {
+          ...start.rect,
+          w: Math.min(w - start.rect.x, Math.max(MIN_TEXT_BOX_MM, start.rect.w + dx)),
+          h: Math.min(h - start.rect.y, Math.max(MIN_TEXT_BOX_MM, start.rect.h + dy)),
+        },
+      });
+      return;
+    }
+    let x = start.rect.x + dx;
+    let y = start.rect.y + dy;
+    const targets = snapTargets(spec, w, h);
+    const edgeX = nearest([x, x + r.w], targets.edgesX);
+    const centreX = nearest([x + r.w / 2], targets.centresX);
+    const snapX = centreX ?? edgeX;
+    const edgeY = nearest([y, y + r.h], targets.edgesY);
+    const centreY = nearest([y + r.h / 2], targets.centresY);
+    const snapY = centreY ?? edgeY;
+    if (snapX) x += snapX.shift;
+    if (snapY) y += snapY.shift;
+    onSnap({ x: snapX?.line ?? null, y: snapY?.line ?? null });
+    onChange(block.id, {
+      rect_mm: {
+        ...start.rect,
+        x: Math.min(w - r.w, Math.max(0, x)),
+        y: Math.min(h - r.h, Math.max(0, y)),
+      },
+    });
+  };
+
+  const end = () => {
+    drag.current = null;
+    onSnap({ x: null, y: null });
+  };
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      aria-label={`Text: ${block.text.slice(0, 40)}`}
+      aria-pressed={selected}
+      className={`text-block ${selected ? 'selected' : ''} ${overflowing ? 'overflowing' : ''}`}
+      style={{
+        left: percent(r.x, w),
+        top: percent(r.y, h),
+        width: percent(r.w, w),
+        height: percent(r.h, h),
+      }}
+      onClick={(e) => e.stopPropagation()}
+      onPointerDown={(e) => begin(e, 'move')}
+      onPointerMove={move}
+      onPointerUp={end}
+      onPointerCancel={end}
+    >
+      {url && <img src={url} alt="" draggable={false} />}
+      {selected && (
+        <span
+          className="text-handle"
+          onPointerDown={(e) => begin(e, 'size')}
+          onPointerMove={move}
+          onPointerUp={end}
+          onPointerCancel={end}
+        />
+      )}
+    </div>
+  );
+}
+
 function LayoutThumb({
   option, on, onClick,
 }: {
@@ -907,6 +1192,7 @@ function LayoutThumb({
 
 function SpreadCanvas({
   design, spec, photos, guides, thresholds, selectedId, onSelect, onFit, onSwap, onGestureStart,
+  textId, onSelectText, onChangeText, onOverflow,
 }: {
   design: SpreadDesign;
   spec: Album['spec'];
@@ -918,8 +1204,14 @@ function SpreadCanvas({
   onFit: (id: string, fit: Partial<Frame['fit']>) => void;
   onSwap: (sourceId: string, targetId: string) => void;
   onGestureStart: () => void;
+  textId: string | null;
+  onSelectText: (id: string) => void;
+  onChangeText: (id: string, change: Partial<TextBlock>) => void;
+  onOverflow: (id: string, overflowed: boolean) => void;
 }) {
   const { w, h } = design.size_mm;
+  const [snap, setSnap] = useState<{ x: number | null; y: number | null }>({ x: null, y: null });
+  const [overflowed, setOverflowed] = useState<Set<string>>(new Set());
   const pan = useRef<{ x: number; y: number; cx: number; cy: number } | null>(null);
   const safe = spec.bleed_mm + spec.safe_mm;
 
@@ -991,6 +1283,32 @@ function SpreadCanvas({
           </div>
         );
       })}
+      {design.texts.map((block) => (
+        <TextOnSpread
+          key={block.id}
+          block={block}
+          design={design}
+          spec={spec}
+          selected={block.id === textId}
+          overflowing={overflowed.has(block.id)}
+          onSelect={onSelectText}
+          onChange={onChangeText}
+          onGestureStart={onGestureStart}
+          onOverflow={(id, over) => {
+            onOverflow(id, over);
+            setOverflowed((before) => {
+              if (before.has(id) === over) return before;
+              const next = new Set(before);
+              if (over) next.add(id);
+              else next.delete(id);
+              return next;
+            });
+          }}
+          onSnap={setSnap}
+        />
+      ))}
+      {snap.x !== null && <span className="snap-line x" style={{ left: percent(snap.x, w) }} />}
+      {snap.y !== null && <span className="snap-line y" style={{ top: percent(snap.y, h) }} />}
       {guides && (
         <>
           <span className="guide trim" style={{ left: percent(spec.bleed_mm, w), right: percent(spec.bleed_mm, w), top: percent(spec.bleed_mm, h), bottom: percent(spec.bleed_mm, h) }} />

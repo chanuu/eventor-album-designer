@@ -71,6 +71,34 @@ pub enum Background {
     Color { value: String },
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TextAlign {
+    #[default]
+    Left,
+    Center,
+    Right,
+}
+
+/// A block of text on a spread, always drawn above the photos.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TextBlock {
+    pub id: String,
+    pub rect_mm: RectMm,
+    pub text: String,
+    /// An installed font family. Empty uses the default.
+    pub font: String,
+    pub size_pt: f64,
+    pub colour: String,
+    #[serde(default)]
+    pub align: TextAlign,
+    #[serde(default)]
+    pub bold: bool,
+    #[serde(default)]
+    pub italic: bool,
+    pub line_height: f64,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SpreadDesign {
     pub v: u32,
@@ -78,6 +106,9 @@ pub struct SpreadDesign {
     pub size_mm: SizeMm,
     pub background: Background,
     pub frames: Vec<Frame>,
+    /// Absent in albums saved before text existed.
+    #[serde(default)]
+    pub texts: Vec<TextBlock>,
 }
 
 /// Album formats studios order, as height x open width in inches: a 12x30 is 12 tall

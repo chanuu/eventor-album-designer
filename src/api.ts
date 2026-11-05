@@ -39,12 +39,26 @@ export type Frame = {
   z: number;
 };
 
+export type TextBlock = {
+  id: string;
+  rect_mm: { x: number; y: number; w: number; h: number };
+  text: string;
+  font: string;
+  size_pt: number;
+  colour: string;
+  align: 'left' | 'center' | 'right';
+  bold: boolean;
+  italic: boolean;
+  line_height: number;
+};
+
 export type SpreadDesign = {
   v: number;
   template_id: string | null;
   size_mm: { w: number; h: number };
   background: { type: 'color'; value: string };
   frames: Frame[];
+  texts: TextBlock[];
 };
 
 export type LayoutOption = {
@@ -129,6 +143,14 @@ export const suggestLayouts = (photos: PhotoInfo[], spec: ProjectSpec) =>
     photos: photos.map((p) => ({ asset_id: p.id, aspect: p.width / p.height })),
     spec,
   });
+
+export const listFonts = () => invoke<string[]>('list_fonts');
+
+export async function previewText(block: TextBlock): Promise<{ png: Blob; overflowed: boolean }> {
+  const buffer = await invoke<ArrayBuffer>('preview_text', { block });
+  const bytes = new Uint8Array(buffer);
+  return { png: new Blob([bytes.slice(1)], { type: 'image/png' }), overflowed: bytes[0] === 1 };
+}
 
 export const saveAlbum = (path: string, project: Project) =>
   invoke<void>('save_album', { path, project });
