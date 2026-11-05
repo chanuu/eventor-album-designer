@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/album-core", "crates/album-media", "src-tauri"]
+members = ["crates/album-core", "crates/album-export", "crates/album-media", "crates/album-store", "src-tauri"]
 resolver = "2"
 
 [workspace.package]
