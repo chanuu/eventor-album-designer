@@ -44,6 +44,9 @@ pub struct RectPct {
 #[serde(deny_unknown_fields)]
 pub struct TemplateFrame {
     pub rect_pct: RectPct,
+    /// Runs past the paper edge instead of stopping at the album's margin.
+    #[serde(default)]
+    pub bleed: bool,
     #[serde(default)]
     pub z: i32,
 }

@@ -75,9 +75,87 @@ pub struct SpreadDesign {
     pub frames: Vec<Frame>,
 }
 
-/// The printed album. Defaults for bleed and safe area are assumptions until the
-/// lab's real requirements are entered.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+/// Album formats studios order, as height x open width in inches: a 12x30 is 12 tall
+/// and 30 wide when open, so each page is 15 x 12.
+pub const SIZE_PRESETS_IN: &[(f64, f64)] = &[
+    (12.0, 30.0),
+    (12.0, 36.0),
+    (12.0, 28.0),
+    (12.0, 24.0),
+    (12.0, 20.0),
+    (12.0, 18.0),
+    (12.0, 16.0),
+    (15.0, 24.0),
+    (16.0, 24.0),
+    (17.0, 24.0),
+    (10.0, 30.0),
+    (10.0, 28.0),
+    (10.0, 24.0),
+    (10.0, 22.0),
+    (10.0, 20.0),
+    (10.0, 15.0),
+    (8.0, 30.0),
+    (8.0, 24.0),
+    (8.0, 22.0),
+    (8.0, 20.0),
+    (8.0, 18.0),
+    (8.0, 16.0),
+];
+
+pub const BLEED_OPTIONS_MM: &[f64] = &[0.0, 2.0, 3.0, 5.0];
+pub const DPI_OPTIONS: &[f64] = &[200.0, 254.0, 300.0, 400.0];
+pub const MARGIN_PRESETS_IN: &[(&str, f64)] = &[
+    ("None", 0.0),
+    ("Narrow", 0.2),
+    ("Standard", 0.35),
+    ("Wide", 0.6),
+];
+pub const GAP_PRESETS_IN: &[(&str, f64)] = &[
+    ("None", 0.0),
+    ("Fine", 0.05),
+    ("Standard", 0.1),
+    ("Wide", 0.2),
+];
+pub const PAPER_COLOURS: &[&str] = &[
+    "#FFFFFF", "#F7F3EA", "#EFE7DA", "#E6E6E6", "#2B2B2B", "#000000",
+];
+
+/// Below these a photo prints visibly soft. The lab's own limits may replace them.
+pub const DPI_WARN: f64 = 220.0;
+pub const DPI_TOO_LOW: f64 = 150.0;
+
+/// A margin beyond this share of the page would leave too little room for photos.
+const MAX_MARGIN_SHARE: f64 = 0.25;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Binding {
+    /// Thick pages that open flat, so photos can cross the fold. Usually fewer spreads.
+    Layflat,
+    /// Thin pages with more spreads, where the fold swallows some of the picture.
+    Magazine,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DpiStatus {
+    Good,
+    Low,
+    TooLow,
+}
+
+pub fn dpi_status(dpi: f64) -> DpiStatus {
+    if dpi < DPI_TOO_LOW {
+        DpiStatus::TooLow
+    } else if dpi < DPI_WARN {
+        DpiStatus::Low
+    } else {
+        DpiStatus::Good
+    }
+}
+
+/// The printed album. Bleed and safe area are assumptions until the lab's real
+/// requirements are entered.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProjectSpec {
     /// One page, not the open book.
     pub trim_w_mm: f64,
@@ -85,6 +163,12 @@ pub struct ProjectSpec {
     pub bleed_mm: f64,
     pub safe_mm: f64,
     pub target_dpi: f64,
+    pub binding: Binding,
+    /// Paper left around the photos at the outer edges. Applies to the whole album.
+    pub margin_mm: f64,
+    /// Paper between neighbouring photos. Applies to the whole album.
+    pub gap_mm: f64,
+    pub paper: String,
 }
 
 impl ProjectSpec {
@@ -96,7 +180,35 @@ impl ProjectSpec {
             bleed_mm: 3.0,
             safe_mm: 6.0,
             target_dpi: 300.0,
+            binding: Binding::Layflat,
+            margin_mm: 0.35 * MM_PER_INCH,
+            gap_mm: 0.1 * MM_PER_INCH,
+            paper: "#FFFFFF".to_string(),
         }
+    }
+
+    /// For a custom size entered in centimetres.
+    pub fn from_open_cm(open_width_cm: f64, height_cm: f64) -> Self {
+        Self::from_open_inches(
+            open_width_cm * 10.0 / MM_PER_INCH,
+            height_cm * 10.0 / MM_PER_INCH,
+        )
+    }
+
+    /// Catches values typed by hand that would produce a broken page.
+    pub fn validate(&self) -> Result<(), String> {
+        let sizes = [self.trim_w_mm, self.trim_h_mm, self.target_dpi];
+        if sizes.iter().any(|v| !v.is_finite() || *v <= 0.0) {
+            return Err("Size and DPI must be greater than zero.".to_string());
+        }
+        let spacing = [self.bleed_mm, self.safe_mm, self.margin_mm, self.gap_mm];
+        if spacing.iter().any(|v| !v.is_finite() || *v < 0.0) {
+            return Err("Bleed, margins and gaps cannot be negative.".to_string());
+        }
+        if self.margin_mm > self.trim_w_mm.min(self.trim_h_mm) * MAX_MARGIN_SHARE {
+            return Err("That margin is too large for this album size.".to_string());
+        }
+        Ok(())
     }
 
     /// The open book without bleed, which is the shape a layout is judged against.

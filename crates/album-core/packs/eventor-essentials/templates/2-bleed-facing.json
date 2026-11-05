@@ -5,7 +5,7 @@
   "spread_aspect": "any",
   "tags": ["bleed"],
   "frames": [
-    { "rect_pct": { "x": 0, "y": 0, "w": 0.5, "h": 1 } },
-    { "rect_pct": { "x": 0.508, "y": 0.51, "w": 0.472, "h": 0.44 } }
+    { "rect_pct": { "x": 0, "y": 0, "w": 0.5, "h": 1 }, "bleed": true },
+    { "rect_pct": { "x": 0.5, "y": 0, "w": 0.5, "h": 1 }, "bleed": true }
   ]
 }

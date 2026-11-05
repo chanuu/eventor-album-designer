@@ -9,7 +9,7 @@ use pathfinding::prelude::{kuhn_munkres, Matrix};
 use crate::document::{
     Background, Fit, Frame, ProjectSpec, RectMm, SpreadDesign, DOCUMENT_VERSION,
 };
-use crate::pack::{RectPct, Template, TemplateRegistry};
+use crate::pack::{RectPct, Template, TemplateFrame, TemplateRegistry};
 
 /// Exact assignment is instant at this size, and beyond it selection order is fine.
 const MAX_OPTIMAL_ASSIGNMENT: usize = 8;
@@ -130,31 +130,43 @@ pub fn cycle_index(current: usize, len: usize, step: isize) -> usize {
     (current as isize + step).rem_euclid(len as isize) as usize
 }
 
-/// Converts template fractions to millimetres on the printed canvas.
+/// Converts a template frame to millimetres on the printed canvas.
 ///
-/// Fractions describe the trimmed spread, and bleed sits outside it. An edge touching
-/// the trim is pushed out to the canvas edge, so a full-bleed frame really does print
-/// past the cut instead of leaving a white line.
-pub fn rect_to_mm(rect: &RectPct, spec: &ProjectSpec) -> RectMm {
+/// Layouts run edge to edge, and spacing is applied here, so one margin or gap setting
+/// respaces the whole album without touching any layout. A frame that bleeds, or any
+/// frame when the margin is zero, is pushed past the trim to the canvas edge, so it
+/// prints beyond the cut instead of leaving a white line.
+pub fn rect_to_mm(frame: &TemplateFrame, spec: &ProjectSpec) -> RectMm {
     const EDGE: f64 = 1e-6;
+    let rect = &frame.rect_pct;
     let bleed = spec.bleed_mm;
     let trim_w = spec.trim_w_mm * 2.0;
     let trim_h = spec.trim_h_mm;
+    let to_paper_edge = frame.bleed || spec.margin_mm <= 0.0;
+    let half_gap = spec.gap_mm / 2.0;
 
-    let edge = |fraction: f64, trim: f64| {
+    let edge = |fraction: f64, trim: f64, inward: f64| {
         if fraction <= EDGE {
-            0.0
+            if to_paper_edge {
+                0.0
+            } else {
+                bleed + spec.margin_mm
+            }
         } else if fraction >= 1.0 - EDGE {
-            trim + bleed * 2.0
+            if to_paper_edge {
+                trim + bleed * 2.0
+            } else {
+                bleed + trim - spec.margin_mm
+            }
         } else {
-            bleed + fraction * trim
+            bleed + fraction * trim + inward * half_gap
         }
     };
 
-    let left = edge(rect.x, trim_w);
-    let right = edge(rect.x + rect.w, trim_w);
-    let top = edge(rect.y, trim_h);
-    let bottom = edge(rect.y + rect.h, trim_h);
+    let left = edge(rect.x, trim_w, 1.0);
+    let right = edge(rect.x + rect.w, trim_w, -1.0);
+    let top = edge(rect.y, trim_h, 1.0);
+    let bottom = edge(rect.y + rect.h, trim_h, -1.0);
     RectMm {
         x: left,
         y: top,
@@ -184,7 +196,7 @@ pub fn apply_layout(
         template_id: Some(template.id.clone()),
         size_mm: spec.canvas_mm(),
         background: Background::Color {
-            value: "#FFFFFF".to_string(),
+            value: spec.paper.clone(),
         },
         frames: template
             .frames
@@ -192,7 +204,7 @@ pub fn apply_layout(
             .enumerate()
             .map(|(i, frame)| Frame {
                 id: format!("f{}", i + 1),
-                rect_mm: rect_to_mm(&frame.rect_pct, spec),
+                rect_mm: rect_to_mm(frame, spec),
                 corner_radius_mm: 0.0,
                 asset_id: photo_in_frame(i),
                 fit: Fit::default(),

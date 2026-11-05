@@ -5,8 +5,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use album_core::autolayout::{
     apply_layout, crop_loss, cycle_index, rank_layouts, rect_to_mm, Photo,
 };
-use album_core::document::{effective_dpi, visible_area, Fit, Frame, ProjectSpec, RectMm};
-use album_core::pack::{builtin_pack, load_pack_dir, RectPct, TemplateRegistry};
+use album_core::document::{
+    dpi_status, effective_dpi, visible_area, Background, DpiStatus, Fit, Frame, ProjectSpec,
+    RectMm, BLEED_OPTIONS_MM, DPI_OPTIONS, SIZE_PRESETS_IN,
+};
+use album_core::pack::{builtin_pack, load_pack_dir, RectPct, TemplateFrame, TemplateRegistry};
 
 const LANDSCAPE: f64 = 1.5;
 const PORTRAIT: f64 = 2.0 / 3.0;
@@ -168,20 +171,20 @@ fn crop_never_leaves_the_photo_or_distorts_it() {
     }
 }
 
+fn frame(x: f64, y: f64, w: f64, h: f64, bleed: bool) -> TemplateFrame {
+    TemplateFrame {
+        rect_pct: RectPct { x, y, w, h },
+        bleed,
+        z: 0,
+    }
+}
+
 #[test]
-fn full_bleed_edges_reach_past_the_trim_and_inner_edges_do_not() {
+fn bleeding_frames_reach_past_the_trim_and_others_stop_at_the_margin() {
     let s = spec();
     let canvas = s.canvas_mm();
 
-    let full = rect_to_mm(
-        &RectPct {
-            x: 0.0,
-            y: 0.0,
-            w: 1.0,
-            h: 1.0,
-        },
-        &s,
-    );
+    let full = rect_to_mm(&frame(0.0, 0.0, 1.0, 1.0, true), &s);
     assert_eq!(
         full,
         RectMm {
@@ -192,19 +195,127 @@ fn full_bleed_edges_reach_past_the_trim_and_inner_edges_do_not() {
         }
     );
 
-    // The fold stays in the middle of the canvas, however much bleed there is.
-    let left = rect_to_mm(
-        &RectPct {
-            x: 0.0,
-            y: 0.0,
-            w: 0.5,
-            h: 1.0,
-        },
-        &s,
-    );
-    assert!((left.x + left.w - canvas.w / 2.0).abs() < 1e-9);
+    let inside = rect_to_mm(&frame(0.0, 0.0, 1.0, 1.0, false), &s);
+    assert!((inside.x - (s.bleed_mm + s.margin_mm)).abs() < 1e-9);
+    assert!((inside.w - (canvas.w - 2.0 * (s.bleed_mm + s.margin_mm))).abs() < 1e-9);
 }
 
+#[test]
+fn a_zero_margin_prints_past_the_cut_rather_than_leaving_a_white_line() {
+    let s = ProjectSpec {
+        margin_mm: 0.0,
+        ..spec()
+    };
+    let rect = rect_to_mm(&frame(0.0, 0.0, 0.5, 1.0, false), &s);
+    assert_eq!((rect.x, rect.y), (0.0, 0.0));
+    assert!((rect.h - s.canvas_mm().h).abs() < 1e-9);
+}
+
+#[test]
+fn neighbours_are_one_gap_apart_and_centred_on_the_fold() {
+    let s = spec();
+    let left = rect_to_mm(&frame(0.0, 0.0, 0.5, 1.0, false), &s);
+    let right = rect_to_mm(&frame(0.5, 0.0, 0.5, 1.0, false), &s);
+    let space = right.x - (left.x + left.w);
+    assert!((space - s.gap_mm).abs() < 1e-9);
+
+    let fold = s.canvas_mm().w / 2.0;
+    assert!((left.x + left.w + s.gap_mm / 2.0 - fold).abs() < 1e-9);
+}
+
+#[test]
+fn changing_spacing_respaces_a_layout_without_changing_its_photos() {
+    let registry = TemplateRegistry::with_builtin();
+    let selection = photos(&[LANDSCAPE; 4]);
+    let layout = &rank_layouts(&registry, &selection, &spec())[0];
+    let template = registry.get(&layout.template_id).unwrap();
+
+    let tight = ProjectSpec {
+        gap_mm: 0.0,
+        ..spec()
+    };
+    let wide = ProjectSpec {
+        gap_mm: 10.0,
+        paper: "#000000".to_string(),
+        ..spec()
+    };
+    let a = apply_layout(template, &selection, layout, &tight);
+    let b = apply_layout(template, &selection, layout, &wide);
+    assert_ne!(a.frames[0].rect_mm, b.frames[0].rect_mm);
+    for (x, y) in a.frames.iter().zip(&b.frames) {
+        assert_eq!(x.asset_id, y.asset_id);
+    }
+    assert_eq!(
+        b.background,
+        Background::Color {
+            value: "#000000".to_string()
+        }
+    );
+}
+
+#[test]
+fn every_builtin_layout_stays_on_the_canvas_with_the_widest_settings() {
+    let s = ProjectSpec {
+        margin_mm: 0.6 * 25.4,
+        gap_mm: 0.2 * 25.4,
+        bleed_mm: 5.0,
+        ..ProjectSpec::from_open_inches(16.0, 8.0)
+    };
+    let canvas = s.canvas_mm();
+    for template in builtin_pack().templates {
+        for f in &template.frames {
+            let r = rect_to_mm(f, &s);
+            assert!(r.w > 0.0 && r.h > 0.0, "{}", template.id);
+            assert!(r.x >= 0.0 && r.y >= 0.0, "{}", template.id);
+            assert!(r.x + r.w <= canvas.w + 1e-9, "{}", template.id);
+            assert!(r.y + r.h <= canvas.h + 1e-9, "{}", template.id);
+        }
+    }
+}
+
+#[test]
+fn size_presets_produce_the_right_pages_and_valid_specs() {
+    assert_eq!(SIZE_PRESETS_IN.len(), 22);
+    for &(height, open_width) in SIZE_PRESETS_IN {
+        ProjectSpec::from_open_inches(open_width, height)
+            .validate()
+            .unwrap();
+    }
+    let s = spec();
+    assert!((s.trim_w_mm - 15.0 * 25.4).abs() < 1e-9);
+    assert!((s.trim_h_mm - 12.0 * 25.4).abs() < 1e-9);
+
+    let cm = ProjectSpec::from_open_cm(76.2, 30.48);
+    assert!((cm.trim_w_mm - s.trim_w_mm).abs() < 1e-9);
+    assert_eq!(BLEED_OPTIONS_MM, &[0.0, 2.0, 3.0, 5.0]);
+    assert_eq!(DPI_OPTIONS, &[200.0, 254.0, 300.0, 400.0]);
+}
+
+#[test]
+fn bad_hand_typed_settings_are_refused() {
+    let zero = ProjectSpec::from_open_inches(0.0, 12.0);
+    assert!(zero.validate().is_err());
+    let not_a_number = ProjectSpec::from_open_inches(f64::NAN, 12.0);
+    assert!(not_a_number.validate().is_err());
+    let negative = ProjectSpec {
+        gap_mm: -1.0,
+        ..spec()
+    };
+    assert!(negative.validate().is_err());
+    let huge = ProjectSpec {
+        margin_mm: 500.0,
+        ..spec()
+    };
+    assert!(huge.validate().is_err());
+}
+
+#[test]
+fn dpi_status_marks_soft_photos() {
+    assert_eq!(dpi_status(300.0), DpiStatus::Good);
+    assert_eq!(dpi_status(220.0), DpiStatus::Good);
+    assert_eq!(dpi_status(181.0), DpiStatus::Low);
+    assert_eq!(dpi_status(149.0), DpiStatus::TooLow);
+}
 #[test]
 fn twelve_by_thirty_has_the_expected_canvas() {
     let canvas = spec().canvas_mm();
