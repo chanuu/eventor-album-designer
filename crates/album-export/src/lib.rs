@@ -231,7 +231,8 @@ pub fn render_spread(
             area.sw * f64::from(photo_w),
             area.sh * f64::from(photo_h),
         );
-        let tile = crop_and_resize(original, crop, (pixel_w as u32, pixel_h as u32))?;
+        let mut tile = crop_and_resize(original, crop, (pixel_w as u32, pixel_h as u32))?;
+        frame.adjust.apply_rgb(&mut tile);
         imageops::replace(&mut canvas, &tile, left, top);
     }
     Ok(canvas)
@@ -541,6 +542,7 @@ mod tests {
             id: format!("frame-{id}"),
             rect_mm,
             corner_radius_mm: 0.0,
+            adjust: Default::default(),
             asset_id: Some(id.to_string()),
             fit,
             z: 0,
@@ -660,6 +662,19 @@ mod tests {
             close_to(image.get_pixel(w - 1, h / 2), RED),
             "blue is zoomed out of view"
         );
+    }
+
+    #[test]
+    fn effects_reach_the_print() {
+        let dir = TempDir::new();
+        let photo = split_photo(&dir.0, "a.png", 800, 400);
+        let photos = HashMap::from([("a.png", &photo)]);
+        let mut mono = frame(whole_canvas(), "a.png", Fit::default());
+        mono.adjust.black_and_white = true;
+        let d = design(vec![mono], "#FFFFFF");
+        let image = render_spread(&d, &spec(), &photos).unwrap();
+        let [r, g, b] = image.get_pixel(0, image.height() / 2).0;
+        assert!(r == g && g == b, "expected grey, got {r} {g} {b}");
     }
 
     #[test]

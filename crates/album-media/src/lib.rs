@@ -7,6 +7,7 @@ use std::fs::{self, File};
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
 
+use album_core::adjust::Adjustments;
 use image::metadata::Orientation;
 use image::{DynamicImage, ImageReader};
 use rayon::prelude::*;
@@ -269,6 +270,30 @@ pub fn ensure_preview(
         let _ = fs::remove_file(&temp);
     }
     result.map(|()| target)
+}
+
+/// A preview with adjustments applied, as JPEG bytes.
+///
+/// Not cached, because it changes with every slider movement and starts from a preview
+/// that already is. This runs the same function as the exporter, so it shows what prints.
+pub fn adjusted_preview(preview: &Path, adjust: &Adjustments) -> Result<Vec<u8>, MediaError> {
+    let mut image = image::open(preview)
+        .map_err(|e| MediaError::Read {
+            path: preview.display().to_string(),
+            reason: e.to_string(),
+        })?
+        .into_rgb8();
+    adjust.apply_rgb(&mut image);
+
+    let mut bytes = Vec::new();
+    let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(
+        std::io::Cursor::new(&mut bytes),
+        PREVIEW_JPEG_QUALITY,
+    );
+    image
+        .write_with_encoder(encoder)
+        .map_err(|e| MediaError::Write(e.to_string()))?;
+    Ok(bytes)
 }
 
 #[cfg(test)]

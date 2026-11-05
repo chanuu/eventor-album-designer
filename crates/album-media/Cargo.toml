@@ -6,6 +6,7 @@ version.workspace = true
 publish.workspace = true
 
 [dependencies]
+album-core = { path = "../album-core" }
 blake3 = "1"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 kamadak-exif = "0.6"

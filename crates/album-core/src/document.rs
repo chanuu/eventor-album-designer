@@ -6,6 +6,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::adjust::Adjustments;
+
 pub const DOCUMENT_VERSION: u32 = 1;
 
 const MM_PER_INCH: f64 = 25.4;
@@ -56,6 +58,9 @@ pub struct Frame {
     pub corner_radius_mm: f64,
     pub asset_id: Option<String>,
     pub fit: Fit,
+    /// Tone and colour for this photo. Absent in albums saved before effects existed.
+    #[serde(default)]
+    pub adjust: Adjustments,
     #[serde(default)]
     pub z: i32,
 }

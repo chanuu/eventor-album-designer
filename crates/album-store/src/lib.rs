@@ -201,6 +201,7 @@ mod tests {
                             h: 310.8,
                         },
                         corner_radius_mm: 0.0,
+                        adjust: Default::default(),
                         asset_id: Some("photo-1".into()),
                         fit: Fit {
                             scale: 1.5,

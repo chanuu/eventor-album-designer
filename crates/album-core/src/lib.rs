@@ -3,6 +3,7 @@
 //! This crate does no file decoding, drawing or networking, so everything in it can
 //! be tested without a window or a photo. The only I/O is reading layout packs.
 
+pub mod adjust;
 pub mod autolayout;
 pub mod document;
 pub mod pack;

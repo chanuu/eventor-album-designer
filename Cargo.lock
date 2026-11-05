@@ -48,6 +48,7 @@ dependencies = [
 name = "album-media"
 version = "0.1.0"
 dependencies = [
+ "album-core",
  "blake3",
  "image",
  "kamadak-exif",

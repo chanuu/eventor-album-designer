@@ -334,6 +334,7 @@ fn effective_dpi_flags_a_proof_sized_photo() {
             h: 304.8,
         }, // 15 x 12 in
         corner_radius_mm: 0.0,
+        adjust: Default::default(),
         asset_id: None,
         fit: Fit::default(),
         z: 0,

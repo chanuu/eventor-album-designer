@@ -5,6 +5,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+use album_core::adjust::Adjustments;
 use album_core::autolayout::{apply_layout, rank_layouts, Photo};
 use album_core::document::{
     Binding, ProjectSpec, SpreadDesign, BLEED_OPTIONS_MM, DPI_OPTIONS, DPI_TOO_LOW, DPI_WARN,
@@ -12,7 +13,9 @@ use album_core::document::{
 };
 use album_core::pack::{load_pack_dir, TemplateRegistry};
 use album_export::{check_album, export_album, ExportFormats, ExportResult, Issue};
-use album_media::{ensure_preview, scan_folder, PhotoInfo, PreviewTier, ScanResult};
+use album_media::{
+    adjusted_preview, ensure_preview, scan_folder, PhotoInfo, PreviewTier, ScanResult,
+};
 use album_store::{load_project, save_project, Project, StoreError};
 use serde::{Deserialize, Serialize};
 use tauri::http::{header, Response, StatusCode};
@@ -117,6 +120,7 @@ struct PhotoInput {
 struct LayoutOption {
     template_id: String,
     name: String,
+    tags: Vec<String>,
     crop_loss: f64,
     design: SpreadDesign,
 }
@@ -143,6 +147,7 @@ fn suggest_layouts(
             Some(LayoutOption {
                 template_id: layout.template_id.clone(),
                 name: template.name.clone(),
+                tags: template.tags.clone(),
                 crop_loss: layout.crop_loss,
                 design: apply_layout(template, &photos, &layout, &spec),
             })
@@ -289,11 +294,22 @@ fn requested_width(query: Option<&str>) -> u32 {
         .unwrap_or(0)
 }
 
+/// Adjustments from `?fx=...`. A bad value just means no change.
+fn requested_adjustments(query: Option<&str>) -> Adjustments {
+    query
+        .into_iter()
+        .flat_map(|q| q.split('&'))
+        .find_map(|pair| pair.strip_prefix("fx="))
+        .map(Adjustments::from_query)
+        .unwrap_or_default()
+}
+
 fn serve_preview(
     photos: &Mutex<HashMap<String, PhotoInfo>>,
     cache_dir: &std::path::Path,
     id: &str,
     width: u32,
+    adjust: &Adjustments,
 ) -> Response<Vec<u8>> {
     let photo = photos.lock().ok().and_then(|map| map.get(id).cloned());
     let Some(photo) = photo else {
@@ -302,7 +318,13 @@ fn serve_preview(
 
     let bytes = ensure_preview(&photo, cache_dir, PreviewTier::from_width(width))
         .map_err(|e| e.to_string())
-        .and_then(|path| fs::read(path).map_err(|e| e.to_string()));
+        .and_then(|path| {
+            if adjust.is_identity() {
+                fs::read(path).map_err(|e| e.to_string())
+            } else {
+                adjusted_preview(&path, adjust).map_err(|e| e.to_string())
+            }
+        });
     match bytes {
         Ok(bytes) => Response::builder()
             .status(StatusCode::OK)
@@ -330,8 +352,9 @@ fn main() {
                 .unwrap_or_default()
                 .to_string();
             let width = requested_width(request.uri().query());
+            let adjust = requested_adjustments(request.uri().query());
             pool.spawn(move || {
-                responder.respond(serve_preview(&photos, &cache_dir, &id, width));
+                responder.respond(serve_preview(&photos, &cache_dir, &id, width, &adjust));
             });
         })
         .setup(|app| {

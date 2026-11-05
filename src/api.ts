@@ -18,12 +18,24 @@ export type ProjectSpec = {
 
 export type Fit = { scale: number; cx: number; cy: number; rot_deg: number };
 
+export type Adjustments = {
+  exposure: number;
+  contrast: number;
+  highlights: number;
+  shadows: number;
+  temperature: number;
+  tint: number;
+  saturation: number;
+  black_and_white: boolean;
+};
+
 export type Frame = {
   id: string;
   rect_mm: { x: number; y: number; w: number; h: number };
   corner_radius_mm: number;
   asset_id: string | null;
   fit: Fit;
+  adjust: Adjustments;
   z: number;
 };
 
@@ -38,6 +50,7 @@ export type SpreadDesign = {
 export type LayoutOption = {
   template_id: string;
   name: string;
+  tags: string[];
   crop_loss: number;
   design: SpreadDesign;
 };
@@ -152,6 +165,18 @@ const PREVIEW_ORIGIN = navigator.userAgent.includes('Windows')
   ? 'http://album.localhost'
   : 'album://localhost';
 
-export function previewUrl(photoId: string, width: number): string {
-  return `${PREVIEW_ORIGIN}/preview/${photoId}?w=${width}`;
+export function previewUrl(photoId: string, width: number, adjust?: Adjustments): string {
+  const base = `${PREVIEW_ORIGIN}/preview/${photoId}?w=${width}`;
+  if (!adjust) return base;
+  const values = [
+    adjust.exposure,
+    adjust.contrast,
+    adjust.highlights,
+    adjust.shadows,
+    adjust.temperature,
+    adjust.tint,
+    adjust.saturation,
+    adjust.black_and_white ? 1 : 0,
+  ];
+  return values.every((v) => v === 0) ? base : `${base}&fx=${values.join(',')}`;
 }

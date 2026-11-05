@@ -213,14 +213,38 @@ mod tests {
     #[test]
     fn tone_controls_never_invert_the_image() {
         for adjust in [
-            Adjustments { contrast: 1.0, ..Adjustments::default() },
-            Adjustments { contrast: -1.0, ..Adjustments::default() },
-            Adjustments { shadows: 1.0, ..Adjustments::default() },
-            Adjustments { shadows: -1.0, ..Adjustments::default() },
-            Adjustments { highlights: 1.0, ..Adjustments::default() },
-            Adjustments { highlights: -1.0, ..Adjustments::default() },
-            Adjustments { exposure: 2.0, ..Adjustments::default() },
-            Adjustments { exposure: -2.0, ..Adjustments::default() },
+            Adjustments {
+                contrast: 1.0,
+                ..Adjustments::default()
+            },
+            Adjustments {
+                contrast: -1.0,
+                ..Adjustments::default()
+            },
+            Adjustments {
+                shadows: 1.0,
+                ..Adjustments::default()
+            },
+            Adjustments {
+                shadows: -1.0,
+                ..Adjustments::default()
+            },
+            Adjustments {
+                highlights: 1.0,
+                ..Adjustments::default()
+            },
+            Adjustments {
+                highlights: -1.0,
+                ..Adjustments::default()
+            },
+            Adjustments {
+                exposure: 2.0,
+                ..Adjustments::default()
+            },
+            Adjustments {
+                exposure: -2.0,
+                ..Adjustments::default()
+            },
         ] {
             let table = adjust.lookup_tables()[1];
             assert!(table.windows(2).all(|w| w[0] <= w[1]), "{adjust:?}");
