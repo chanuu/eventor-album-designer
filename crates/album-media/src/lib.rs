@@ -7,6 +7,8 @@ use std::fs::{self, File};
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
 
+pub mod analyze;
+
 use album_core::adjust::Adjustments;
 use image::metadata::Orientation;
 use image::{DynamicImage, ImageReader};

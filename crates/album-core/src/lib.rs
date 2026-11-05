@@ -4,6 +4,7 @@
 //! be tested without a window or a photo. The only I/O is reading layout packs.
 
 pub mod adjust;
+pub mod autobuild;
 pub mod autolayout;
 pub mod document;
 pub mod pack;
