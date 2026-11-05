@@ -50,6 +50,16 @@ fn invalid(reason: impl Into<String>) -> StoreError {
     StoreError::Invalid(reason.into())
 }
 
+/// Photo ids name files in the preview cache, and an album file can say anything. One
+/// with a path in it could otherwise make the app write outside that cache.
+fn safe_photo_id(id: &str) -> bool {
+    const MAX_ID_LENGTH: usize = 128;
+    !id.is_empty()
+        && id.len() <= MAX_ID_LENGTH
+        && !id.starts_with('.')
+        && !id.contains(['/', '\\', ':'])
+}
+
 impl Project {
     /// Checks everything the rest of the app relies on being sensible.
     pub fn validate(&self) -> Result<(), StoreError> {
@@ -57,6 +67,10 @@ impl Project {
             return Err(StoreError::TooNew);
         }
         self.spec.validate().map_err(invalid)?;
+
+        if self.photos.iter().any(|p| !safe_photo_id(&p.id)) {
+            return Err(invalid("a photo has an unusable id"));
+        }
 
         // A file can name any path, so only photo files may be read through it.
         if let Some(photo) = self.photos.iter().find(|p| !is_photo(&p.path)) {
@@ -277,6 +291,16 @@ mod tests {
         let file = dir.0.join("x.evalbum");
         fs::write(&file, serde_json::to_vec(&album).unwrap()).unwrap();
         assert!(matches!(load_project(&file), Err(StoreError::Invalid(_))));
+    }
+
+    #[test]
+    fn a_photo_id_cannot_lead_outside_the_preview_cache() {
+        let dir = TempDir::new();
+        for id in ["../../evil", "..\\evil", "C:evil", "..", ".hidden", ""] {
+            let mut album = project(&dir.0.join("a.jpg"));
+            album.photos[0].id = id.to_string();
+            assert!(album.validate().is_err(), "{id:?}");
+        }
     }
 
     #[test]
