@@ -7,31 +7,48 @@ later be published to the client flipbook in Eventor.
 
 ## Status
 
-Milestone 1 is in progress. So far there is only `crates/album-core`:
+Milestone 1 is in progress. The app runs, and you can:
 
-- the design document and the crop maths
-- layout packs, loaded as data and validated as untrusted input
-- auto-picking a layout by photo count and shape
-- the built-in pack, `eventor-essentials`, with 19 layouts for 1 to 6 photos
+- set up an album: size, binding, margin, gap, bleed, DPI and paper
+- import a folder of photos, with previews made on demand
+- select photos and get a layout picked automatically, then switch with `[` and `]`
+- drag photos onto a spread, swap them, zoom and reposition them, and reorder spreads
+- see the print DPI of each photo, with print guides for the trim, safe area and fold
 
-There is no app window, photo import or export yet.
+Albums are not saved yet, and there is no export. See
+[docs/feature-roadmap.md](docs/feature-roadmap.md) for what comes next.
 
 ## Setup on Windows
 
-1. Install Rust from <https://rustup.rs>.
-2. In Visual Studio Installer, add the **Desktop development with C++** workload.
-   Tauri needs it to build.
+1. Install Rust from <https://rustup.rs>, Node.js, and pnpm.
+2. Install the C++ tools, which Tauri needs to build. Close Visual Studio first:
+
+   ```
+   winget install --id Microsoft.VisualStudio.2022.BuildTools --override "--passive --wait --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+   ```
+
+3. Install the packages and start the app:
+
+   ```
+   pnpm install
+   pnpm tauri dev
+   ```
+
+The first build takes several minutes.
+
+## Tests
 
 ```
-cargo test
+cargo test --workspace
 ```
 
-Until the C++ tools are installed, `album-core` can be tested with the GNU toolchain:
+## Layout of the code
 
-```
-rustup toolchain install stable-x86_64-pc-windows-gnu
-cargo +stable-x86_64-pc-windows-gnu test
-```
+- `crates/album-core`: the design document, layout packs and auto-layout. No UI.
+- `crates/album-media`: finding photos and making preview copies. Originals are never
+  changed.
+- `src-tauri`: the desktop app, which connects these to the screens.
+- `src`: the screens, in React.
 
 ## Layout packs
 

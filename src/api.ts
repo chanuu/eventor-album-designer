@@ -1,0 +1,104 @@
+import { invoke } from '@tauri-apps/api/core';
+
+/** Shapes shared with the Rust side. Rust owns the rules; this only displays them. */
+
+export type Binding = 'layflat' | 'magazine';
+
+export type ProjectSpec = {
+  trim_w_mm: number;
+  trim_h_mm: number;
+  bleed_mm: number;
+  safe_mm: number;
+  target_dpi: number;
+  binding: Binding;
+  margin_mm: number;
+  gap_mm: number;
+  paper: string;
+};
+
+export type Fit = { scale: number; cx: number; cy: number; rot_deg: number };
+
+export type Frame = {
+  id: string;
+  rect_mm: { x: number; y: number; w: number; h: number };
+  corner_radius_mm: number;
+  asset_id: string | null;
+  fit: Fit;
+  z: number;
+};
+
+export type SpreadDesign = {
+  v: number;
+  template_id: string | null;
+  size_mm: { w: number; h: number };
+  background: { type: 'color'; value: string };
+  frames: Frame[];
+};
+
+export type LayoutOption = {
+  template_id: string;
+  name: string;
+  crop_loss: number;
+  design: SpreadDesign;
+};
+
+export type PhotoInfo = {
+  id: string;
+  path: string;
+  file_name: string;
+  width: number;
+  height: number;
+};
+
+export type ScanResult = {
+  photos: PhotoInfo[];
+  skipped: { file_name: string; reason: string }[];
+};
+
+export type PrintOptions = {
+  sizes_in: [number, number][];
+  bleed_mm: number[];
+  dpi: number[];
+  margins_in: [string, number][];
+  gaps_in: [string, number][];
+  paper: string[];
+  dpi_warn: number;
+  dpi_too_low: number;
+};
+
+export type NewAlbumSettings = {
+  open_width_in: number;
+  height_in: number;
+  binding: Binding;
+  margin_in: number;
+  gap_in: number;
+  bleed_mm: number;
+  target_dpi: number;
+  paper: string;
+};
+
+export const printOptions = () => invoke<PrintOptions>('print_options');
+
+export const makeSpec = (settings: NewAlbumSettings) =>
+  invoke<ProjectSpec>('make_spec', { settings });
+
+export const importFolder = (path: string) => invoke<ScanResult>('import_folder', { path });
+
+export const suggestLayouts = (photos: PhotoInfo[], spec: ProjectSpec) =>
+  invoke<LayoutOption[]>('suggest_layouts', {
+    photos: photos.map((p) => ({ asset_id: p.id, aspect: p.width / p.height })),
+    spec,
+  });
+
+/** Grid size and frame size. They match the two preview sizes Rust keeps. */
+export const GRID_PREVIEW = 512;
+export const EDIT_PREVIEW = 2048;
+
+/** WebView2 serves custom schemes from http://<scheme>.localhost. */
+const PREVIEW_ORIGIN = navigator.userAgent.includes('Windows')
+  ? 'http://album.localhost'
+  : 'album://localhost';
+
+export function previewUrl(photoId: string, width: number): string {
+  return `${PREVIEW_ORIGIN}/preview/${photoId}?w=${width}`;
+}
