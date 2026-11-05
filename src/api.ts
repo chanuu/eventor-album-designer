@@ -48,6 +48,33 @@ export type PhotoInfo = {
   file_name: string;
   width: number;
   height: number;
+  orientation: number;
+};
+
+/** A spread in the editor. `options` are worked out again when an album is opened. */
+export type Spread = {
+  id: string;
+  photoIds: string[];
+  options: LayoutOption[];
+  optionIndex: number;
+  design: SpreadDesign;
+};
+
+/** The album file's form of a spread. */
+export type SavedSpread = {
+  id: string;
+  photo_ids: string[];
+  option_index: number;
+  design: SpreadDesign;
+};
+
+export type Project = {
+  version: number;
+  name: string;
+  size_label: string;
+  spec: ProjectSpec;
+  photos: PhotoInfo[];
+  spreads: SavedSpread[];
 };
 
 export type ScanResult = {
@@ -89,6 +116,15 @@ export const suggestLayouts = (photos: PhotoInfo[], spec: ProjectSpec) =>
     photos: photos.map((p) => ({ asset_id: p.id, aspect: p.width / p.height })),
     spec,
   });
+
+export const saveAlbum = (path: string, project: Project) =>
+  invoke<void>('save_album', { path, project });
+
+export const openAlbum = (path: string) =>
+  invoke<{ project: Project; missing: string[] }>('open_album', { path });
+
+export const relinkPhotos = (folder: string, ids: string[]) =>
+  invoke<PhotoInfo[]>('relink_photos', { folder, ids });
 
 /** Grid size and frame size. They match the two preview sizes Rust keeps. */
 export const GRID_PREVIEW = 512;

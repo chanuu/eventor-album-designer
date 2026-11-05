@@ -1,27 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { open } from '@tauri-apps/plugin-dialog';
+import { ask, open, save } from '@tauri-apps/plugin-dialog';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
   EDIT_PREVIEW,
   GRID_PREVIEW,
   importFolder,
   previewUrl,
   printOptions,
+  relinkPhotos,
+  saveAlbum,
   suggestLayouts,
   type Frame,
-  type LayoutOption,
   type PhotoInfo,
+  type Spread,
   type SpreadDesign,
 } from './api';
 import type { Album } from './App';
 import { effectiveDpi, visibleArea } from './crop';
-
-type Spread = {
-  id: string;
-  photoIds: string[];
-  options: LayoutOption[];
-  optionIndex: number;
-  design: SpreadDesign;
-};
+import { useHistory } from './history';
+import { ALBUM_EXTENSION, ALBUM_FILTERS, toProject } from './project';
 
 type Thresholds = { warn: number; tooLow: number };
 
@@ -29,15 +26,25 @@ const DRAG_PHOTOS = 'application/x-album-photos';
 const DRAG_FRAME = 'application/x-album-frame';
 const MAX_ZOOM = 3;
 
+/** How long after the last change an already-saved album saves itself. */
+const AUTOSAVE_DELAY_MS = 1500;
+
+type SaveStatus = 'saved' | 'unsaved' | 'saving' | 'failed';
+
 function percent(part: number, whole: number): string {
   return `${(part / whole) * 100}%`;
 }
 
 export default function Workspace({ album }: { album: Album }) {
   const { spec } = album;
-  const [photos, setPhotos] = useState<PhotoInfo[]>([]);
-  const [spreads, setSpreads] = useState<Spread[]>([]);
-  const [currentId, setCurrentId] = useState<string | null>(null);
+  const [photos, setPhotos] = useState<PhotoInfo[]>(album.photos);
+  const history = useHistory<Spread[]>(album.spreads);
+  const spreads = history.present;
+  const setSpreads = history.set;
+  const [missing, setMissing] = useState<Set<string>>(new Set(album.missing));
+  const [path, setPath] = useState<string | null>(album.path);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>(album.path ? 'saved' : 'unsaved');
+  const [currentId, setCurrentId] = useState<string | null>(album.spreads[0]?.id ?? null);
   const [frameId, setFrameId] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState<'all' | 'unused' | 'used'>('all');
@@ -59,11 +66,117 @@ export default function Workspace({ album }: { album: Album }) {
 
   const usedIds = useMemo(() => new Set(spreads.flatMap((s) => s.photoIds)), [spreads]);
 
+  // Undo can remove the spread on screen, so fall back to one that still exists.
+  useEffect(() => {
+    if (!spreads.some((s) => s.id === currentId)) setCurrentId(spreads[0]?.id ?? null);
+  }, [spreads, currentId]);
+
+  const latest = useRef({ photos, spreads, path, dirty: false });
+  latest.current.path = path;
+  useEffect(() => {
+    if (latest.current.photos === photos && latest.current.spreads === spreads) return;
+    latest.current = { ...latest.current, photos, spreads, dirty: true };
+    setSaveStatus('unsaved');
+  }, [photos, spreads]);
+
+  // One save at a time, because they share a temporary file.
+  const saving = useRef<Promise<unknown>>(Promise.resolve());
+
+  /** Writes the album. Resolves to false if it could not. */
+  const writeTo = useCallback((target: string) => {
+    const run = async () => {
+      const snapshot = latest.current;
+      setSaveStatus('saving');
+      try {
+        await saveAlbum(target, toProject(album, snapshot.photos, snapshot.spreads));
+        if (latest.current === snapshot) {
+          latest.current.dirty = false;
+          setSaveStatus('saved');
+        } else {
+          setSaveStatus('unsaved');
+        }
+        return true;
+      } catch (e) {
+        setSaveStatus('failed');
+        setNotice(String(e));
+        return false;
+      }
+    };
+    const result = saving.current.then(run);
+    saving.current = result;
+    return result;
+  }, [album]);
+
+  const saveAs = useCallback(async () => {
+    const chosen = await save({
+      title: 'Save album',
+      defaultPath: `${album.name}.${ALBUM_EXTENSION}`,
+      filters: ALBUM_FILTERS,
+    });
+    if (!chosen) return false;
+    const ok = await writeTo(chosen);
+    if (ok) setPath(chosen);
+    return ok;
+  }, [album.name, writeTo]);
+
+  const saveNow = useCallback(
+    () => (latest.current.path ? writeTo(latest.current.path) : saveAs()),
+    [saveAs, writeTo],
+  );
+
+  // A saved album keeps itself saved. A new one waits until it has a place to go.
+  useEffect(() => {
+    if (!path || saveStatus !== 'unsaved') return;
+    const timer = setTimeout(() => void writeTo(path), AUTOSAVE_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [path, saveStatus, photos, spreads, writeTo]);
+
+  // Closing must never quietly lose work.
+  useEffect(() => {
+    const appWindow = getCurrentWindow();
+    const stop = appWindow.onCloseRequested(async (event) => {
+      const { dirty, path: savedAt } = latest.current;
+      if (!dirty) return;
+      if (savedAt && (await writeTo(savedAt))) return;
+      event.preventDefault();
+      try {
+        const discard = await ask('This album has unsaved changes. Close without saving?', {
+          title: 'Unsaved changes',
+          kind: 'warning',
+        });
+        if (discard) await appWindow.destroy();
+      } catch (e) {
+        setNotice(`Could not close: ${String(e)}. Save the album, then close again.`);
+      }
+    });
+    return () => {
+      void stop.then((unlisten) => unlisten());
+    };
+  }, [writeTo]);
+
   const shown = photos.filter((p) => {
     if (filter === 'used' && !usedIds.has(p.id)) return false;
     if (filter === 'unused' && usedIds.has(p.id)) return false;
     return p.file_name.toLowerCase().includes(search.trim().toLowerCase());
   });
+
+  async function findMissing() {
+    const folder = await open({ directory: true, title: 'Choose the folder with the moved photos' });
+    if (typeof folder !== 'string') return;
+    try {
+      const found = await relinkPhotos(folder, [...missing]);
+      const byPhoto = new Map(found.map((p) => [p.id, p]));
+      setPhotos((all) => all.map((p) => byPhoto.get(p.id) ?? p));
+      const left = new Set([...missing].filter((id) => !byPhoto.has(id)));
+      setMissing(left);
+      setNotice(
+        `Found ${found.length} photo${found.length === 1 ? '' : 's'}.`
+          + (left.size ? ` ${left.size} still missing.` : ''),
+      );
+    } catch (e) {
+      setNotice(`Could not read that folder: ${String(e)}`);
+    }
+  }
 
   async function chooseFolder() {
     const folder = await open({ directory: true, title: 'Choose a folder of photos' });
@@ -169,19 +282,23 @@ export default function Workspace({ album }: { album: Album }) {
         return { ...s, optionIndex, design: s.options[optionIndex].design };
       }),
     );
-  }, [currentId]);
+  }, [currentId, setSpreads]);
 
-  const changeFrames = useCallback((change: (frames: Frame[]) => Frame[]) => {
-    setSpreads((all) =>
-      all.map((s) =>
-        s.id === currentId ? { ...s, design: { ...s.design, frames: change(s.design.frames) } } : s,
-      ),
+  const changeFrames = useCallback((change: (frames: Frame[]) => Frame[], mergeKey?: string) => {
+    setSpreads(
+      (all) =>
+        all.map((s) =>
+          s.id === currentId ? { ...s, design: { ...s.design, frames: change(s.design.frames) } } : s,
+        ),
+      mergeKey,
     );
-  }, [currentId]);
+  }, [currentId, setSpreads]);
 
   const changeFit = useCallback((id: string, fit: Partial<Frame['fit']>) => {
-    changeFrames((frames) =>
-      frames.map((f) => (f.id === id ? { ...f, fit: { ...f.fit, ...fit } } : f)),
+    // One drag or slider movement is one undo step, not hundreds.
+    changeFrames(
+      (frames) => frames.map((f) => (f.id === id ? { ...f, fit: { ...f.fit, ...fit } } : f)),
+      `fit:${id}`,
     );
   }, [changeFrames]);
 
@@ -199,17 +316,38 @@ export default function Workspace({ album }: { album: Album }) {
     });
   }
 
+  const { undo, redo } = history;
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      const command = e.ctrlKey || e.metaKey;
+      if (command && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        void saveNow();
+        return;
+      }
       const typing = e.target instanceof Element && e.target.closest('input, select, textarea');
       if (typing) return;
+      if (command && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        setFrameId(null);
+        if (e.shiftKey) redo();
+        else undo();
+        return;
+      }
+      if (command && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        setFrameId(null);
+        redo();
+        return;
+      }
       if (e.key === '[') cycleLayout(-1);
       if (e.key === ']') cycleLayout(1);
       if (e.key === 'Escape') setFrameId(null);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [cycleLayout]);
+  }, [cycleLayout, redo, undo, saveNow]);
 
   function clickPhoto(e: React.MouseEvent, id: string) {
     setSelected((before) => {
@@ -241,6 +379,35 @@ export default function Workspace({ album }: { album: Album }) {
             {spreads.length} spread{spreads.length === 1 ? '' : 's'}
           </span>
         </div>
+        <span className={`save-status ${saveStatus === 'failed' ? 'failed' : ''}`} role="status">
+          {{
+            saved: 'Saved',
+            unsaved: path ? 'Saving soon…' : 'Not saved yet',
+            saving: 'Saving…',
+            failed: 'Could not save',
+          }[saveStatus]}
+        </span>
+        <button type="button" className="btn" onClick={() => void saveNow()}>Save</button>
+        <button
+          type="button"
+          className="btn icon-btn"
+          aria-label="Undo"
+          title="Undo (Ctrl+Z)"
+          disabled={!history.canUndo}
+          onClick={() => { setFrameId(null); undo(); }}
+        >
+          ↶
+        </button>
+        <button
+          type="button"
+          className="btn icon-btn"
+          aria-label="Redo"
+          title="Redo (Ctrl+Y)"
+          disabled={!history.canRedo}
+          onClick={() => { setFrameId(null); redo(); }}
+        >
+          ↷
+        </button>
         <label className="toggle">
           <input type="checkbox" checked={guides} onChange={(e) => setGuides(e.target.checked)} />
           Print guides
@@ -249,6 +416,14 @@ export default function Workspace({ album }: { album: Album }) {
           {importing ? 'Reading photos…' : 'Import photos'}
         </button>
       </header>
+
+      {missing.size > 0 && (
+        <p className="notice missing" role="alert">
+          {missing.size} original photo{missing.size === 1 ? '' : 's'} could not be found. You can
+          keep designing, but they are needed before export.
+          <button type="button" onClick={() => void findMissing()}>Find them…</button>
+        </p>
+      )}
 
       {notice && (
         <p className="notice" role="status">
@@ -281,6 +456,7 @@ export default function Workspace({ album }: { album: Album }) {
               onSelect={setFrameId}
               onFit={changeFit}
               onSwap={swapFrames}
+              onGestureStart={history.seal}
             />
           ) : (
             <div className="empty-stage">
@@ -331,6 +507,7 @@ export default function Workspace({ album }: { album: Album }) {
                   max={MAX_ZOOM}
                   step={0.01}
                   value={frame.fit.scale}
+                  onPointerDown={history.seal}
                   onChange={(e) => changeFit(frame.id, { scale: Number(e.target.value) })}
                 />
               </label>
@@ -436,7 +613,9 @@ export default function Workspace({ album }: { album: Album }) {
               }}
             >
               <img src={previewUrl(photo.id, GRID_PREVIEW)} alt={photo.file_name} loading="lazy" decoding="async" draggable={false} />
-              {usedIds.has(photo.id) && <span className="badge">Used</span>}
+              {missing.has(photo.id)
+                ? <span className="badge gone">Missing</span>
+                : usedIds.has(photo.id) && <span className="badge">Used</span>}
             </button>
           ))}
           {!shown.length && (
@@ -480,7 +659,7 @@ function FramedPhoto({ photo, frame, width }: { photo: PhotoInfo; frame: Frame; 
 }
 
 function SpreadCanvas({
-  design, spec, photos, guides, thresholds, selectedId, onSelect, onFit, onSwap,
+  design, spec, photos, guides, thresholds, selectedId, onSelect, onFit, onSwap, onGestureStart,
 }: {
   design: SpreadDesign;
   spec: Album['spec'];
@@ -491,6 +670,7 @@ function SpreadCanvas({
   onSelect: (id: string | null) => void;
   onFit: (id: string, fit: Partial<Frame['fit']>) => void;
   onSwap: (sourceId: string, targetId: string) => void;
+  onGestureStart: () => void;
 }) {
   const { w, h } = design.size_mm;
   const pan = useRef<{ x: number; y: number; cx: number; cy: number } | null>(null);
@@ -539,6 +719,7 @@ function SpreadCanvas({
             onPointerDown={(e) => {
               if (!selected || !photo) return;
               e.currentTarget.setPointerCapture(e.pointerId);
+              onGestureStart();
               pan.current = { x: e.clientX, y: e.clientY, cx: frame.fit.cx, cy: frame.fit.cy };
             }}
             onPointerMove={(e) => {

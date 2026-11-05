@@ -12,6 +12,7 @@ use album_core::document::{
 };
 use album_core::pack::{load_pack_dir, TemplateRegistry};
 use album_media::{ensure_preview, scan_folder, PhotoInfo, PreviewTier, ScanResult};
+use album_store::{load_project, save_project, Project, StoreError};
 use serde::{Deserialize, Serialize};
 use tauri::http::{header, Response, StatusCode};
 use tauri::{Manager, State};
@@ -148,6 +149,70 @@ fn suggest_layouts(
         .collect()
 }
 
+#[tauri::command]
+async fn save_album(path: String, project: Project) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || save_project(&PathBuf::from(path), &project))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+#[derive(Serialize)]
+struct OpenedAlbum {
+    project: Project,
+    missing: Vec<String>,
+}
+
+#[tauri::command]
+async fn open_album(path: String, state: State<'_, AppState>) -> Result<OpenedAlbum, String> {
+    let opened = tauri::async_runtime::spawn_blocking(move || {
+        let project = load_project(&PathBuf::from(path))?;
+        let missing = project.missing_photos();
+        Ok::<_, StoreError>(OpenedAlbum { project, missing })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
+
+    let mut photos = state.photos.lock().map_err(|e| e.to_string())?;
+    for photo in &opened.project.photos {
+        photos.insert(photo.id.clone(), photo.clone());
+    }
+    Ok(opened)
+}
+
+/// Finds moved originals in a folder by file name and size.
+///
+/// A photo keeps its id, so the design and its previews carry on working unchanged.
+#[tauri::command]
+async fn relink_photos(
+    folder: String,
+    ids: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<Vec<PhotoInfo>, String> {
+    let folder = PathBuf::from(folder);
+    let scan = tauri::async_runtime::spawn_blocking(move || scan_folder(&folder))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+
+    let mut photos = state.photos.lock().map_err(|e| e.to_string())?;
+    let mut found = Vec::new();
+    for id in ids {
+        let Some(known) = photos.get_mut(&id) else {
+            continue;
+        };
+        let matched = scan.photos.iter().find(|p| {
+            p.file_name == known.file_name && p.width == known.width && p.height == known.height
+        });
+        if let Some(matched) = matched {
+            known.path.clone_from(&matched.path);
+            found.push(known.clone());
+        }
+    }
+    Ok(found)
+}
+
 /// Layout packs a studio has added, alongside the built-in one.
 fn load_registry(packs_dir: &PathBuf) -> TemplateRegistry {
     let mut registry = TemplateRegistry::with_builtin();
@@ -256,7 +321,10 @@ fn main() {
             print_options,
             make_spec,
             import_folder,
-            suggest_layouts
+            suggest_layouts,
+            save_album,
+            open_album,
+            relink_photos
         ])
         .run(tauri::generate_context!())
         .expect("the app window could not start");

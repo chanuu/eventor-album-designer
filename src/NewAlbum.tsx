@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
+import { open } from '@tauri-apps/plugin-dialog';
 import { makeSpec, printOptions, type Binding, type PrintOptions } from './api';
 import type { Album } from './App';
+import { ALBUM_FILTERS, loadAlbum } from './project';
 
 const CM_PER_INCH = 2.54;
 
@@ -44,7 +46,25 @@ export default function NewAlbum({ onCreate }: { onCreate: (album: Album) => voi
       const sizeLabel = custom.on
         ? `${custom.height}×${custom.width} ${custom.unit}`
         : `${heightIn}×${openWidthIn} in`;
-      onCreate({ name: name.trim() || 'Untitled album', spec, sizeLabel });
+      onCreate({
+        name: name.trim() || 'Untitled album',
+        spec,
+        sizeLabel,
+        path: null,
+        photos: [],
+        spreads: [],
+        missing: [],
+      });
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function openExisting() {
+    setError('');
+    try {
+      const path = await open({ title: 'Open an album', filters: ALBUM_FILTERS });
+      if (typeof path === 'string') onCreate(await loadAlbum(path));
     } catch (e) {
       setError(String(e));
     }
@@ -56,9 +76,14 @@ export default function NewAlbum({ onCreate }: { onCreate: (album: Album) => voi
 
   return (
     <main className="new-album">
-      <header>
-        <h1>New album</h1>
-        <p>Set up the book. Photos come next.</p>
+      <header className="new-album-head">
+        <div>
+          <h1>New album</h1>
+          <p>Set up the book. Photos come next.</p>
+        </div>
+        <button type="button" className="btn" onClick={() => void openExisting()}>
+          Open album…
+        </button>
       </header>
 
       <div className="new-album-body">

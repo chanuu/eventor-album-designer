@@ -868,6 +868,7 @@ version = "0.1.0"
 dependencies = [
  "album-core",
  "album-media",
+ "album-store",
  "rayon",
  "serde",
  "tauri",
