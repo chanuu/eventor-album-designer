@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ask, open, save } from '@tauri-apps/plugin-dialog';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
@@ -35,6 +35,7 @@ import ExportDialog from './ExportDialog';
 import { useHistory } from './history';
 import { ALBUM_EXTENSION, ALBUM_FILTERS, rememberAlbum, toProject } from './project';
 import { DRAG_PHOTOS, FrameBorder, FramedPhoto, frameStyle, percent, TextOnSpread, ThumbText } from './spreadParts';
+import { useSpreadRail } from './spreadRail';
 import TextPanel from './TextPanel';
 
 type Thresholds = { warn: number; tooLow: number };
@@ -433,6 +434,31 @@ export default function Workspace({ album }: { album: Album }) {
     });
   }, [spreads]);
 
+  const pickSpread = useCallback((id: string) => {
+    setCurrentId(id);
+    setFrameId(null);
+  }, [setFrameId]);
+
+  const openSpreadInDesigner = useCallback((id: string) => {
+    pickSpread(id);
+    setDesignerOpen(true);
+  }, [pickSpread]);
+
+  const rail = useSpreadRail(currentId, currentIndex, pickSpread, goToSpread);
+  const timeline = useRef<HTMLElement>(null);
+
+  // The strip below follows the row of spreads, so the current one is never out of sight.
+  useEffect(() => {
+    const strip = timeline.current;
+    const thumb = strip?.querySelector<HTMLElement>('.spread-thumb.on');
+    if (!strip || !thumb) return;
+    const box = strip.getBoundingClientRect();
+    const at = thumb.getBoundingClientRect();
+    if (at.left < box.left || at.right > box.right) {
+      strip.scrollBy({ left: at.left - box.left - (box.width - at.width) / 2, behavior: 'smooth' });
+    }
+  }, [currentId, currentIndex, designerOpen]);
+
   /** Tries another layout. The photos stay the same, and only their places change. */
   const chooseLayout = useCallback((pick: (s: Spread) => number) => {
     setFrameId(null);
@@ -810,37 +836,65 @@ export default function Workspace({ album }: { album: Album }) {
             </div>
           )}
 
+          <div className="rail-wrap">
           <section
-            className="canvas-area"
+            ref={rail.setRail}
+            className={`canvas-area ${current ? 'rail' : ''} ${rail.sliding ? 'sliding' : ''}`}
+            aria-label="All spreads"
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => {
               e.preventDefault();
               const ids = droppedPhotos(e);
-              if (ids.length) void addPhotos(ids, currentId);
+              if (!ids.length) return;
+              // Photos go to the spread they were dropped on, even if it is not the current one.
+              const on = (e.target as Element).closest<HTMLElement>('[data-spread-id]')?.dataset.spreadId;
+              void addPhotos(ids, on ?? currentId);
             }}
+            {...rail.handlers}
             onPointerDown={(e) => {
-              if (e.target === e.currentTarget) setFrameId(null);
+              if (e.target === e.currentTarget || (e.target as Element).classList.contains('spread-slot')) setFrameId(null);
+              rail.handlers.onPointerDown(e);
             }}
           >
             {current ? (
-              <SpreadCanvas
-                design={current.design}
-                spec={album.spec}
-                photos={byId}
-                guides={guides}
-                thresholds={thresholds}
-                selectedId={frameId}
-                onSelect={setFrameId}
-                onFit={changeFit}
-                onSwap={swapFrames}
-                onGestureStart={history.seal}
-                showOriginal={showOriginal}
-                onOpenDesigner={() => { setFrameId(null); setDesignerOpen(true); }}
-                textId={textId}
-                onSelectText={setTextId}
-                onChangeText={changeText}
-                onOverflow={noteOverflow}
-              />
+              <>
+                <span aria-hidden="true" className="rail-end" style={{ width: `calc((100cqw - ${spreadWidth(spreads[0].design)}) / 2)` }} />
+                {spreads.map((s, i) => (
+                  <div key={s.id} className="spread-slot" data-spread-id={s.id}>
+                    {s.id === currentId ? (
+                      <SpreadCanvas
+                        design={s.design}
+                        spec={album.spec}
+                        photos={byId}
+                        guides={guides}
+                        thresholds={thresholds}
+                        selectedId={frameId}
+                        onSelect={setFrameId}
+                        onFit={changeFit}
+                        onSwap={swapFrames}
+                        onGestureStart={history.seal}
+                        showOriginal={showOriginal}
+                        onOpenDesigner={() => { setFrameId(null); setDesignerOpen(true); }}
+                        textId={textId}
+                        onSelectText={setTextId}
+                        onChangeText={changeText}
+                        onOverflow={noteOverflow}
+                      />
+                    ) : (
+                      <SpreadPeek
+                        id={s.id}
+                        index={i}
+                        design={s.design}
+                        photos={byId}
+                        previewWidth={peekDetail(Math.abs(i - currentIndex))}
+                        onPick={pickSpread}
+                        onOpen={openSpreadInDesigner}
+                      />
+                    )}
+                  </div>
+                ))}
+                <span aria-hidden="true" className="rail-end" style={{ width: `calc((100cqw - ${spreadWidth(spreads[spreads.length - 1].design)}) / 2)` }} />
+              </>
             ) : (
               <div className="empty-stage">
                 <span className="empty-book" aria-hidden="true"><i /><i /></span>
@@ -861,6 +915,13 @@ export default function Workspace({ album }: { album: Album }) {
               </div>
             )}
           </section>
+          {current && currentIndex > 0 && (
+            <button type="button" className="rail-nav prev" aria-label="Previous spread" onClick={() => goToSpread(-1)}>‹</button>
+          )}
+          {current && currentIndex < spreads.length - 1 && (
+            <button type="button" className="rail-nav next" aria-label="Next spread" onClick={() => goToSpread(1)}>›</button>
+          )}
+          </div>
 
           {current && (
             <p className="spread-caption">
@@ -969,7 +1030,7 @@ export default function Workspace({ album }: { album: Album }) {
         )}
       </div>
 
-      <section className="timeline" aria-label="Spreads">
+      <section ref={timeline} className="timeline" aria-label="Spreads">
         {spreads.map((s, i) => (
           <div key={s.id} className="spread-item">
             <button
@@ -1141,6 +1202,54 @@ function LayoutThumb({
   );
 }
 
+/** The book's true shape, at the largest size that fits the sliding area. */
+function spreadWidth(design: SpreadDesign): string {
+  const { w, h } = design.size_mm;
+  return `min(100cqw, calc(100cqh * ${w / h}))`;
+}
+
+/** Spreads further from the current one load less, so a long album stays quick. */
+function peekDetail(distance: number): number | null {
+  if (distance <= 1) return EDIT_PREVIEW;
+  return distance <= 3 ? GRID_PREVIEW : null;
+}
+
+/** A spread beside the current one. It can only be looked at, until it is clicked. */
+const SpreadPeek = memo(function SpreadPeek({
+  id, index, design, photos, previewWidth, onPick, onOpen,
+}: {
+  id: string;
+  index: number;
+  design: SpreadDesign;
+  photos: Map<string, PhotoInfo>;
+  previewWidth: number | null;
+  onPick: (id: string) => void;
+  onOpen: (id: string) => void;
+}) {
+  const { w, h } = design.size_mm;
+  return (
+    <button
+      type="button"
+      className="spread-peek"
+      aria-label={`Go to spread ${index + 1}`}
+      style={{ width: spreadWidth(design), aspectRatio: String(w / h), background: design.background.value }}
+      onClick={() => onPick(id)}
+      onDoubleClick={() => onOpen(id)}
+    >
+      {previewWidth !== null && design.frames.map((frame) => {
+        const photo = frame.asset_id ? photos.get(frame.asset_id) : undefined;
+        return (
+          <span key={frame.id} className="frame" style={frameStyle(frame, design)}>
+            {photo && <FramedPhoto photo={photo} frame={frame} width={previewWidth} />}
+            <FrameBorder frame={frame} design={design} />
+          </span>
+        );
+      })}
+      {previewWidth !== null && design.texts.map((t) => <ThumbText key={t.id} block={t} design={design} />)}
+    </button>
+  );
+});
+
 function SpreadCanvas({
   design, spec, photos, guides, thresholds, selectedId, onSelect, onFit, onSwap, onGestureStart,
   showOriginal, onOpenDesigner, textId, onSelectText, onChangeText, onOverflow,
@@ -1173,7 +1282,7 @@ function SpreadCanvas({
       className="spread"
       // Fits the area whichever way it is tighter, and always keeps the book's true shape.
       style={{
-        width: `min(100cqw, calc(100cqh * ${w / h}))`,
+        width: spreadWidth(design),
         aspectRatio: String(w / h),
         background: design.background.value,
       }}
