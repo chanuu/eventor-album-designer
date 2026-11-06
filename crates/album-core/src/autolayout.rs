@@ -62,7 +62,11 @@ fn frame_aspect(rect: &RectPct, spread_aspect: f64) -> f64 {
 }
 
 /// Which frame each photo takes, and the total crop loss of doing so.
-fn assign(photos: &[Photo], template: &Template, spread_aspect: f64) -> (Vec<usize>, f64) {
+pub(crate) fn assign(
+    photos: &[Photo],
+    template: &Template,
+    spread_aspect: f64,
+) -> (Vec<usize>, f64) {
     let n = photos.len();
     let loss = |photo: usize, frame: usize| {
         crop_loss(
@@ -93,6 +97,16 @@ fn assign(photos: &[Photo], template: &Template, spread_aspect: f64) -> (Vec<usi
     (assignment, total)
 }
 
+/// What layouts are compared on. Lower is better.
+pub(crate) fn layout_score(crop_loss: f64, template: &Template) -> f64 {
+    let covered: f64 = template
+        .frames
+        .iter()
+        .map(|f| f.rect_pct.w * f.rect_pct.h)
+        .sum();
+    crop_loss + EMPTY_PAPER_WEIGHT * (1.0 - covered.min(1.0))
+}
+
 /// Every layout that fits these photos and this album, best first.
 ///
 /// An empty result is a normal answer: a pack may have nothing for this photo count.
@@ -112,16 +126,11 @@ pub fn rank_layouts(
         .map(|template| {
             let (assignment, total) = assign(photos, template, spread_aspect);
             let crop_loss = total / photos.len() as f64;
-            let covered: f64 = template
-                .frames
-                .iter()
-                .map(|f| f.rect_pct.w * f.rect_pct.h)
-                .sum();
             RankedLayout {
                 template_id: template.id.clone(),
                 assignment,
                 crop_loss,
-                score: crop_loss + EMPTY_PAPER_WEIGHT * (1.0 - covered.min(1.0)),
+                score: layout_score(crop_loss, template),
             }
         })
         .collect();

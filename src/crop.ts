@@ -1,4 +1,4 @@
-import type { Fit, Frame, PhotoInfo } from './api';
+import type { Fit, Frame, PhotoInfo, SpreadDesign } from './api';
 
 const MM_PER_INCH = 25.4;
 
@@ -20,6 +20,18 @@ export function visibleArea(photoAspect: number, frameAspect: number, fit: Fit) 
     sw,
     sh,
   };
+}
+
+/** The average share of the spread's photos that their frames' shapes cut away. */
+export function cropShare(design: SpreadDesign, photos: Map<string, PhotoInfo>): number {
+  const losses = design.frames.flatMap((frame) => {
+    const photo = frame.asset_id ? photos.get(frame.asset_id) : undefined;
+    if (!photo) return [];
+    const photoAspect = photo.width / photo.height;
+    const frameAspect = frame.rect_mm.w / frame.rect_mm.h;
+    return [1 - Math.min(photoAspect, frameAspect) / Math.max(photoAspect, frameAspect)];
+  });
+  return losses.length ? losses.reduce((a, b) => a + b, 0) / losses.length : 0;
 }
 
 /** The resolution this photo will print at in this frame. */

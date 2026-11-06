@@ -12,6 +12,7 @@ import {
   saveAlbum,
   suggestColour,
   suggestLayouts,
+  varyLayout,
   suggestRatings,
   analyzePhotos,
   type Adjustments,
@@ -28,7 +29,7 @@ import {
 } from './api';
 import type { Album } from './App';
 import AutoBuild from './AutoBuild';
-import { effectiveDpi, visibleArea } from './crop';
+import { effectiveDpi, visibleArea, cropShare } from './crop';
 import EffectsPanel, { NO_ADJUSTMENTS } from './EffectsPanel';
 import Designer from './Designer';
 import ExportDialog from './ExportDialog';
@@ -45,8 +46,6 @@ const MAX_ZOOM = 3;
 
 /** How long after the last change an already-saved album saves itself. */
 const AUTOSAVE_DELAY_MS = 1500;
-
-const DEFAULT_FONT = 'Nirmala UI';
 
 type SaveStatus = 'saved' | 'unsaved' | 'saving' | 'failed';
 type PhotoFilter = 'all' | 'unused' | 'used' | 'missing' | Rating;
@@ -113,6 +112,7 @@ export default function Workspace({ album }: { album: Album }) {
   const [exportProject, setExportProject] = useState<Project | null>(null);
   const [showBuild, setShowBuild] = useState(false);
   const [designerOpen, setDesignerOpen] = useState(false);
+  const autoDesignTicket = useRef(0);
   const [ratings, setRatings] = useState<Record<string, Rating>>(album.ratings);
   const [suggested, setSuggested] = useState<Map<string, PhotoRating>>(new Map());
   const [reading, setReading] = useState(false);
@@ -565,26 +565,31 @@ export default function Workspace({ album }: { album: Album }) {
     );
   }, [changeFrames, frameId]);
 
-  function addText() {
+  /** Each click makes another arrangement in the selected style, without end. */
+  async function autoDesign() {
     if (!current) return;
-    const { w, h } = current.design.size_mm;
-    const boxWidth = w * 0.3;
-    const boxHeight = h * 0.22;
-    const block: TextBlock = {
-      id: crypto.randomUUID(),
-      rect_mm: { x: w * 0.75 - boxWidth / 2, y: h / 2 - boxHeight / 2, w: boxWidth, h: boxHeight },
-      text: 'Your text',
-      font: fonts.includes(DEFAULT_FONT) ? DEFAULT_FONT : '',
-      size_pt: 36,
-      colour: '#000000',
-      align: 'center',
-      bold: false,
-      italic: false,
-      line_height: 1.3,
-      opacity: 1,
-    };
-    changeDesign((d) => ({ ...d, texts: [...d.texts, block] }));
-    setTextId(block.id);
+    const style = current.options[current.optionIndex];
+    if (!style) return;
+    const spreadId = current.id;
+    const ticket = ++autoDesignTicket.current;
+    const list = current.photoIds.flatMap((id) => byId.get(id) ?? []);
+    const [seed] = crypto.getRandomValues(new Uint32Array(1));
+    try {
+      const made = await varyLayout(style.template_id, list, spec, current.design.frames.map((f) => f.rect_mm), seed);
+      // Only the latest click counts, when they come quicker than the answers.
+      if (ticket !== autoDesignTicket.current) return;
+      if (!made) {
+        setNotice(`“${style.name}” has only one arrangement. Choose another style with ‹ › to design more.`);
+        return;
+      }
+      setNotice('');
+      setFrameId(null);
+      history.seal();
+      setSpreads((all) => all.map((s) => (s.id === spreadId ? { ...s, design: carryOver(s.design, made.design) } : s)));
+      history.seal();
+    } catch (e) {
+      setNotice(`Could not design a new layout: ${String(e)}`);
+    }
   }
 
   const changeText = useCallback((id: string, change: Partial<TextBlock>) => {
@@ -810,14 +815,21 @@ export default function Workspace({ album }: { album: Album }) {
                 <div>
                   <strong>{current.design.template_id ? option.name : 'Custom layout'}</strong>
                   <span>
-                    {current.optionIndex + 1} of {current.options.length} · {Math.round(option.crop_loss * 100)}% cropped
+                    {current.optionIndex + 1} of {current.options.length} · {Math.round(cropShare(current.design, byId) * 100)}% cropped
                   </span>
                 </div>
                 <button type="button" aria-label="Next layout" title="Next layout ( ] )" onClick={() => cycleLayout(1)}>›</button>
               </div>
               <span className="tools-rule" />
               <button type="button" className="tool" onClick={() => { setFrameId(null); setDesignerOpen(true); }}>Designer</button>
-              <button type="button" className="tool" onClick={addText}>Add text</button>
+              <button
+                type="button"
+                className="tool accent"
+                title="Design a new arrangement in this style. Click again for another."
+                onClick={() => void autoDesign()}
+              >
+                Auto design
+              </button>
               <button
                 type="button"
                 className="tool"

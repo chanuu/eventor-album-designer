@@ -7,6 +7,7 @@ pub mod adjust;
 pub mod autobuild;
 pub mod autolayout;
 pub mod document;
+pub mod layoutvary;
 pub mod pack;
 
 mod builtin_list;

@@ -9,6 +9,7 @@ use album_core::document::{
     dpi_status, effective_dpi, visible_area, Background, DpiStatus, Fit, Frame, ProjectSpec,
     RectMm, BLEED_OPTIONS_MM, DPI_OPTIONS, SIZE_PRESETS_IN,
 };
+use album_core::layoutvary::vary_layout;
 use album_core::pack::{builtin_pack, load_pack_dir, RectPct, TemplateFrame, TemplateRegistry};
 
 const LANDSCAPE: f64 = 1.5;
@@ -520,4 +521,183 @@ fn aspect_limits_filter_out_templates_for_other_album_shapes() {
         rank_layouts(&registry, &photo, &twelve_by_twentyfour).len(),
         1
     );
+}
+
+fn every_builtin_layout() -> Vec<album_core::pack::Template> {
+    let registry = TemplateRegistry::with_builtin();
+    (1..=12)
+        .flat_map(|count| {
+            registry
+                .with_frame_count(count)
+                .cloned()
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+fn mm_rects(template: &album_core::pack::Template, spec: &ProjectSpec) -> Vec<RectMm> {
+    template
+        .frames
+        .iter()
+        .map(|f| rect_to_mm(f, spec))
+        .collect()
+}
+
+fn overlap(a: &RectMm, b: &RectMm) -> bool {
+    const TOUCHING: f64 = 0.01;
+    a.x + TOUCHING < b.x + b.w
+        && b.x + TOUCHING < a.x + a.w
+        && a.y + TOUCHING < b.y + b.h
+        && b.y + TOUCHING < a.y + a.h
+}
+
+#[test]
+fn varying_keeps_every_layouts_style() {
+    let spec = spec();
+    let fold = spec.canvas_mm().w / 2.0;
+    let mut varied = 0;
+    for template in every_builtin_layout() {
+        let shots = photos(&vec![LANDSCAPE; template.frames.len()]);
+        let before = mm_rects(&template, &spec);
+        for seed in 0..8 {
+            let Some((made, layout)) = vary_layout(&template, &shots, &spec, &before, seed) else {
+                continue;
+            };
+            varied += 1;
+            assert_eq!(made.id, template.id);
+            assert_eq!(layout.assignment.len(), shots.len());
+            let after = mm_rects(&made, &spec);
+            let canvas = spec.canvas_mm();
+            for (i, (now, was)) in after.iter().zip(&before).enumerate() {
+                assert!(
+                    now.w > 0.0 && now.h > 0.0,
+                    "{} frame {i} has no size",
+                    template.id
+                );
+                assert!(
+                    now.x >= -0.01
+                        && now.y >= -0.01
+                        && now.x + now.w <= canvas.w + 0.01
+                        && now.y + now.h <= canvas.h + 0.01,
+                    "{} frame {i} left the canvas",
+                    template.id
+                );
+                let side = |r: &RectMm| (r.x + r.w <= fold + 0.01, r.x >= fold - 0.01);
+                assert_eq!(
+                    side(now),
+                    side(was),
+                    "{} frame {i} changed page",
+                    template.id
+                );
+                for (j, (other_now, other_was)) in after.iter().zip(&before).enumerate() {
+                    if i != j && !overlap(was, other_was) {
+                        assert!(
+                            !overlap(now, other_now),
+                            "{}: {i} now overlaps {j}",
+                            template.id
+                        );
+                    }
+                }
+            }
+        }
+    }
+    assert!(varied > 500, "only {varied} arrangements were made");
+}
+
+#[test]
+fn varying_gives_something_visibly_new_each_time() {
+    let spec = spec();
+    let registry = TemplateRegistry::with_builtin();
+    let shots = photos(&[PORTRAIT, PORTRAIT, PORTRAIT, LANDSCAPE]);
+    let template = registry.with_frame_count(4).next().unwrap();
+
+    let mut current = mm_rects(template, &spec);
+    let mut seen: Vec<Vec<RectMm>> = vec![current.clone()];
+    for seed in 0..40 {
+        let (made, _) = vary_layout(template, &shots, &spec, &current, seed).unwrap();
+        let next = mm_rects(&made, &spec);
+        let moved = next
+            .iter()
+            .zip(&current)
+            .map(|(a, b)| {
+                (a.x - b.x)
+                    .abs()
+                    .max((a.y - b.y).abs())
+                    .max((a.w - b.w).abs())
+                    .max((a.h - b.h).abs())
+            })
+            .fold(0.0, f64::max);
+        assert!(moved >= 4.0, "seed {seed} moved only {moved} mm");
+        assert!(!seen.contains(&next), "seed {seed} repeated an arrangement");
+        seen.push(next.clone());
+        current = next;
+    }
+}
+
+#[test]
+fn varying_is_repeatable_from_its_seed() {
+    let spec = spec();
+    let registry = TemplateRegistry::with_builtin();
+    let shots = photos(&[LANDSCAPE, PORTRAIT, LANDSCAPE]);
+    let template = registry.with_frame_count(3).next().unwrap();
+    let current = mm_rects(template, &spec);
+    let a = vary_layout(template, &shots, &spec, &current, 7).unwrap();
+    let b = vary_layout(template, &shots, &spec, &current, 7).unwrap();
+    assert_eq!(a.0, b.0);
+    assert_eq!(a.1, b.1);
+}
+
+#[test]
+fn varying_crops_no_more_than_the_layout_it_started_from_on_average() {
+    let spec = spec();
+    let registry = TemplateRegistry::with_builtin();
+    let shots = photos(&[LANDSCAPE, LANDSCAPE, LANDSCAPE]);
+    let ranked = rank_layouts(&registry, &shots, &spec);
+    let worst = ranked
+        .iter()
+        .max_by(|a, b| a.crop_loss.total_cmp(&b.crop_loss))
+        .unwrap();
+    let template = registry.get(&worst.template_id).unwrap();
+    let current = mm_rects(template, &spec);
+    let total: f64 = (0..30)
+        .map(|seed| {
+            vary_layout(template, &shots, &spec, &current, seed)
+                .unwrap()
+                .1
+                .crop_loss
+        })
+        .sum();
+    assert!(
+        total / 30.0 < worst.crop_loss,
+        "{} against {}",
+        total / 30.0,
+        worst.crop_loss
+    );
+}
+
+#[test]
+fn a_layout_with_nothing_to_move_says_so() {
+    let spec = spec();
+    let mut template = every_builtin_layout().remove(0);
+    let frame = template.frames[0];
+    template.frames = vec![TemplateFrame {
+        rect_pct: RectPct {
+            x: 0.0,
+            y: 0.0,
+            w: 1.0,
+            h: 1.0,
+        },
+        ..frame
+    }];
+    let current = mm_rects(&template, &spec);
+    assert!(vary_layout(&template, &photos(&[LANDSCAPE]), &spec, &current, 1).is_none());
+}
+
+#[test]
+fn varying_refuses_the_wrong_number_of_photos() {
+    let spec = spec();
+    let template = every_builtin_layout().remove(0);
+    let wrong = photos(&vec![LANDSCAPE; template.frames.len() + 1]);
+    assert!(vary_layout(&template, &wrong, &spec, &[], 1).is_none());
+    assert!(vary_layout(&template, &[], &spec, &[], 1).is_none());
 }

@@ -154,6 +154,22 @@ export const suggestLayouts = (photos: PhotoInfo[], spec: ProjectSpec) =>
     spec,
   });
 
+/** A new arrangement in this layout's style, or null if the style has nothing to move. */
+export const varyLayout = (
+  templateId: string,
+  photos: PhotoInfo[],
+  spec: ProjectSpec,
+  current: Frame['rect_mm'][],
+  seed: number,
+) =>
+  invoke<LayoutOption | null>('vary_spread_layout', {
+    templateId,
+    photos: photos.map((p) => ({ asset_id: p.id, aspect: p.width / p.height })),
+    spec,
+    current,
+    seed,
+  });
+
 export const suggestRatings = (ids: string[]) => invoke<PhotoRating[]>('suggest_ratings', { ids });
 
 export const suggestColour = (id: string) => invoke<Adjustments>('suggest_colour', { id });

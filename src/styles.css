@@ -196,6 +196,7 @@ legend { padding: 0; margin-bottom: 7px; font-size: 12px; font-weight: 600; widt
 .rail-wrap > .canvas-area { flex: 1; }
 .canvas-area.rail { position: relative; justify-content: flex-start; gap: 22px; padding: 10px 56px; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; scrollbar-width: thin; }
 .canvas-area.sliding { scroll-snap-type: none; cursor: grabbing; user-select: none; }
+.tool.accent { color: var(--brand); }
 .rail-end { flex: none; height: 1px; }
 .spread-slot { flex: none; display: flex; align-items: center; scroll-snap-align: center; }
 .spread-peek { position: relative; display: block; flex: none; padding: 0; border: 0; overflow: hidden; opacity: 0.72; cursor: pointer; container-type: inline-size; box-shadow: 0 10px 30px rgb(0 0 0 / 55%); transition: opacity 0.15s; }

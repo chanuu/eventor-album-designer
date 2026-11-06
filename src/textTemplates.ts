@@ -27,6 +27,15 @@ const plain = { bold: false, italic: false };
 /** All of this wording and styling is Eventor's own. Photographers replace it with theirs. */
 export const TEXT_TEMPLATES: TextTemplate[] = [
   {
+    key: 'plain',
+    name: 'Plain text',
+    width: 0.3,
+    height: 0.22,
+    blocks: [
+      { ...plain, text: 'Your text', font: SINHALA, size_pt: 36, align: 'center', line_height: 1.3, x: 0, y: 0, w: 1, h: 1 },
+    ],
+  },
+  {
     key: 'names-date',
     name: 'Names and date',
     width: 0.3,

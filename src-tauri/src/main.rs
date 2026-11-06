@@ -13,9 +13,10 @@ use album_core::autobuild::{
 };
 use album_core::autolayout::{apply_layout, rank_layouts, Photo};
 use album_core::document::{
-    Binding, ProjectSpec, SpreadDesign, TextBlock, BLEED_OPTIONS_MM, DPI_OPTIONS, DPI_TOO_LOW,
-    DPI_WARN, GAP_PRESETS_IN, MARGIN_PRESETS_IN, PAPER_COLOURS, SIZE_PRESETS_IN,
+    Binding, ProjectSpec, RectMm, SpreadDesign, TextBlock, BLEED_OPTIONS_MM, DPI_OPTIONS,
+    DPI_TOO_LOW, DPI_WARN, GAP_PRESETS_IN, MARGIN_PRESETS_IN, PAPER_COLOURS, SIZE_PRESETS_IN,
 };
+use album_core::layoutvary::vary_layout;
 use album_core::pack::{load_pack_dir, TemplateRegistry};
 use album_export::{check_album, export_album, ExportFormats, ExportResult, Issue};
 use album_media::analyze::{analyze_photo, auto_adjust};
@@ -128,6 +129,34 @@ async fn import_folder(path: String, state: State<'_, AppState>) -> Result<ScanR
 struct PhotoInput {
     asset_id: String,
     aspect: f64,
+}
+
+/// A new arrangement in the style of this layout. None if the style has nothing to move.
+#[tauri::command]
+fn vary_spread_layout(
+    template_id: String,
+    photos: Vec<PhotoInput>,
+    spec: ProjectSpec,
+    current: Vec<RectMm>,
+    seed: u32,
+    state: State<'_, AppState>,
+) -> Option<LayoutOption> {
+    let photos: Vec<Photo> = photos
+        .into_iter()
+        .map(|p| Photo {
+            asset_id: p.asset_id,
+            aspect: p.aspect,
+        })
+        .collect();
+    let template = state.registry.get(&template_id)?;
+    let (made, layout) = vary_layout(template, &photos, &spec, &current, u64::from(seed))?;
+    Some(LayoutOption {
+        template_id: layout.template_id.clone(),
+        name: made.name.clone(),
+        tags: made.tags.clone(),
+        crop_loss: layout.crop_loss,
+        design: apply_layout(&made, &photos, &layout, &spec),
+    })
 }
 
 #[derive(Serialize)]
@@ -531,6 +560,7 @@ fn main() {
             make_spec,
             import_folder,
             suggest_layouts,
+            vary_spread_layout,
             save_album,
             open_album,
             relink_photos,
