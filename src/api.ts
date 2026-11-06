@@ -29,6 +29,8 @@ export type Adjustments = {
   black_and_white: boolean;
 };
 
+export type FrameStyle = { opacity: number; border_mm: number; border_colour: string };
+
 export type Frame = {
   id: string;
   rect_mm: { x: number; y: number; w: number; h: number };
@@ -36,6 +38,7 @@ export type Frame = {
   asset_id: string | null;
   fit: Fit;
   adjust: Adjustments;
+  style: FrameStyle;
   z: number;
 };
 
@@ -50,10 +53,12 @@ export type TextBlock = {
   bold: boolean;
   italic: boolean;
   line_height: number;
+  opacity: number;
 };
 
 export type SpreadDesign = {
   v: number;
+  /** Null once the layout has been changed by hand in the designer. */
   template_id: string | null;
   size_mm: { w: number; h: number };
   background: { type: 'color'; value: string };

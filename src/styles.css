@@ -231,6 +231,49 @@ legend { padding: 0; margin-bottom: 7px; font-size: 12px; font-weight: 600; widt
 .text-panel .text-box { height: auto; padding: 8px 10px; resize: vertical; font-size: 15px; line-height: 1.4; }
 .text-row { display: flex; flex-wrap: wrap; gap: 8px; }
 .colour-pick { width: 26px; height: 26px; padding: 0; border: 1px solid var(--line-strong); border-radius: 50%; background: none; overflow: hidden; }
+.frame-border { position: absolute; inset: 0; box-sizing: border-box; border-style: solid; pointer-events: none; }
+.spread, .spread-thumb { container-type: inline-size; }
+
+/* Designer view */
+.designer { flex: 1; min-height: 0; display: grid; grid-template-columns: 62px minmax(0, 1fr) 300px; }
+.designer-rail { display: flex; flex-direction: column; gap: 6px; padding: 10px 6px; background: var(--panel); border-right: 1px solid var(--line); }
+.designer-rail button { padding: 9px 0; border: 0; border-radius: 8px; background: none; font-size: 11px; font-weight: 600; color: var(--ink-mid); }
+.designer-rail button.on { background: var(--brand-soft); color: var(--ink); box-shadow: inset 2px 0 0 var(--brand); }
+.designer-main { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.designer-bar { flex: none; display: flex; align-items: center; gap: 16px; height: 42px; padding: 0 14px; border-bottom: 1px solid var(--line); }
+.designer-count { white-space: nowrap; }
+.xywh { display: flex; gap: 12px; }
+.measure { display: flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; color: var(--ink-mid); }
+.measure input { width: 66px; height: 26px; padding: 0 6px; font: inherit; color: var(--ink); background: var(--canvas); border: 1px solid var(--line); border-radius: 6px; }
+.designer-area { flex: 1; min-height: 0; container-type: size; display: flex; align-items: center; justify-content: center; padding: 16px 24px; overflow: hidden; }
+.designer-canvas { touch-action: none; overflow: visible; }
+.d-item { cursor: move; touch-action: none; }
+.d-item.cropping { cursor: grab; }
+/* While cropping, text must not get in the way of the photo under it. */
+.crop-tool .text-block { pointer-events: none; }
+.d-outline { position: absolute; z-index: 8; outline: 1px solid var(--brand); pointer-events: none; }
+.d-box { position: absolute; z-index: 9; outline: 1px solid var(--brand); pointer-events: none; }
+.d-handle { position: absolute; width: 11px; height: 11px; margin: -6px 0 0 -6px; background: #fff; border: 2px solid var(--brand); border-radius: 50%; pointer-events: auto; touch-action: none; }
+.d-handle.nw { left: 0; top: 0; cursor: nwse-resize; }
+.d-handle.n { left: 50%; top: 0; cursor: ns-resize; }
+.d-handle.ne { left: 100%; top: 0; cursor: nesw-resize; }
+.d-handle.e { left: 100%; top: 50%; cursor: ew-resize; }
+.d-handle.se { left: 100%; top: 100%; cursor: nwse-resize; }
+.d-handle.s { left: 50%; top: 100%; cursor: ns-resize; }
+.d-handle.sw { left: 0; top: 100%; cursor: nesw-resize; }
+.d-handle.w { left: 0; top: 50%; cursor: ew-resize; }
+.d-marquee { position: absolute; z-index: 9; background: rgb(233 30 120 / 12%); border: 1px solid var(--brand); pointer-events: none; }
+.designer-side { min-height: 0; }
+.arrange { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
+.arrange.two { grid-template-columns: 1fr 1fr; }
+.arrange .btn { height: 28px; padding: 0 4px; font-size: 11px; }
+.swatches.small .swatch { width: 22px; height: 22px; }
+.text-templates { display: flex; flex-direction: column; gap: 6px; }
+.text-template { display: flex; flex-direction: column; gap: 3px; padding: 9px 10px; text-align: left; background: var(--panel-raised); border: 1px solid var(--line); border-radius: 8px; }
+.text-template:hover { border-color: var(--ink-muted); }
+.text-template strong { font-size: 11px; color: var(--ink-mid); font-weight: 600; }
+.text-template span { font-size: 16px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
 .dpi { position: absolute; left: 6px; bottom: 6px; padding: 2px 7px; border-radius: 999px; font-size: 11px; font-weight: 700; color: #fff; pointer-events: none; }
 .dpi.low { background: #b45309; }
 .dpi.too-low { background: #dc2626; }

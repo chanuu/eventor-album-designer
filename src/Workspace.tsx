@@ -6,7 +6,6 @@ import {
   GRID_PREVIEW,
   importFolder,
   listFonts,
-  previewText,
   previewUrl,
   printOptions,
   relinkPhotos,
@@ -17,6 +16,7 @@ import {
   analyzePhotos,
   type Adjustments,
   type Frame,
+  type FrameStyle,
   type LayoutOption,
   type PhotoInfo,
   type PhotoRating,
@@ -30,41 +30,28 @@ import type { Album } from './App';
 import AutoBuild from './AutoBuild';
 import { effectiveDpi, visibleArea } from './crop';
 import EffectsPanel, { NO_ADJUSTMENTS } from './EffectsPanel';
+import Designer from './Designer';
 import ExportDialog from './ExportDialog';
 import { useHistory } from './history';
 import { ALBUM_EXTENSION, ALBUM_FILTERS, rememberAlbum, toProject } from './project';
+import { DRAG_PHOTOS, FrameBorder, FramedPhoto, frameStyle, percent, TextOnSpread, ThumbText } from './spreadParts';
 import TextPanel from './TextPanel';
 
 type Thresholds = { warn: number; tooLow: number };
 
-const DRAG_PHOTOS = 'application/x-album-photos';
 const DRAG_FRAME = 'application/x-album-frame';
 const MAX_ZOOM = 3;
 
 /** How long after the last change an already-saved album saves itself. */
 const AUTOSAVE_DELAY_MS = 1500;
 
-/** How long a slider must rest before the adjusted picture is fetched. */
-const EFFECT_SETTLE_MS = 90;
-
-/** How long typing must rest before the text is drawn again. */
-const TEXT_SETTLE_MS = 120;
-
-/** How close a dragged text block must come to a guide before it snaps to it. */
-const SNAP_MM = 2;
-
 const DEFAULT_FONT = 'Nirmala UI';
-const MIN_TEXT_BOX_MM = 8;
 
 type SaveStatus = 'saved' | 'unsaved' | 'saving' | 'failed';
 type PhotoFilter = 'all' | 'unused' | 'used' | 'missing' | Rating;
 
 /** Clicking a photo's dot steps through these, starting after its current rating. */
 const NEXT_RATING: Record<Rating, Rating> = { green: 'yellow', yellow: 'red', red: 'green' };
-
-function percent(part: number, whole: number): string {
-  return `${(part / whole) * 100}%`;
-}
 
 /** A new layout keeps each photo's crop and effects, and the spread's paper. */
 function carryOver(from: SpreadDesign, to: SpreadDesign): SpreadDesign {
@@ -75,7 +62,7 @@ function carryOver(from: SpreadDesign, to: SpreadDesign): SpreadDesign {
     texts: from.texts,
     frames: to.frames.map((frame) => {
       const old = before.get(frame.asset_id);
-      return old ? { ...frame, fit: old.fit, adjust: old.adjust } : frame;
+      return old ? { ...frame, fit: old.fit, adjust: old.adjust, style: old.style, corner_radius_mm: old.corner_radius_mm } : frame;
     }),
   };
 }
@@ -124,6 +111,7 @@ export default function Workspace({ album }: { album: Album }) {
   const [importing, setImporting] = useState(false);
   const [exportProject, setExportProject] = useState<Project | null>(null);
   const [showBuild, setShowBuild] = useState(false);
+  const [designerOpen, setDesignerOpen] = useState(false);
   const [ratings, setRatings] = useState<Record<string, Rating>>(album.ratings);
   const [suggested, setSuggested] = useState<Map<string, PhotoRating>>(new Map());
   const [reading, setReading] = useState(false);
@@ -285,9 +273,13 @@ export default function Workspace({ album }: { album: Album }) {
   }, [photos, filter, usedIds, missing, search, sortReverse, ratingOf]);
 
   /** Sets a suggested fix on the selected photo, or on each photo of the spread. */
-  async function autoColour() {
+  async function autoColour(chosen?: Set<string> | null) {
     if (!current) return;
-    const targets = current.design.frames.filter((f) => f.asset_id && (frameId === null || f.id === frameId));
+    const targets = current.design.frames.filter((f) => f.asset_id && (
+      chosen !== undefined
+        ? chosen === null || chosen.has(f.id)
+        : frameId === null || f.id === frameId
+    ));
     setAutoBusy(true);
     try {
       const found = await Promise.all(
@@ -465,6 +457,65 @@ export default function Workspace({ album }: { album: Album }) {
     );
   }, [currentId, setSpreads]);
 
+  /** For the designer, where photos can leave or join the spread. */
+  const changeFromDesigner = useCallback((change: (design: SpreadDesign) => SpreadDesign, mergeKey?: string) => {
+    setSpreads(
+      (all) => all.map((s) => {
+        if (s.id !== currentId) return s;
+        const design = change(s.design);
+        const photoIds = design.frames.flatMap((f) => (f.asset_id ? [f.asset_id] : []));
+        return { ...s, design, photoIds };
+      }),
+      mergeKey,
+    );
+  }, [currentId, setSpreads]);
+
+  /** New frames for photos dropped on an empty part of the designer's canvas. */
+  function dropPhotosOnDesigner(ids: string[], xMm: number, yMm: number) {
+    if (!current) return;
+    const { h } = current.design.size_mm;
+    const height = h * 0.4;
+    const style: FrameStyle = { opacity: 1, border_mm: 0, border_colour: '#FFFFFF' };
+    const noEffects = { ...NO_ADJUSTMENTS };
+    let x = xMm;
+    const made: Frame[] = ids.flatMap((id) => {
+      const photo = byId.get(id);
+      if (!photo) return [];
+      const width = height * (photo.width / photo.height);
+      const frame: Frame = {
+        id: crypto.randomUUID(),
+        rect_mm: { x: x - width / 2, y: yMm - height / 2, w: width, h: height },
+        corner_radius_mm: 0,
+        asset_id: id,
+        fit: { scale: 1, cx: 0.5, cy: 0.5, rot_deg: 0 },
+        adjust: noEffects,
+        style,
+        z: 0,
+      };
+      x += width + 4;
+      return [frame];
+    });
+    history.seal();
+    changeFromDesigner((d) => ({ ...d, template_id: null, frames: [...d.frames, ...made] }));
+  }
+
+  function replacePhotoInDesigner(frameId: string, photoId: string) {
+    history.seal();
+    changeFromDesigner((d) => ({
+      ...d,
+      frames: d.frames.map((f) => (f.id === frameId ? { ...f, asset_id: photoId, fit: { scale: 1, cx: 0.5, cy: 0.5, rot_deg: 0 } } : f)),
+    }));
+  }
+
+  /** Lays out a hand-edited spread from its layouts again, keeping its photos. */
+  async function relayout(spread: Spread) {
+    const options = await layoutFor(spread.photoIds);
+    if (!options) return;
+    setSpreads((all) => all.map((s) => (
+      s.id === spread.id ? { ...s, options, optionIndex: 0, design: carryOver(s.design, options[0].design) } : s
+    )));
+  }
+
   const changeFrames = useCallback((change: (frames: Frame[]) => Frame[], mergeKey?: string) => {
     changeDesign((d) => ({ ...d, frames: change(d.frames) }), mergeKey);
   }, [changeDesign]);
@@ -504,6 +555,7 @@ export default function Workspace({ album }: { album: Album }) {
       bold: false,
       italic: false,
       line_height: 1.3,
+      opacity: 1,
     };
     changeDesign((d) => ({ ...d, texts: [...d.texts, block] }));
     setTextId(block.id);
@@ -571,6 +623,8 @@ export default function Workspace({ album }: { album: Album }) {
         redo();
         return;
       }
+      // The designer has its own keys for the rest.
+      if (designerOpen) return;
       if (textId && (e.key === 'Delete' || e.key === 'Backspace')) {
         e.preventDefault();
         deleteText(textId);
@@ -584,7 +638,7 @@ export default function Workspace({ album }: { album: Album }) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [cycleLayout, goToSpread, redo, undo, saveNow, textId, deleteText, setFrameId]);
+  }, [cycleLayout, goToSpread, redo, undo, saveNow, textId, deleteText, setFrameId, designerOpen]);
 
   function clickPhoto(e: React.MouseEvent, id: string) {
     setSelected((before) => {
@@ -611,12 +665,18 @@ export default function Workspace({ album }: { album: Album }) {
   return (
     <div className="workspace">
       <header className="topbar">
-        <span className="brand-mark small" aria-hidden="true">E</span>
+        {designerOpen ? (
+          <button type="button" className="btn" onClick={() => setDesignerOpen(false)}>‹ Back to album</button>
+        ) : (
+          <span className="brand-mark small" aria-hidden="true">E</span>
+        )}
         <div className="title">
           <strong>{album.name}</strong>
           <span>
             {album.sizeLabel} · {spec.binding === 'layflat' ? 'Lay-flat' : 'Magazine'} ·{' '}
-            {spreads.length} spread{spreads.length === 1 ? '' : 's'}
+            {designerOpen && current
+              ? `designing spread ${currentIndex + 1} of ${spreads.length}`
+              : `${spreads.length} spread${spreads.length === 1 ? '' : 's'}`}
           </span>
         </div>
         <span className={`save-status ${saveStatus === 'failed' ? 'failed' : ''}`} role="status">
@@ -636,7 +696,9 @@ export default function Workspace({ album }: { album: Album }) {
           Print guides
         </label>
         <button type="button" className={`btn pane-btn ${showBrowser ? 'active' : ''}`} aria-pressed={showBrowser} onClick={() => setShowBrowser(!showBrowser)}>Photos</button>
-        <button type="button" className={`btn pane-btn ${showSide ? 'active' : ''}`} aria-pressed={showSide} onClick={() => setShowSide(!showSide)}>Panel</button>
+        {!designerOpen && (
+          <button type="button" className={`btn pane-btn ${showSide ? 'active' : ''}`} aria-pressed={showSide} onClick={() => setShowSide(!showSide)}>Panel</button>
+        )}
         <button
           type="button"
           className="btn-primary"
@@ -685,14 +747,42 @@ export default function Workspace({ album }: { album: Album }) {
         />
       )}
 
+      {designerOpen && current ? (
+        <Designer
+          key={current.id}
+          design={current.design}
+          spec={spec}
+          photos={byId}
+          thresholds={thresholds}
+          paperColours={paperColours}
+          fonts={fonts}
+          showOriginal={showOriginal}
+          autoBusy={autoBusy}
+          onChange={changeFromDesigner}
+          onSeal={history.seal}
+          onAuto={(chosen) => void autoColour(chosen)}
+          onShowOriginal={setShowOriginal}
+          onAddPhoto={dropPhotosOnDesigner}
+          onReplacePhoto={replacePhotoInDesigner}
+        />
+      ) : (
+      <>
       <div className={`stage ${showSide ? '' : 'no-side'}`}>
         <div className="canvas-column">
-          {current && option && (
+          {current && (!option || option.design.frames.length !== current.design.frames.length) && (
+            <div className="spread-tools" role="toolbar" aria-label="Spread">
+              <span className="muted">Custom layout</span>
+              <button type="button" className="tool" onClick={() => void relayout(current)}>Choose a layout</button>
+              <button type="button" className="tool" onClick={() => setDesignerOpen(true)}>Designer</button>
+              <button type="button" className="tool danger" onClick={() => deleteSpread(current.id)}>Delete</button>
+            </div>
+          )}
+          {current && option && option.design.frames.length === current.design.frames.length && (
             <div className="spread-tools" role="toolbar" aria-label="Spread">
               <div className="cycler">
                 <button type="button" aria-label="Previous layout" title="Previous layout ( [ )" onClick={() => cycleLayout(-1)}>‹</button>
                 <div>
-                  <strong>{option.name}</strong>
+                  <strong>{current.design.template_id ? option.name : 'Custom layout'}</strong>
                   <span>
                     {current.optionIndex + 1} of {current.options.length} · {Math.round(option.crop_loss * 100)}% cropped
                   </span>
@@ -700,6 +790,7 @@ export default function Workspace({ album }: { album: Album }) {
                 <button type="button" aria-label="Next layout" title="Next layout ( ] )" onClick={() => cycleLayout(1)}>›</button>
               </div>
               <span className="tools-rule" />
+              <button type="button" className="tool" onClick={() => { setFrameId(null); setDesignerOpen(true); }}>Designer</button>
               <button type="button" className="tool" onClick={addText}>Add text</button>
               <button
                 type="button"
@@ -744,6 +835,7 @@ export default function Workspace({ album }: { album: Album }) {
                 onSwap={swapFrames}
                 onGestureStart={history.seal}
                 showOriginal={showOriginal}
+                onOpenDesigner={() => { setFrameId(null); setDesignerOpen(true); }}
                 textId={textId}
                 onSelectText={setTextId}
                 onChangeText={changeText}
@@ -887,6 +979,7 @@ export default function Workspace({ album }: { album: Album }) {
               className={`spread-thumb ${s.id === currentId ? 'on' : ''}`}
               style={{ aspectRatio: String(s.design.size_mm.w / s.design.size_mm.h), background: s.design.background.value }}
               onClick={() => { setCurrentId(s.id); setFrameId(null); }}
+              onDoubleClick={() => { setCurrentId(s.id); setFrameId(null); setDesignerOpen(true); }}
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => {
                 e.preventDefault();
@@ -900,6 +993,7 @@ export default function Workspace({ album }: { album: Album }) {
                 return (
                   <span key={f.id} className="frame" style={frameStyle(f, s.design)}>
                     {photo && <FramedPhoto photo={photo} frame={f} width={GRID_PREVIEW} />}
+                    <FrameBorder frame={f} design={s.design} />
                   </span>
                 );
               })}
@@ -930,6 +1024,9 @@ export default function Workspace({ album }: { album: Album }) {
           + New spread
         </button>
       </section>
+
+      </>
+      )}
 
       {showBrowser && (
         <section className="browser" aria-label="Photos">
@@ -1021,252 +1118,6 @@ export default function Workspace({ album }: { album: Album }) {
   );
 }
 
-function frameStyle(frame: Frame, design: SpreadDesign): React.CSSProperties {
-  const { rect_mm: r } = frame;
-  return {
-    left: percent(r.x, design.size_mm.w),
-    top: percent(r.y, design.size_mm.h),
-    width: percent(r.w, design.size_mm.w),
-    height: percent(r.h, design.size_mm.h),
-    zIndex: frame.z,
-  };
-}
-
-/**
- * The address to show, swapped only once the new picture has loaded.
- *
- * While a slider moves, each value is a new picture from Rust. Waiting for a pause and
- * for the download avoids flicker, and avoids asking for pictures nobody will see.
- */
-function useSettledImage(url: string): string {
-  const [shown, setShown] = useState(url);
-  useEffect(() => {
-    if (url === shown) return;
-    let current = true;
-    const timer = setTimeout(() => {
-      const image = new Image();
-      image.onload = () => { if (current) setShown(url); };
-      image.onerror = () => { if (current) setShown(url); };
-      image.src = url;
-    }, EFFECT_SETTLE_MS);
-    return () => {
-      current = false;
-      clearTimeout(timer);
-    };
-  }, [url, shown]);
-  return shown;
-}
-
-function FramedPhoto({
-  photo, frame, width, original,
-}: {
-  photo: PhotoInfo;
-  frame: Frame;
-  width: number;
-  original?: boolean;
-}) {
-  const area = visibleArea(photo.width / photo.height, frame.rect_mm.w / frame.rect_mm.h, frame.fit);
-  const src = useSettledImage(previewUrl(photo.id, width, original ? undefined : frame.adjust));
-  return (
-    <img
-      src={src}
-      alt=""
-      draggable={false}
-      className="framed"
-      style={{
-        width: `${100 / area.sw}%`,
-        height: `${100 / area.sh}%`,
-        left: `${(-area.sx / area.sw) * 100}%`,
-        top: `${(-area.sy / area.sh) * 100}%`,
-      }}
-    />
-  );
-}
-
-/**
- * The drawn picture of a text block. Rust draws it, using the same code as the print, so
- * what is seen is what prints. Typing waits for a pause before asking again.
- */
-function useTextImage(block: TextBlock, onOverflow?: (overflowed: boolean) => void): string | null {
-  const [url, setUrl] = useState<string | null>(null);
-  // Moving a box does not change its picture, so its position is left out of this.
-  const { x: _x, y: _y, ...size } = block.rect_mm;
-  const looks = JSON.stringify({ ...block, rect_mm: size });
-  const report = useRef(onOverflow);
-  report.current = onOverflow;
-
-  useEffect(() => {
-    let current = true;
-    let made: string | null = null;
-    const timer = setTimeout(() => {
-      previewText(JSON.parse(looks.replace('"rect_mm":{', '"rect_mm":{"x":0,"y":0,')) as TextBlock)
-        .then(({ png, overflowed }) => {
-          if (!current) return;
-          made = URL.createObjectURL(png);
-          setUrl(made);
-          report.current?.(overflowed);
-        })
-        .catch(() => {});
-    }, TEXT_SETTLE_MS);
-    return () => {
-      current = false;
-      clearTimeout(timer);
-      // The old picture stays on screen until the new one is ready, then this frees it.
-      if (made) {
-        const old = made;
-        setTimeout(() => URL.revokeObjectURL(old), 2000);
-      }
-    };
-  }, [looks]);
-  return url;
-}
-
-function ThumbText({ block, design }: { block: TextBlock; design: SpreadDesign }) {
-  const url = useTextImage(block);
-  const r = block.rect_mm;
-  return (
-    <span
-      className="thumb-text"
-      style={{
-        left: percent(r.x, design.size_mm.w),
-        top: percent(r.y, design.size_mm.h),
-        width: percent(r.w, design.size_mm.w),
-        height: percent(r.h, design.size_mm.h),
-        zIndex: 4,
-      }}
-    >
-      {url && <img src={url} alt="" />}
-    </span>
-  );
-}
-
-/** The lines a dragged text block snaps to, in millimetres. */
-function snapTargets(spec: Album['spec'], w: number, h: number) {
-  const inset = spec.bleed_mm + spec.safe_mm;
-  return {
-    edgesX: [inset, w / 2 - spec.safe_mm, w / 2 + spec.safe_mm, w - inset],
-    centresX: [w / 4, w / 2, (w * 3) / 4],
-    edgesY: [inset, h - inset],
-    centresY: [h / 2],
-  };
-}
-
-function nearest(values: number[], targets: number[]): { shift: number; line: number } | null {
-  let best: { shift: number; line: number } | null = null;
-  for (const value of values) {
-    for (const line of targets) {
-      const shift = line - value;
-      if (Math.abs(shift) <= SNAP_MM && (!best || Math.abs(shift) < Math.abs(best.shift))) {
-        best = { shift, line };
-      }
-    }
-  }
-  return best;
-}
-
-function TextOnSpread({
-  block, design, spec, selected, overflowing, onSelect, onChange, onGestureStart, onOverflow, onSnap,
-}: {
-  block: TextBlock;
-  design: SpreadDesign;
-  spec: Album['spec'];
-  selected: boolean;
-  overflowing: boolean;
-  onSelect: (id: string) => void;
-  onChange: (id: string, change: Partial<TextBlock>) => void;
-  onGestureStart: () => void;
-  onOverflow: (id: string, overflowed: boolean) => void;
-  onSnap: (lines: { x: number | null; y: number | null }) => void;
-}) {
-  const { w, h } = design.size_mm;
-  const url = useTextImage(block, (overflowed) => onOverflow(block.id, overflowed));
-  const drag = useRef<{ mode: 'move' | 'size'; x: number; y: number; rect: TextBlock['rect_mm']; mmPerPx: number } | null>(null);
-  const r = block.rect_mm;
-
-  const begin = (e: React.PointerEvent, mode: 'move' | 'size') => {
-    e.stopPropagation();
-    onSelect(block.id);
-    onGestureStart();
-    const spread = e.currentTarget.closest('.spread');
-    if (!spread) return;
-    e.currentTarget.setPointerCapture(e.pointerId);
-    drag.current = { mode, x: e.clientX, y: e.clientY, rect: r, mmPerPx: w / spread.getBoundingClientRect().width };
-  };
-
-  const move = (e: React.PointerEvent) => {
-    const start = drag.current;
-    if (!start) return;
-    const dx = (e.clientX - start.x) * start.mmPerPx;
-    const dy = (e.clientY - start.y) * start.mmPerPx;
-    if (start.mode === 'size') {
-      onChange(block.id, {
-        rect_mm: {
-          ...start.rect,
-          w: Math.min(w - start.rect.x, Math.max(MIN_TEXT_BOX_MM, start.rect.w + dx)),
-          h: Math.min(h - start.rect.y, Math.max(MIN_TEXT_BOX_MM, start.rect.h + dy)),
-        },
-      });
-      return;
-    }
-    let x = start.rect.x + dx;
-    let y = start.rect.y + dy;
-    const targets = snapTargets(spec, w, h);
-    const edgeX = nearest([x, x + r.w], targets.edgesX);
-    const centreX = nearest([x + r.w / 2], targets.centresX);
-    const snapX = centreX ?? edgeX;
-    const edgeY = nearest([y, y + r.h], targets.edgesY);
-    const centreY = nearest([y + r.h / 2], targets.centresY);
-    const snapY = centreY ?? edgeY;
-    if (snapX) x += snapX.shift;
-    if (snapY) y += snapY.shift;
-    onSnap({ x: snapX?.line ?? null, y: snapY?.line ?? null });
-    onChange(block.id, {
-      rect_mm: {
-        ...start.rect,
-        x: Math.min(w - r.w, Math.max(0, x)),
-        y: Math.min(h - r.h, Math.max(0, y)),
-      },
-    });
-  };
-
-  const end = () => {
-    drag.current = null;
-    onSnap({ x: null, y: null });
-  };
-
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      aria-label={`Text: ${block.text.slice(0, 40)}`}
-      aria-pressed={selected}
-      className={`text-block ${selected ? 'selected' : ''} ${overflowing ? 'overflowing' : ''}`}
-      style={{
-        left: percent(r.x, w),
-        top: percent(r.y, h),
-        width: percent(r.w, w),
-        height: percent(r.h, h),
-      }}
-      onClick={(e) => e.stopPropagation()}
-      onPointerDown={(e) => begin(e, 'move')}
-      onPointerMove={move}
-      onPointerUp={end}
-      onPointerCancel={end}
-    >
-      {url && <img src={url} alt="" draggable={false} />}
-      {selected && (
-        <span
-          className="text-handle"
-          onPointerDown={(e) => begin(e, 'size')}
-          onPointerMove={move}
-          onPointerUp={end}
-          onPointerCancel={end}
-        />
-      )}
-    </div>
-  );
-}
-
 function LayoutThumb({
   option, on, onClick,
 }: {
@@ -1292,7 +1143,7 @@ function LayoutThumb({
 
 function SpreadCanvas({
   design, spec, photos, guides, thresholds, selectedId, onSelect, onFit, onSwap, onGestureStart,
-  showOriginal, textId, onSelectText, onChangeText, onOverflow,
+  showOriginal, onOpenDesigner, textId, onSelectText, onChangeText, onOverflow,
 }: {
   design: SpreadDesign;
   spec: Album['spec'];
@@ -1305,6 +1156,7 @@ function SpreadCanvas({
   onSwap: (sourceId: string, targetId: string) => void;
   onGestureStart: () => void;
   showOriginal: boolean;
+  onOpenDesigner: () => void;
   textId: string | null;
   onSelectText: (id: string) => void;
   onChangeText: (id: string, change: Partial<TextBlock>) => void;
@@ -1326,6 +1178,7 @@ function SpreadCanvas({
         background: design.background.value,
       }}
       onPointerDown={(e) => { if (e.target === e.currentTarget) onSelect(null); }}
+      onDoubleClick={onOpenDesigner}
     >
       {design.frames.map((frame) => {
         const photo = frame.asset_id ? photos.get(frame.asset_id) : undefined;
@@ -1378,6 +1231,7 @@ function SpreadCanvas({
             onPointerCancel={() => { pan.current = null; }}
           >
             {photo && <FramedPhoto photo={photo} frame={frame} width={EDIT_PREVIEW} original={showOriginal} />}
+            <FrameBorder frame={frame} design={design} />
             {guides && soft && dpi !== null && (
               <span className={`dpi ${dpi < thresholds.tooLow ? 'too-low' : 'low'}`}>{Math.round(dpi)} DPI</span>
             )}
