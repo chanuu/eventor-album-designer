@@ -124,7 +124,12 @@ export function useSpreadRail(
 
   const onPointerMove = useCallback((e: React.PointerEvent<HTMLElement>) => {
     const d = drag.current;
-    if (!d || !rail) return;
+    if (!d || !rail || e.pointerId !== d.pointerId) return;
+    // The button can be let go outside the window, where no release reaches us.
+    if (e.buttons === 0) {
+      drag.current = null;
+      return;
+    }
     const moved = e.clientX - d.x;
     if (!d.moved) {
       if (Math.abs(moved) < SLIDE_START_PX) return;
