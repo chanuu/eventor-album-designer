@@ -208,6 +208,7 @@ mod tests {
             bold: false,
             italic: false,
             line_height: 1.3,
+            opacity: 1.0,
         }
     }
 

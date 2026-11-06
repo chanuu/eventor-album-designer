@@ -221,6 +221,7 @@ pub fn apply_layout(
                 rect_mm: rect_to_mm(frame, spec),
                 corner_radius_mm: 0.0,
                 adjust: Default::default(),
+                style: Default::default(),
                 asset_id: photo_in_frame(i),
                 fit: Fit::default(),
                 z: frame.z,

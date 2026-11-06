@@ -18,6 +18,7 @@ pub const PROJECT_EXTENSION: &str = "evalbum";
 
 const MAX_PROJECT_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_TEXT_BYTES: usize = 64 * 1024;
+const MAX_FRAME_SHARE_OF_SPREAD: f64 = 4.0;
 
 #[derive(Debug, Error)]
 pub enum StoreError {
@@ -94,18 +95,44 @@ impl Project {
             for frame in &spread.design.frames {
                 let r = frame.rect_mm;
                 let f = frame.fit;
-                let finite = [r.x, r.y, r.w, r.h, f.scale, f.cx, f.cy, f.rot_deg]
-                    .iter()
-                    .all(|v| v.is_finite());
+                let s = &frame.style;
+                let finite = [
+                    r.x,
+                    r.y,
+                    r.w,
+                    r.h,
+                    f.scale,
+                    f.cx,
+                    f.cy,
+                    f.rot_deg,
+                    s.opacity,
+                    s.border_mm,
+                ]
+                .iter()
+                .all(|v| v.is_finite());
                 if !finite || r.w <= 0.0 || r.h <= 0.0 {
                     return Err(invalid("a frame has an impossible size"));
+                }
+                // A frame is rendered whole, so its size decides how much memory it takes.
+                if r.w > size.w * MAX_FRAME_SHARE_OF_SPREAD
+                    || r.h > size.h * MAX_FRAME_SHARE_OF_SPREAD
+                {
+                    return Err(invalid("a frame is far larger than its spread"));
                 }
             }
             for text in &spread.design.texts {
                 let r = text.rect_mm;
-                let finite = [r.x, r.y, r.w, r.h, text.size_pt, text.line_height]
-                    .iter()
-                    .all(|v| v.is_finite());
+                let finite = [
+                    r.x,
+                    r.y,
+                    r.w,
+                    r.h,
+                    text.size_pt,
+                    text.line_height,
+                    text.opacity,
+                ]
+                .iter()
+                .all(|v| v.is_finite());
                 if !finite || r.w <= 0.0 || r.h <= 0.0 || text.size_pt <= 0.0 {
                     return Err(invalid("a text block has an impossible size"));
                 }
@@ -236,6 +263,7 @@ mod tests {
                         },
                         corner_radius_mm: 0.0,
                         adjust: Default::default(),
+                        style: Default::default(),
                         asset_id: Some("photo-1".into()),
                         fit: Fit {
                             scale: 1.5,

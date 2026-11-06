@@ -50,6 +50,31 @@ impl Default for Fit {
     }
 }
 
+/// How a frame is finished. Absent in albums saved before the designer existed.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct FrameStyle {
+    /// From 0, invisible, to 1, solid.
+    pub opacity: f64,
+    /// Drawn inside the frame, so a border never changes where the frame sits.
+    pub border_mm: f64,
+    pub border_colour: String,
+}
+
+impl Default for FrameStyle {
+    fn default() -> Self {
+        Self {
+            opacity: 1.0,
+            border_mm: 0.0,
+            border_colour: "#FFFFFF".to_string(),
+        }
+    }
+}
+
+fn solid() -> f64 {
+    1.0
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Frame {
     pub id: String,
@@ -61,6 +86,8 @@ pub struct Frame {
     /// Tone and colour for this photo. Absent in albums saved before effects existed.
     #[serde(default)]
     pub adjust: Adjustments,
+    #[serde(default)]
+    pub style: FrameStyle,
     #[serde(default)]
     pub z: i32,
 }
@@ -97,6 +124,8 @@ pub struct TextBlock {
     #[serde(default)]
     pub italic: bool,
     pub line_height: f64,
+    #[serde(default = "solid")]
+    pub opacity: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -9,7 +9,8 @@ use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 
 use album_core::document::{
-    dpi_status, effective_dpi, visible_area, Background, DpiStatus, ProjectSpec, SpreadDesign,
+    dpi_status, effective_dpi, visible_area, Background, DpiStatus, Frame, ProjectSpec,
+    SpreadDesign,
 };
 use album_media::{colour_profile_is_srgb, decode_upright, PhotoInfo};
 use album_store::Project;
@@ -248,7 +249,7 @@ pub fn render_spread(
         );
         let mut tile = crop_and_resize(original, crop, (pixel_w as u32, pixel_h as u32))?;
         frame.adjust.apply_rgb(&mut tile);
-        imageops::replace(&mut canvas, &tile, left, top);
+        composite_frame(&mut canvas, &tile, left, top, frame, scale_x);
     }
 
     // Text sits above every photo, whatever order the frames are in.
@@ -256,16 +257,72 @@ pub fn render_spread(
         let drawn = render_block(block, spec.target_dpi).map_err(ExportError::Render)?;
         let left = (block.rect_mm.x * scale_x).round() as i64;
         let top = (block.rect_mm.y * scale_y).round() as i64;
-        lay_over(&mut canvas, &drawn.image, left, top);
+        lay_over(&mut canvas, &drawn.image, left, top, block.opacity);
     }
     Ok(canvas)
 }
 
+/// Draws a frame with its rounded corners, border and opacity.
+///
+/// `px_per_mm` turns the frame's millimetres into pixels. A plain frame takes a fast path,
+/// because almost every frame in an album is one.
+fn composite_frame(
+    canvas: &mut RgbImage,
+    tile: &RgbImage,
+    left: i64,
+    top: i64,
+    frame: &Frame,
+    px_per_mm: f64,
+) {
+    let style = &frame.style;
+    let opacity = style.opacity.clamp(0.0, 1.0);
+    let border = (style.border_mm * px_per_mm).max(0.0);
+    let (tile_w, tile_h) = (f64::from(tile.width()), f64::from(tile.height()));
+    let radius = (frame.corner_radius_mm * px_per_mm).clamp(0.0, tile_w.min(tile_h) / 2.0);
+    if opacity >= 1.0 && border <= 0.0 && radius <= 0.0 {
+        imageops::replace(canvas, tile, left, top);
+        return;
+    }
+
+    let border_colour = parse_colour(&style.border_colour);
+    let (canvas_w, canvas_h) = (i64::from(canvas.width()), i64::from(canvas.height()));
+    for (x, y, pixel) in tile.enumerate_pixels() {
+        let (cx, cy) = (left + i64::from(x), top + i64::from(y));
+        if cx < 0 || cy < 0 || cx >= canvas_w || cy >= canvas_h {
+            continue;
+        }
+        // How far this pixel is inside the rounded shape, for smooth edges.
+        let qx = (f64::from(x) + 0.5 - tile_w / 2.0).abs() - (tile_w / 2.0 - radius);
+        let qy = (f64::from(y) + 0.5 - tile_h / 2.0).abs() - (tile_h / 2.0 - radius);
+        let outside = qx.max(0.0).hypot(qy.max(0.0)) + qx.max(qy).min(0.0) - radius;
+        let inside = -outside;
+        let coverage = (inside + 0.5).clamp(0.0, 1.0);
+        if coverage <= 0.0 {
+            continue;
+        }
+        let on_border = if border > 0.0 {
+            (border - inside + 0.5).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let alpha = coverage * opacity;
+        let under = canvas.get_pixel_mut(cx as u32, cy as u32);
+        for (channel, border_level) in border_colour.iter().enumerate() {
+            let photo = f64::from(pixel.0[channel]);
+            let drawn = photo + (f64::from(*border_level) - photo) * on_border;
+            let base = f64::from(under.0[channel]);
+            under.0[channel] = (base + (drawn - base) * alpha).round() as u8;
+        }
+    }
+}
+
 /// Blends a transparent image onto the canvas, clipping whatever falls outside it.
-fn lay_over(canvas: &mut RgbImage, layer: &RgbaImage, left: i64, top: i64) {
+fn lay_over(canvas: &mut RgbImage, layer: &RgbaImage, left: i64, top: i64, opacity: f64) {
     let (width, height) = canvas.dimensions();
+    let opacity = opacity.clamp(0.0, 1.0);
     for (x, y, pixel) in layer.enumerate_pixels() {
         let [r, g, b, a] = pixel.0;
+        let a = (f64::from(a) * opacity).round() as u8;
         if a == 0 {
             continue;
         }
@@ -588,6 +645,7 @@ mod tests {
             rect_mm,
             corner_radius_mm: 0.0,
             adjust: Default::default(),
+            style: Default::default(),
             asset_id: Some(id.to_string()),
             fit,
             z: 0,
@@ -745,6 +803,7 @@ mod tests {
             bold: false,
             italic: false,
             line_height: 1.2,
+            opacity: 1.0,
         };
         let mut d = design(
             vec![frame(whole_canvas(), "a.png", Fit::default())],
@@ -761,6 +820,152 @@ mod tests {
         assert!(
             close_to(image.get_pixel(px(5.0), px(5.0)), RED),
             "outside the box stays photo"
+        );
+    }
+
+    /// A red frame on black paper, inset so its edges and corners can be examined.
+    fn styled_render(change: impl Fn(&mut Frame)) -> (RgbImage, (u32, u32, u32, u32)) {
+        let dir = TempDir::new();
+        let path = dir.0.join("red.png");
+        RgbImage::from_pixel(600, 300, Rgb(RED))
+            .save(&path)
+            .unwrap();
+        let photo = PhotoInfo {
+            id: "red".to_string(),
+            path,
+            file_name: "red.png".to_string(),
+            width: 600,
+            height: 300,
+            orientation: 1,
+        };
+        let photos = HashMap::from([("red", &photo)]);
+        let rect = RectMm {
+            x: 25.4,
+            y: 25.4,
+            w: 127.0,
+            h: 63.5,
+        };
+        let mut f = frame(rect, "red", Fit::default());
+        change(&mut f);
+        let d = design(vec![f], "#000000");
+        let image = render_spread(&d, &spec(), &photos).unwrap();
+        // At 100 DPI that rectangle is 100, 100 to 600, 350.
+        (image, (100, 100, 600, 350))
+    }
+
+    #[test]
+    fn opacity_lets_the_paper_show_through() {
+        let (image, _) = styled_render(|f| f.style.opacity = 0.5);
+        let [r, _, _] = image.get_pixel(300, 200).0;
+        assert!((i32::from(r) - i32::from(RED[0]) / 2).abs() <= 3, "got {r}");
+    }
+
+    #[test]
+    fn a_border_is_drawn_inside_the_frame_in_its_colour() {
+        let (image, (l, t, _, _)) = styled_render(|f| {
+            f.style.border_mm = 2.54; // 10 pixels at this DPI
+            f.style.border_colour = "#00FF00".to_string();
+        });
+        assert_eq!(
+            image.get_pixel(l + 4, t + 100).0,
+            [0, 255, 0],
+            "on the border"
+        );
+        assert!(
+            close_to(image.get_pixel(l + 14, t + 100), RED),
+            "just inside it"
+        );
+        assert_eq!(
+            image.get_pixel(l - 3, t + 100).0,
+            [0, 0, 0],
+            "the frame has not grown"
+        );
+    }
+
+    #[test]
+    fn rounded_corners_cut_away_the_corner_and_nothing_else() {
+        let (image, (l, t, r, b)) = styled_render(|f| f.corner_radius_mm = 12.7); // 50 pixels
+        assert_eq!(
+            image.get_pixel(l + 2, t + 2).0,
+            [0, 0, 0],
+            "the corner is gone"
+        );
+        assert_eq!(image.get_pixel(r - 3, b - 3).0, [0, 0, 0]);
+        assert!(
+            close_to(image.get_pixel(l + 25, t + 25), RED),
+            "inside the curve"
+        );
+        assert!(
+            close_to(image.get_pixel(l + 2, t + 100), RED),
+            "the straight edge stays"
+        );
+    }
+
+    #[test]
+    fn a_frame_partly_off_the_canvas_is_clipped_not_lost() {
+        let dir = TempDir::new();
+        let photo = split_photo(&dir.0, "a.png", 800, 400);
+        let photos = HashMap::from([("a.png", &photo)]);
+        let c = spec().canvas_mm();
+        let rect = RectMm {
+            x: -30.0,
+            y: -20.0,
+            w: c.w / 2.0,
+            h: c.h,
+        };
+        let mut styled = frame(rect, "a.png", Fit::default());
+        styled.style.opacity = 0.9;
+        let plain = frame(
+            RectMm {
+                x: c.w - 40.0,
+                y: 10.0,
+                w: 80.0,
+                h: 40.0,
+            },
+            "a.png",
+            Fit::default(),
+        );
+        let d = design(vec![styled, plain], "#FFFFFF");
+        let image = render_spread(&d, &spec(), &photos).unwrap();
+        assert_ne!(image.get_pixel(0, 0).0, [255, 255, 255]);
+        assert_ne!(image.get_pixel(image.width() - 1, 60).0, [255, 255, 255]);
+    }
+
+    #[test]
+    fn text_opacity_reaches_the_print() {
+        use album_core::document::{TextAlign, TextBlock};
+        let dir = TempDir::new();
+        let photo = split_photo(&dir.0, "a.png", 400, 200);
+        let photos = HashMap::from([("a.png", &photo)]);
+        let block = |opacity| TextBlock {
+            id: "t".to_string(),
+            rect_mm: RectMm {
+                x: 10.0,
+                y: 10.0,
+                w: 100.0,
+                h: 40.0,
+            },
+            text: "█████".to_string(),
+            font: String::new(),
+            size_pt: 40.0,
+            colour: "#000000".to_string(),
+            align: TextAlign::Left,
+            bold: false,
+            italic: false,
+            line_height: 1.2,
+            opacity,
+        };
+        let darkest = |opacity| {
+            let mut d = design(Vec::new(), "#FFFFFF");
+            d.texts = vec![block(opacity)];
+            let image = render_spread(&d, &spec(), &photos).unwrap();
+            image.pixels().map(|p| p.0[0]).min().unwrap()
+        };
+        assert!(darkest(1.0) < 10);
+        assert!(
+            (i32::from(darkest(0.5)) - 128).abs() < 6,
+            "{}",
+            darkest(0.5)
         );
     }
 

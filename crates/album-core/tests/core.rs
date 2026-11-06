@@ -355,6 +355,7 @@ fn effective_dpi_flags_a_proof_sized_photo() {
         }, // 15 x 12 in
         corner_radius_mm: 0.0,
         adjust: Default::default(),
+        style: Default::default(),
         asset_id: None,
         fit: Fit::default(),
         z: 0,
