@@ -239,6 +239,11 @@ export type AlbumPlan = {
   suggested_spreads: number;
 };
 
+export type GalleryLeftOut = { id: string; reasons: string[] };
+
+/** Run after `analyzePhotos`, because it judges what that found. */
+export const checkForGallery = (ids: string[]) => invoke<GalleryLeftOut[]>('check_for_gallery', { ids });
+
 export const analyzePhotos = (ids: string[]) =>
   invoke<{ analyzed: number; unreadable: string[] }>('analyze_photos', { ids });
 

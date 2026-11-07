@@ -9,7 +9,8 @@ use std::time::{Duration, Instant};
 
 use album_core::adjust::Adjustments;
 use album_core::autobuild::{
-    plan_album, rate_photos, AlbumPlan, PhotoFacts, PhotoRating, PlanOptions,
+    gallery_left_out, plan_album, rate_photos, AlbumPlan, GalleryLeftOut, PhotoFacts, PhotoRating,
+    PlanOptions,
 };
 use album_core::autolayout::{apply_layout, rank_layouts, Photo};
 use album_core::document::{
@@ -293,6 +294,22 @@ fn suggest_ratings(
     let store = state.facts.lock().map_err(|e| e.to_string())?;
     let facts: Vec<PhotoFacts> = ids.iter().filter_map(|id| store.get(id).cloned()).collect();
     Ok(rate_photos(&facts))
+}
+
+/// Which of these analysed photos not to offer a customer, and why.
+#[tauri::command]
+fn check_for_gallery(
+    ids: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<Vec<GalleryLeftOut>, String> {
+    let store = state.facts.lock().map_err(|e| e.to_string())?;
+    let photos = state.photos.lock().map_err(|e| e.to_string())?;
+    let facts: Vec<PhotoFacts> = ids.iter().filter_map(|id| store.get(id).cloned()).collect();
+    let edges: Vec<(String, u32)> = ids
+        .iter()
+        .filter_map(|id| photos.get(id).map(|p| (id.clone(), p.width.max(p.height))))
+        .collect();
+    Ok(gallery_left_out(&facts, &edges))
 }
 
 /// Suggested white balance and levels for one photo.
@@ -668,6 +685,7 @@ fn main() {
             open_album,
             relink_photos,
             suggest_ratings,
+            check_for_gallery,
             suggest_colour,
             list_fonts,
             preview_text,

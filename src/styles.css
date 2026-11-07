@@ -224,6 +224,10 @@ legend { padding: 0; margin-bottom: 7px; font-size: 12px; font-weight: 600; widt
 .gate-actions, .flow-row { display: flex; align-items: center; gap: 10px; }
 .flow-body { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; width: min(720px, 100%); margin: 0 auto; padding: 32px 24px; }
 .flow-body progress { width: 100%; accent-color: var(--brand); }
+.quality-review { display: flex; flex-direction: column; gap: 8px; padding: 14px; background: var(--panel-raised); border: 1px solid var(--line); border-radius: 10px; }
+.quality-review h2 { font-size: 15px; color: var(--ink); }
+.quality-grid { max-height: 340px; }
+.left-out-item.put-back img { outline: 2px solid var(--brand); }
 .flow-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
 .name-list { margin: 0; padding-left: 18px; font-size: 13px; color: var(--ink-mid); }
 .selection { display: flex; flex-direction: column; gap: 12px; }

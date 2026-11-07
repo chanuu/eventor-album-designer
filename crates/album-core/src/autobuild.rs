@@ -449,6 +449,74 @@ fn cut_run(run: &Run, count: usize, kept: &[Placed]) -> Vec<Vec<usize>> {
     result
 }
 
+/// More pure white than this has lost too much to offer a customer. Much stricter than the
+/// warning above, because a white dress or a bright sky is a normal part of a good photo.
+const GALLERY_BLOWN_SHARE: f64 = 0.25;
+/// More pure black than this is too dark to judge, even for a night reception.
+const GALLERY_CRUSHED_SHARE: f64 = 0.6;
+/// Smaller than this along its long edge, a photo is a copy and not a usable original.
+const GALLERY_SMALLEST_EDGE_PX: u32 = 1200;
+
+/// A photo left out of a customer's gallery, and why. The photographer can put any back.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct GalleryLeftOut {
+    pub id: String,
+    pub reasons: Vec<String>,
+}
+
+/// Which photos not to offer a customer: overexposed, blurry, too dark or too small.
+/// `long_edges` gives each photo's longest side in pixels.
+pub fn gallery_left_out(facts: &[PhotoFacts], long_edges: &[(String, u32)]) -> Vec<GalleryLeftOut> {
+    let plan = plan_album(
+        facts,
+        &PlanOptions {
+            spreads: None,
+            split_by_time: false,
+            sync_clocks: false,
+            keep_mono_together: false,
+            leave_out_blurry: true,
+            leave_out_similar: false,
+            keep: Vec::new(),
+        },
+    );
+    let blurry: HashSet<&str> = plan
+        .left_out
+        .iter()
+        .filter(|item| matches!(item.reason, LeftOutReason::Blurry))
+        .map(|item| item.id.as_str())
+        .collect();
+    let edges: HashMap<&str, u32> = long_edges
+        .iter()
+        .map(|(id, edge)| (id.as_str(), *edge))
+        .collect();
+
+    facts
+        .iter()
+        .filter_map(|fact| {
+            let mut reasons = Vec::new();
+            if fact.blown > GALLERY_BLOWN_SHARE {
+                reasons.push("Overexposed".to_string());
+            }
+            if fact.crushed > GALLERY_CRUSHED_SHARE {
+                reasons.push("Too dark".to_string());
+            }
+            if blurry.contains(fact.id.as_str()) {
+                reasons.push("Blurry".to_string());
+            }
+            if edges
+                .get(fact.id.as_str())
+                .is_some_and(|edge| *edge < GALLERY_SMALLEST_EDGE_PX)
+            {
+                reasons.push("Low resolution".to_string());
+            }
+            (!reasons.is_empty()).then(|| GalleryLeftOut {
+                id: fact.id.clone(),
+                reasons,
+            })
+        })
+        .collect()
+}
+
 /// Suggests a rating for each photo, using the same judgements as Auto Build.
 pub fn rate_photos(facts: &[PhotoFacts]) -> Vec<PhotoRating> {
     let plan = plan_album(
