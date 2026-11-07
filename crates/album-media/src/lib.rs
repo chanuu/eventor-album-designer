@@ -17,6 +17,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use walkdir::WalkDir;
 
+pub mod selection;
+
 const PHOTO_EXTENSIONS: &[&str] = &["jpg", "jpeg", "jpe", "png", "webp"];
 const PREVIEW_JPEG_QUALITY: u8 = 85;
 

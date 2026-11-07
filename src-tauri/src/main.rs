@@ -23,6 +23,7 @@ use album_export::{
     Issue,
 };
 use album_media::analyze::{analyze_photo, auto_adjust};
+use album_media::selection::{make_gallery_copies, match_selection, SelectionMatch, WantedPhoto};
 use album_media::{
     adjusted_preview, ensure_preview, scan_folder, PhotoInfo, PreviewTier, ScanResult,
 };
@@ -462,6 +463,58 @@ fn upload_image(address: &str, bytes: &[u8]) -> Result<(), String> {
     Err(problem)
 }
 
+/// Finds what a customer selected among the photos in this folder.
+#[tauri::command]
+async fn match_customer_selection(
+    folder: String,
+    wanted: Vec<WantedPhoto>,
+    state: State<'_, AppState>,
+) -> Result<SelectionMatch, String> {
+    let path = PathBuf::from(folder);
+    let (scan, matched) = tauri::async_runtime::spawn_blocking(move || {
+        let scan = scan_folder(&path).map_err(|e| e.to_string())?;
+        let matched = match_selection(&scan.photos, &wanted);
+        Ok::<_, String>((scan, matched))
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+
+    let mut photos = state.photos.lock().map_err(|e| e.to_string())?;
+    for photo in &scan.photos {
+        photos.insert(photo.id.clone(), photo.clone());
+    }
+    Ok(matched)
+}
+
+/// Uploads a photo's two gallery sizes, and returns the hash of the original.
+#[tauri::command]
+async fn upload_gallery_photo(
+    photo_id: String,
+    full_url: String,
+    thumb_url: String,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    if !is_upload_address(&full_url) || !is_upload_address(&thumb_url) {
+        return Err("That upload address is not allowed.".to_string());
+    }
+    // Only a photo already imported, so that no other file on the computer can be sent.
+    let photo = state
+        .photos
+        .lock()
+        .map_err(|e| e.to_string())?
+        .get(&photo_id)
+        .cloned()
+        .ok_or_else(|| "That photo has not been imported.".to_string())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let copies = make_gallery_copies(&photo).map_err(|e| e.to_string())?;
+        upload_image(&full_url, &copies.full)?;
+        upload_image(&thumb_url, &copies.thumb)?;
+        Ok(copies.hash)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Draws one spread for the web and uploads it. Returns how many bytes were sent.
 #[tauri::command]
 async fn publish_spread(
@@ -622,7 +675,9 @@ fn main() {
             plan_for_album,
             check_for_export,
             export_print_files,
-            publish_spread
+            publish_spread,
+            match_customer_selection,
+            upload_gallery_photo
         ])
         .run(tauri::generate_context!())
         .expect("the app window could not start");
