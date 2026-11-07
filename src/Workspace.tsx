@@ -52,6 +52,11 @@ const MAX_ZOOM = 3;
 /** How long after the last change an already-saved album saves itself. */
 const AUTOSAVE_DELAY_MS = 1500;
 
+/** Auto design chooses among this many of the layouts that suit the photos best. */
+const AUTO_DESIGN_CHOICES = 12;
+/** How many recent layouts it avoids repeating on the same spread. */
+const AUTO_DESIGN_MEMORY = 4;
+
 type SaveStatus = 'saved' | 'unsaved' | 'saving' | 'failed';
 type PhotoFilter = 'all' | 'unused' | 'used' | 'missing' | Rating;
 
@@ -122,6 +127,7 @@ export default function Workspace({ album }: { album: Album }) {
   const [showComments, setShowComments] = useState(false);
   const [openComments, setOpenComments] = useState(0);
   const autoDesignTicket = useRef(0);
+  const recentLayouts = useRef(new Map<string, string[]>());
   const [ratings, setRatings] = useState<Record<string, Rating>>(album.ratings);
   const [suggested, setSuggested] = useState<Map<string, PhotoRating>>(new Map());
   const [reading, setReading] = useState(false);
@@ -598,27 +604,36 @@ export default function Workspace({ album }: { album: Album }) {
     );
   }, [changeFrames, frameId]);
 
-  /** Each click makes another arrangement in the selected style, without end. */
+  /**
+   * Each click gives the spread a different layout: another of the layouts that suit these
+   * photos, chosen from the best, and then rearranged so that no two clicks look alike.
+   */
   async function autoDesign() {
-    if (!current) return;
-    const style = current.options[current.optionIndex];
-    if (!style) return;
+    if (!current || !current.options.length) return;
     const spreadId = current.id;
     const ticket = ++autoDesignTicket.current;
+    const recent = recentLayouts.current.get(spreadId) ?? [];
+    const best = current.options
+      .map((option, index) => ({ option, index }))
+      .slice(0, AUTO_DESIGN_CHOICES);
+    // Never the one on screen, and not one of the last few, while there are others to use.
+    const fresh = best.filter(({ option, index }) => index !== current.optionIndex && !recent.includes(option.template_id));
+    const others = best.filter(({ index }) => index !== current.optionIndex);
+    const pool = fresh.length ? fresh : others.length ? others : best;
+    const [roll, seed] = crypto.getRandomValues(new Uint32Array(2));
+    const { option, index } = pool[roll % pool.length];
     const list = current.photoIds.flatMap((id) => byId.get(id) ?? []);
-    const [seed] = crypto.getRandomValues(new Uint32Array(1));
     try {
-      const made = await varyLayout(style.template_id, list, spec, current.design.frames.map((f) => f.rect_mm), seed);
+      const made = await varyLayout(option.template_id, list, spec, option.design.frames.map((f) => f.rect_mm), seed);
       // Only the latest click counts, when they come quicker than the answers.
       if (ticket !== autoDesignTicket.current) return;
-      if (!made) {
-        setNotice(`“${style.name}” has only one arrangement. Choose another style with ‹ › to design more.`);
-        return;
-      }
+      recentLayouts.current.set(spreadId, [option.template_id, ...recent].slice(0, AUTO_DESIGN_MEMORY));
       setNotice('');
       setFrameId(null);
       history.seal();
-      setSpreads((all) => all.map((s) => (s.id === spreadId ? { ...s, design: carryOver(s.design, made.design) } : s)));
+      setSpreads((all) => all.map((s) => (
+        s.id === spreadId ? { ...s, optionIndex: index, design: carryOver(s.design, (made ?? option).design) } : s
+      )));
       history.seal();
     } catch (e) {
       setNotice(`Could not design a new layout: ${String(e)}`);
@@ -865,6 +880,7 @@ export default function Workspace({ album }: { album: Album }) {
           onShowOriginal={setShowOriginal}
           onAddPhoto={dropPhotosOnDesigner}
           onReplacePhoto={replacePhotoInDesigner}
+          onAutoDesign={() => void autoDesign()}
         />
       ) : (
       <>
@@ -895,7 +911,7 @@ export default function Workspace({ album }: { album: Album }) {
               <button
                 type="button"
                 className="tool accent"
-                title="Design a new arrangement in this style. Click again for another."
+                title="Try a different layout for these photos. Click again for another."
                 onClick={() => void autoDesign()}
               ><SparklesIcon aria-hidden="true" />
                 Auto design

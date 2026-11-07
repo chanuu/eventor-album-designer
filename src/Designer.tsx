@@ -1,4 +1,5 @@
 import { BringToFrontIcon, CropIcon, MousePointer2Icon, SendToBackIcon, Trash2Icon } from 'lucide-react';
+import { SparklesIcon } from 'lucide-react';
 import {
   AlignCenterHorizontalIcon, AlignCenterVerticalIcon, AlignEndHorizontalIcon, AlignEndVerticalIcon,
   AlignStartHorizontalIcon, AlignStartVerticalIcon,
@@ -60,7 +61,7 @@ function inches(mm: number): string {
 
 export default function Designer({
   design, spec, photos, thresholds, paperColours, fonts, showOriginal, autoBusy, onChange, onSeal, onAuto,
-  onShowOriginal, onAddPhoto, onReplacePhoto,
+  onShowOriginal, onAddPhoto, onReplacePhoto, onAutoDesign,
 }: {
   design: SpreadDesign;
   spec: ProjectSpec;
@@ -76,6 +77,7 @@ export default function Designer({
   onShowOriginal: (show: boolean) => void;
   onAddPhoto: (photoIds: string[], xMm: number, yMm: number) => void;
   onReplacePhoto: (frameId: string, photoId: string) => void;
+  onAutoDesign: () => void;
 }) {
   const { w, h } = design.size_mm;
   const canvas = useRef<HTMLDivElement>(null);
@@ -465,6 +467,10 @@ export default function Designer({
               <Measure label="H" mm={box.h} onCommit={(v) => typedBox({ h: v })} />
             </div>
           )}
+          <span className="topbar-gap" />
+          <button type="button" className="btn-primary" title="Try a different layout for these photos" onClick={onAutoDesign}>
+            <SparklesIcon aria-hidden="true" />Auto design
+          </button>
         </div>
 
         {/* The selection box can start outside the spread, since photos may cover all of it. */}
