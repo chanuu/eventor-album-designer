@@ -75,6 +75,7 @@ export default function NewAlbum({ onCreate }: { onCreate: (album: Album) => voi
         spreads: [],
         missing: [],
         ratings: {},
+        publish: null,
       });
     } catch (e) {
       setError(String(e));

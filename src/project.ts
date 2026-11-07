@@ -1,4 +1,4 @@
-import { openAlbum, suggestLayouts, type PhotoInfo, type Project, type Rating, type Spread } from './api';
+import { openAlbum, suggestLayouts, type PhotoInfo, type Project, type PublishLink, type Rating, type Spread } from './api';
 import type { Album } from './App';
 
 export const ALBUM_EXTENSION = 'evalbum';
@@ -34,9 +34,11 @@ export function toProject(
   photos: PhotoInfo[],
   spreads: Spread[],
   ratings: Record<string, Rating>,
+  publish: PublishLink | null,
 ): Project {
   return {
     ratings,
+    publish,
     version: PROJECT_VERSION,
     name: album.name,
     size_label: album.sizeLabel,
@@ -83,5 +85,6 @@ export async function loadAlbum(path: string): Promise<Album> {
     spreads,
     missing,
     ratings: project.ratings,
+    publish: project.publish ?? null,
   };
 }

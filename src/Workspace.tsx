@@ -19,9 +19,10 @@ import {
   type Frame,
   type FrameStyle,
   type LayoutOption,
+  type Project,
+  type PublishLink,
   type PhotoInfo,
   type PhotoRating,
-  type Project,
   type Rating,
   type Spread,
   type SpreadDesign,
@@ -31,8 +32,11 @@ import type { Album } from './App';
 import AutoBuild from './AutoBuild';
 import { effectiveDpi, visibleArea, cropShare } from './crop';
 import EffectsPanel, { NO_ADJUSTMENTS } from './EffectsPanel';
+import CommentsDialog from './CommentsDialog';
 import Designer from './Designer';
+import { currentStaff, listComments } from './eventor';
 import ExportDialog from './ExportDialog';
+import PublishDialog from './PublishDialog';
 import { useHistory } from './history';
 import { ALBUM_EXTENSION, ALBUM_FILTERS, rememberAlbum, toProject } from './project';
 import { DRAG_PHOTOS, FrameBorder, FramedPhoto, frameStyle, percent, TextOnSpread, ThumbText } from './spreadParts';
@@ -112,6 +116,10 @@ export default function Workspace({ album }: { album: Album }) {
   const [exportProject, setExportProject] = useState<Project | null>(null);
   const [showBuild, setShowBuild] = useState(false);
   const [designerOpen, setDesignerOpen] = useState(false);
+  const [publishLink, setPublishLink] = useState<PublishLink | null>(album.publish);
+  const [publishProject, setPublishProject] = useState<Project | null>(null);
+  const [showComments, setShowComments] = useState(false);
+  const [openComments, setOpenComments] = useState(0);
   const autoDesignTicket = useRef(0);
   const [ratings, setRatings] = useState<Record<string, Rating>>(album.ratings);
   const [suggested, setSuggested] = useState<Map<string, PhotoRating>>(new Map());
@@ -153,14 +161,28 @@ export default function Workspace({ album }: { album: Album }) {
     if (!spreads.some((s) => s.id === currentId)) setCurrentId(spreads[0]?.id ?? null);
   }, [spreads, currentId]);
 
-  const latest = useRef({ photos, spreads, ratings, path, dirty: false });
+  const latest = useRef({ photos, spreads, ratings, publishLink, path, dirty: false });
   latest.current.path = path;
   useEffect(() => {
     const was = latest.current;
-    if (was.photos === photos && was.spreads === spreads && was.ratings === ratings) return;
-    latest.current = { ...was, photos, spreads, ratings, dirty: true };
+    if (was.photos === photos && was.spreads === spreads && was.ratings === ratings && was.publishLink === publishLink) return;
+    latest.current = { ...was, photos, spreads, ratings, publishLink, dirty: true };
     setSaveStatus('unsaved');
-  }, [photos, spreads, ratings]);
+  }, [photos, spreads, ratings, publishLink]);
+
+  // Shows how many comments are waiting, once this album is linked to a job.
+  useEffect(() => {
+    if (!publishLink) return undefined;
+    let current = true;
+    currentStaff()
+      .then((staff) => (staff ? listComments(publishLink.album_id, staff) : null))
+      .then((found) => {
+        if (current && found) setOpenComments(found.filter((c) => !c.resolved_at).length);
+      })
+      // Only a courtesy: the Comments window explains any problem when it is opened.
+      .catch(() => {});
+    return () => { current = false; };
+  }, [publishLink]);
 
   // Reads the photos in the background, so ratings appear without being asked for.
   useEffect(() => {
@@ -192,7 +214,7 @@ export default function Workspace({ album }: { album: Album }) {
       const snapshot = latest.current;
       setSaveStatus('saving');
       try {
-        await saveAlbum(target, toProject(album, snapshot.photos, snapshot.spreads, snapshot.ratings));
+        await saveAlbum(target, toProject(album, snapshot.photos, snapshot.spreads, snapshot.ratings, snapshot.publishLink));
         if (latest.current === snapshot) {
           latest.current.dirty = false;
           setSaveStatus('saved');
@@ -730,11 +752,25 @@ export default function Workspace({ album }: { album: Album }) {
         {!designerOpen && (
           <button type="button" className={`btn pane-btn ${showSide ? 'active' : ''}`} aria-pressed={showSide} onClick={() => setShowSide(!showSide)}>Panel</button>
         )}
+        {publishLink && (
+          <button type="button" className="btn" onClick={() => setShowComments(true)}>
+            Comments{openComments > 0 && <span className="count-badge">{openComments}</span>}
+          </button>
+        )}
+        <button
+          type="button"
+          className="btn"
+          disabled={!spreads.length}
+          title="Publish as the client's digital album in Eventor"
+          onClick={() => setPublishProject(toProject(album, photos, spreads, ratings, publishLink))}
+        >
+          Publish
+        </button>
         <button
           type="button"
           className="btn-primary"
           disabled={!spreads.length}
-          onClick={() => setExportProject(toProject(album, photos, spreads, ratings))}
+          onClick={() => setExportProject(toProject(album, photos, spreads, ratings, publishLink))}
         >
           Export
         </button>
@@ -757,6 +793,29 @@ export default function Workspace({ album }: { album: Album }) {
 
       {exportProject && (
         <ExportDialog project={exportProject} onClose={() => setExportProject(null)} />
+      )}
+
+      {publishProject && (
+        <PublishDialog
+          project={publishProject}
+          link={publishLink}
+          onPublished={setPublishLink}
+          onClose={() => setPublishProject(null)}
+        />
+      )}
+
+      {showComments && publishLink && (
+        <CommentsDialog
+          link={publishLink}
+          spreadIds={spreads.map((s) => s.id)}
+          onOpenCount={setOpenComments}
+          onGoToSpread={(id) => {
+            setShowComments(false);
+            setDesignerOpen(false);
+            pickSpread(id);
+          }}
+          onClose={() => setShowComments(false)}
+        />
       )}
 
       {showBuild && (

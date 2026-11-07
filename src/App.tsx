@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { PhotoInfo, ProjectSpec, Rating, Spread } from './api';
+import type { PhotoInfo, ProjectSpec, Rating, Spread, PublishLink } from './api';
 import NewAlbum from './NewAlbum';
 import Workspace from './Workspace';
 
@@ -15,6 +15,8 @@ export type Album = {
   missing: string[];
   /** Ratings set by hand. */
   ratings: Record<string, Rating>;
+  /** The Eventor job it has been published to, if any. */
+  publish: PublishLink | null;
 };
 
 export default function App() {

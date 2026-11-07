@@ -104,6 +104,9 @@ export type Rating = 'red' | 'yellow' | 'green';
 
 export type PhotoRating = { id: string; rating: Rating; reasons: string[] };
 
+/** The Eventor job this album has been published to. */
+export type PublishLink = { job_id: string; job_title: string; album_id: string };
+
 export type Project = {
   version: number;
   name: string;
@@ -112,6 +115,7 @@ export type Project = {
   photos: PhotoInfo[];
   spreads: SavedSpread[];
   ratings: Record<string, Rating>;
+  publish?: PublishLink | null;
 };
 
 export type ScanResult = {
@@ -169,6 +173,9 @@ export const varyLayout = (
     current,
     seed,
   });
+
+export const publishSpread = (project: Project, spreadId: string, uploadUrl: string) =>
+  invoke<number>('publish_spread', { project, spreadId, uploadUrl });
 
 export const suggestRatings = (ids: string[]) => invoke<PhotoRating[]>('suggest_ratings', { ids });
 
