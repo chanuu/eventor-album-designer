@@ -1,3 +1,8 @@
+import { BringToFrontIcon, CropIcon, MousePointer2Icon, SendToBackIcon, Trash2Icon } from 'lucide-react';
+import {
+  AlignCenterHorizontalIcon, AlignCenterVerticalIcon, AlignEndHorizontalIcon, AlignEndVerticalIcon,
+  AlignStartHorizontalIcon, AlignStartVerticalIcon,
+} from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Adjustments, Frame, PhotoInfo, ProjectSpec, SpreadDesign, TextBlock } from './api';
 import {
@@ -19,6 +24,15 @@ import { visibleArea } from './crop';
 import { DRAG_PHOTOS, FrameBorder, FramedPhoto, frameStyle, percent, useTextImage } from './spreadParts';
 import TextPanel from './TextPanel';
 import { TEXT_TEMPLATES, type TextTemplate } from './textTemplates';
+
+const ALIGN_ICONS = {
+  left: AlignStartVerticalIcon,
+  centre: AlignCenterVerticalIcon,
+  right: AlignEndVerticalIcon,
+  top: AlignStartHorizontalIcon,
+  middle: AlignCenterHorizontalIcon,
+  bottom: AlignEndHorizontalIcon,
+};
 
 const MM_PER_INCH = 25.4;
 const SNAP_REACH_MM = 2;
@@ -434,8 +448,8 @@ export default function Designer({
   return (
     <div className="designer">
       <div className="designer-rail" role="toolbar" aria-label="Tools">
-        <button type="button" aria-pressed={tool === 'select'} className={tool === 'select' ? 'on' : ''} onClick={() => { setTool('select'); setCropId(null); }}>Select</button>
-        <button type="button" aria-pressed={tool === 'photo'} className={tool === 'photo' ? 'on' : ''} title="Drag a photo inside its frame, and scroll to zoom it" onClick={() => setTool('photo')}>Crop</button>
+        <button type="button" aria-pressed={tool === 'select'} className={tool === 'select' ? 'on' : ''} onClick={() => { setTool('select'); setCropId(null); }}><MousePointer2Icon aria-hidden="true" />Select</button>
+        <button type="button" aria-pressed={tool === 'photo'} className={tool === 'photo' ? 'on' : ''} title="Drag a photo inside its frame, and scroll to zoom it" onClick={() => setTool('photo')}><CropIcon aria-hidden="true" />Crop</button>
       </div>
 
       <div className="designer-main">
@@ -674,17 +688,17 @@ export default function Designer({
               <div className="arrange">
                 {(['left', 'centre', 'right', 'top', 'middle', 'bottom'] as const).map((kind) => (
                   <button key={kind} type="button" className="btn" onClick={() => align(kind)}>
-                    {kind[0].toUpperCase() + kind.slice(1)}
+                    {(() => { const Icon = ALIGN_ICONS[kind]; return <Icon aria-hidden="true" />; })()}{kind[0].toUpperCase() + kind.slice(1)}
                   </button>
                 ))}
               </div>
               {frames.length > 0 && (
                 <div className="arrange two">
-                  <button type="button" className="btn" onClick={() => restack(true)}>To front</button>
-                  <button type="button" className="btn" onClick={() => restack(false)}>To back</button>
+                  <button type="button" className="btn" onClick={() => restack(true)}><BringToFrontIcon aria-hidden="true" />To front</button>
+                  <button type="button" className="btn" onClick={() => restack(false)}><SendToBackIcon aria-hidden="true" />To back</button>
                 </div>
               )}
-              <button type="button" className="btn" onClick={deleteSelected}>Delete</button>
+              <button type="button" className="btn" onClick={deleteSelected}><Trash2Icon aria-hidden="true" />Delete</button>
             </section>
 
             {singleText && (

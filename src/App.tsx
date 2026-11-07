@@ -1,3 +1,4 @@
+import { LogOutIcon, RefreshCwIcon } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import type { PhotoInfo, ProjectSpec, Rating, Spread, PublishLink } from './api';
 import CreateGallery from './CreateGallery';
@@ -72,9 +73,9 @@ export default function App() {
         )}
         {access.state !== 'signed-out' && (
           <div className="gate-actions">
-            <button type="button" className="btn-primary" onClick={check}>Check again</button>
+            <button type="button" className="btn-primary" onClick={check}><RefreshCwIcon aria-hidden="true" />Check again</button>
             {access.state === 'not-in-package' && (
-              <button type="button" className="btn" onClick={() => void signOut().then(check)}>Sign out</button>
+              <button type="button" className="btn" onClick={() => void signOut().then(check)}><LogOutIcon aria-hidden="true" />Sign out</button>
             )}
           </div>
         )}

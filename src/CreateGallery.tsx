@@ -1,3 +1,4 @@
+import { CheckIcon, ChevronLeftIcon, EyeIcon, FolderOpenIcon, RefreshCwIcon, SquareIcon, UploadIcon } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { importFolder, uploadGalleryPhoto, type PhotoInfo } from './api';
@@ -144,9 +145,7 @@ export default function CreateGallery({ staff, onDone }: { staff: Staff; onDone:
             type="button"
             className="btn"
             onClick={() => (stage.name === 'details' ? setStage({ name: 'job' }) : onDone())}
-          >
-            ‹ Back
-          </button>
+          ><ChevronLeftIcon aria-hidden="true" />Back</button>
         )}
         <div className="title"><strong>Create gallery</strong><span>For your customer to select album photos</span></div>
       </header>
@@ -194,7 +193,7 @@ export default function CreateGallery({ staff, onDone }: { staff: Staff; onDone:
               <input className="input" type="date" aria-label="Selection deadline" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
             </label>
             <div className="flow-row">
-              <button type="button" className="btn" disabled={reading} onClick={() => void chooseFolder()}>
+              <button type="button" className="btn" disabled={reading} onClick={() => void chooseFolder()}><FolderOpenIcon aria-hidden="true" />
                 {reading ? 'Reading photos…' : folder ? 'Choose another folder' : 'Choose photo folder'}
               </button>
               {folder && (
@@ -206,7 +205,7 @@ export default function CreateGallery({ staff, onDone }: { staff: Staff; onDone:
             </div>
             <p className="muted">Smaller copies are uploaded. Your originals stay on this computer and are not changed.</p>
             <div className="flow-actions">
-              <button type="button" className="btn-primary" disabled={!photos.length || reading} onClick={() => void run(stage.job, photos)}>
+              <button type="button" className="btn-primary" disabled={!photos.length || reading} onClick={() => void run(stage.job, photos)}><UploadIcon aria-hidden="true" />
                 Upload and open for selection
               </button>
             </div>
@@ -219,7 +218,7 @@ export default function CreateGallery({ staff, onDone }: { staff: Staff; onDone:
             <progress value={stage.done} max={stage.total} aria-label="Upload progress" />
             <p className="muted">Your customer will see the gallery once every photo is up.</p>
             <div className="flow-actions">
-              <button type="button" className="btn" onClick={() => { stopping.current = true; }}>Stop</button>
+              <button type="button" className="btn" onClick={() => { stopping.current = true; }}><SquareIcon aria-hidden="true" />Stop</button>
             </div>
           </>
         )}
@@ -234,11 +233,11 @@ export default function CreateGallery({ staff, onDone }: { staff: Staff; onDone:
             </ul>
             <div className="flow-actions">
               {stage.done > 0 && (
-                <button type="button" className="btn" onClick={() => void finishWithout(stage.job, stage.done)}>
+                <button type="button" className="btn" onClick={() => void finishWithout(stage.job, stage.done)}><EyeIcon aria-hidden="true" />
                   Open without them
                 </button>
               )}
-              <button type="button" className="btn-primary" onClick={() => void run(stage.job, stage.failed)}>
+              <button type="button" className="btn-primary" onClick={() => void run(stage.job, stage.failed)}><RefreshCwIcon aria-hidden="true" />
                 Try again
               </button>
             </div>
@@ -253,7 +252,7 @@ export default function CreateGallery({ staff, onDone }: { staff: Staff; onDone:
               their photos in the portal. When they have, choose Create album and then Customer selection.
             </p>
             <div className="flow-actions">
-              <button type="button" className="btn-primary" onClick={onDone}>Done</button>
+              <button type="button" className="btn-primary" onClick={onDone}><CheckIcon aria-hidden="true" />Done</button>
             </div>
           </>
         )}

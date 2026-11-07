@@ -1,3 +1,4 @@
+import { ArrowRightIcon, ChevronLeftIcon, FolderOpenIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { matchCustomerSelection, type PhotoInfo, type PublishLink, type SelectionMatch } from './api';
@@ -128,12 +129,12 @@ export default function CustomerSelection({
         )}
 
         <div className="flow-actions">
-          <button type="button" className="btn" disabled={busy} onClick={() => { setChosen(null); setReport(null); setError(''); }}>Back</button>
-          <button type="button" className={report ? 'btn' : 'btn-primary'} disabled={busy} onClick={() => void chooseFolder()}>
+          <button type="button" className="btn" disabled={busy} onClick={() => { setChosen(null); setReport(null); setError(''); }}><ChevronLeftIcon aria-hidden="true" />Back</button>
+          <button type="button" className={report ? 'btn' : 'btn-primary'} disabled={busy} onClick={() => void chooseFolder()}><FolderOpenIcon aria-hidden="true" />
             {busy ? 'Finding photos…' : report ? 'Choose another folder' : 'Choose photo folder'}
           </button>
           {report && (
-            <button type="button" className="btn-primary" disabled={busy || found === 0 || unanswered > 0} onClick={finish}>
+            <button type="button" className="btn-primary" disabled={busy || found === 0 || unanswered > 0} onClick={finish}><ArrowRightIcon aria-hidden="true" />
               {unanswered > 0 ? `Answer ${unanswered} more` : `Continue with ${found} photo${found === 1 ? '' : 's'}`}
             </button>
           )}
@@ -173,7 +174,7 @@ export default function CustomerSelection({
         </>
       )}
       <div className="flow-actions">
-        <button type="button" className="btn" onClick={onCancel}>Back</button>
+        <button type="button" className="btn" onClick={onCancel}><ChevronLeftIcon aria-hidden="true" />Back</button>
       </div>
     </div>
   );

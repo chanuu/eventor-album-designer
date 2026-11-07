@@ -1,3 +1,4 @@
+import { BriefcaseIcon, LogOutIcon, SendIcon, XIcon } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { checkForExport, type Project, type PublishLink } from './api';
 import { currentStaff, listJobs, publishAlbum, signOut, type EventorJob, type Staff } from './eventor';
@@ -153,18 +154,18 @@ export default function PublishDialog({
               type="button"
               className="btn"
               onClick={() => void signOut().then(() => { setStaff(null); setStage({ name: 'signin' }); })}
-            >
+            ><LogOutIcon aria-hidden="true" />
               Sign out
             </button>
           )}
           {stage.name === 'confirm' && (
-            <button type="button" className="btn" onClick={() => { setError(''); setStage({ name: 'choose' }); }}>Choose another job</button>
+            <button type="button" className="btn" onClick={() => { setError(''); setStage({ name: 'choose' }); }}><BriefcaseIcon aria-hidden="true" />Choose another job</button>
           )}
-          <button type="button" className="btn" disabled={busy} onClick={onClose}>
+          <button type="button" className="btn" disabled={busy} onClick={onClose}><XIcon aria-hidden="true" />
             {stage.name === 'finished' ? 'Done' : 'Cancel'}
           </button>
           {(stage.name === 'confirm' || stage.name === 'publishing') && (
-            <button type="button" className="btn-primary" disabled={busy} onClick={() => stage.name === 'confirm' && void publish(stage.job)}>
+            <button type="button" className="btn-primary" disabled={busy} onClick={() => stage.name === 'confirm' && void publish(stage.job)}><SendIcon aria-hidden="true" />
               {stage.job.pagesToReplace > 0 ? 'Replace and publish' : 'Publish'}
             </button>
           )}

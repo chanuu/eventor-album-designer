@@ -1,3 +1,4 @@
+import { ArrowLeftIcon, ArrowRightIcon, ChevronLeftIcon, ChevronRightIcon, DownloadIcon, FlipHorizontal2Icon, ImageMinusIcon, ImagePlusIcon, ImagesIcon, LayoutGridIcon, MessageSquareIcon, PanelRightIcon, PenToolIcon, PlusIcon, Redo2Icon, RotateCcwIcon, SaveIcon, SearchIcon, SendIcon, SparklesIcon, Trash2Icon, Undo2Icon, XIcon, ZapIcon } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ask, open, save } from '@tauri-apps/plugin-dialog';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -729,7 +730,7 @@ export default function Workspace({ album }: { album: Album }) {
     <div className="workspace">
       <header className="topbar">
         {designerOpen ? (
-          <button type="button" className="btn" onClick={() => setDesignerOpen(false)}>‹ Back to album</button>
+          <button type="button" className="btn" onClick={() => setDesignerOpen(false)}><ChevronLeftIcon aria-hidden="true" />Back to album</button>
         ) : (
           <span className="brand-mark small" aria-hidden="true">E</span>
         )}
@@ -750,20 +751,20 @@ export default function Workspace({ album }: { album: Album }) {
             failed: 'Could not save',
           }[saveStatus]}
         </span>
-        <button type="button" className="btn" onClick={() => void saveNow()}>Save</button>
-        <button type="button" className="btn icon-btn" aria-label="Undo" title="Undo (Ctrl+Z)" disabled={!history.canUndo} onClick={() => { setFrameId(null); undo(); }}>↶</button>
-        <button type="button" className="btn icon-btn" aria-label="Redo" title="Redo (Ctrl+Y)" disabled={!history.canRedo} onClick={() => { setFrameId(null); redo(); }}>↷</button>
+        <button type="button" className="btn" onClick={() => void saveNow()}><SaveIcon aria-hidden="true" />Save</button>
+        <button type="button" className="btn icon-btn" aria-label="Undo" title="Undo (Ctrl+Z)" disabled={!history.canUndo} onClick={() => { setFrameId(null); undo(); }}><Undo2Icon aria-hidden="true" /></button>
+        <button type="button" className="btn icon-btn" aria-label="Redo" title="Redo (Ctrl+Y)" disabled={!history.canRedo} onClick={() => { setFrameId(null); redo(); }}><Redo2Icon aria-hidden="true" /></button>
         <span className="topbar-gap" />
         <label className="toggle">
           <input type="checkbox" checked={guides} onChange={(e) => setGuides(e.target.checked)} />
           Print guides
         </label>
-        <button type="button" className={`btn pane-btn ${showBrowser ? 'active' : ''}`} aria-pressed={showBrowser} onClick={() => setShowBrowser(!showBrowser)}>Photos</button>
+        <button type="button" className={`btn pane-btn ${showBrowser ? 'active' : ''}`} aria-pressed={showBrowser} onClick={() => setShowBrowser(!showBrowser)}><ImagesIcon aria-hidden="true" />Photos</button>
         {!designerOpen && (
-          <button type="button" className={`btn pane-btn ${showSide ? 'active' : ''}`} aria-pressed={showSide} onClick={() => setShowSide(!showSide)}>Panel</button>
+          <button type="button" className={`btn pane-btn ${showSide ? 'active' : ''}`} aria-pressed={showSide} onClick={() => setShowSide(!showSide)}><PanelRightIcon aria-hidden="true" />Panel</button>
         )}
         {publishLink?.album_id && (
-          <button type="button" className="btn" onClick={() => setShowComments(true)}>
+          <button type="button" className="btn" onClick={() => setShowComments(true)}><MessageSquareIcon aria-hidden="true" />
             Comments{openComments > 0 && <span className="count-badge">{openComments}</span>}
           </button>
         )}
@@ -773,7 +774,7 @@ export default function Workspace({ album }: { album: Album }) {
           disabled={!spreads.length}
           title="Publish as the client's digital album in Eventor"
           onClick={() => setPublishProject(toProject(album, photos, spreads, ratings, publishLink))}
-        >
+        ><SendIcon aria-hidden="true" />
           Publish
         </button>
         <button
@@ -781,7 +782,7 @@ export default function Workspace({ album }: { album: Album }) {
           className="btn-primary"
           disabled={!spreads.length}
           onClick={() => setExportProject(toProject(album, photos, spreads, ratings, publishLink))}
-        >
+        ><DownloadIcon aria-hidden="true" />
           Export
         </button>
       </header>
@@ -790,14 +791,14 @@ export default function Workspace({ album }: { album: Album }) {
         <p className="notice missing" role="alert">
           {missing.size} original photo{missing.size === 1 ? '' : 's'} could not be found. You can
           keep designing, but they are needed before export.
-          <button type="button" onClick={() => void findMissing()}>Find them…</button>
+          <button type="button" onClick={() => void findMissing()}><SearchIcon aria-hidden="true" />Find them…</button>
         </p>
       )}
 
       {notice && (
         <p className="notice" role="status">
           {notice}
-          <button type="button" aria-label="Dismiss" onClick={() => setNotice('')}>×</button>
+          <button type="button" aria-label="Dismiss" onClick={() => setNotice('')}><XIcon aria-hidden="true" /></button>
         </p>
       )}
 
@@ -872,31 +873,31 @@ export default function Workspace({ album }: { album: Album }) {
           {current && (!option || option.design.frames.length !== current.design.frames.length) && (
             <div className="spread-tools" role="toolbar" aria-label="Spread">
               <span className="muted">Custom layout</span>
-              <button type="button" className="tool" onClick={() => void relayout(current)}>Choose a layout</button>
-              <button type="button" className="tool" onClick={() => setDesignerOpen(true)}>Designer</button>
-              <button type="button" className="tool danger" onClick={() => deleteSpread(current.id)}>Delete</button>
+              <button type="button" className="tool" onClick={() => void relayout(current)}><LayoutGridIcon aria-hidden="true" />Choose a layout</button>
+              <button type="button" className="tool" onClick={() => setDesignerOpen(true)}><PenToolIcon aria-hidden="true" />Designer</button>
+              <button type="button" className="tool danger" onClick={() => deleteSpread(current.id)}><Trash2Icon aria-hidden="true" />Delete</button>
             </div>
           )}
           {current && option && option.design.frames.length === current.design.frames.length && (
             <div className="spread-tools" role="toolbar" aria-label="Spread">
               <div className="cycler">
-                <button type="button" aria-label="Previous layout" title="Previous layout ( [ )" onClick={() => cycleLayout(-1)}>‹</button>
+                <button type="button" aria-label="Previous layout" title="Previous layout ( [ )" onClick={() => cycleLayout(-1)}><ChevronLeftIcon aria-hidden="true" /></button>
                 <div>
                   <strong>{current.design.template_id ? option.name : 'Custom layout'}</strong>
                   <span>
                     {current.optionIndex + 1} of {current.options.length} · {Math.round(cropShare(current.design, byId) * 100)}% cropped
                   </span>
                 </div>
-                <button type="button" aria-label="Next layout" title="Next layout ( ] )" onClick={() => cycleLayout(1)}>›</button>
+                <button type="button" aria-label="Next layout" title="Next layout ( ] )" onClick={() => cycleLayout(1)}><ChevronRightIcon aria-hidden="true" /></button>
               </div>
               <span className="tools-rule" />
-              <button type="button" className="tool" onClick={() => { setFrameId(null); setDesignerOpen(true); }}>Designer</button>
+              <button type="button" className="tool" onClick={() => { setFrameId(null); setDesignerOpen(true); }}><PenToolIcon aria-hidden="true" />Designer</button>
               <button
                 type="button"
                 className="tool accent"
                 title="Design a new arrangement in this style. Click again for another."
                 onClick={() => void autoDesign()}
-              >
+              ><SparklesIcon aria-hidden="true" />
                 Auto design
               </button>
               <button
@@ -904,14 +905,14 @@ export default function Workspace({ album }: { album: Album }) {
                 className="tool"
                 title="Swap the left and right sides"
                 onClick={() => { setFrameId(null); changeDesign(mirrored); }}
-              >
+              ><FlipHorizontal2Icon aria-hidden="true" />
                 Mirror
               </button>
               <button
                 type="button"
                 className="tool danger"
                 onClick={() => deleteSpread(current.id)}
-              >
+              ><Trash2Icon aria-hidden="true" />
                 Delete
               </button>
             </div>
@@ -986,21 +987,21 @@ export default function Workspace({ album }: { album: Album }) {
                     : 'Your originals stay where they are and are never changed.'}
                 </p>
                 <div className="empty-actions">
-                  <button type="button" className={photos.length ? 'btn' : 'btn-primary'} disabled={importing} onClick={() => void chooseFolder()}>
+                  <button type="button" className={photos.length ? 'btn' : 'btn-primary'} disabled={importing} onClick={() => void chooseFolder()}><ImagePlusIcon aria-hidden="true" />
                     {importing ? 'Reading photos…' : 'Import photos'}
                   </button>
                   {photos.length > 0 && (
-                    <button type="button" className="btn-primary" onClick={() => setShowBuild(true)}>Auto Build</button>
+                    <button type="button" className="btn-primary" onClick={() => setShowBuild(true)}><ZapIcon aria-hidden="true" />Auto Build</button>
                   )}
                 </div>
               </div>
             )}
           </section>
           {current && currentIndex > 0 && (
-            <button type="button" className="rail-nav prev" aria-label="Previous spread" onClick={() => goToSpread(-1)}>‹</button>
+            <button type="button" className="rail-nav prev" aria-label="Previous spread" onClick={() => goToSpread(-1)}><ChevronLeftIcon aria-hidden="true" /></button>
           )}
           {current && currentIndex < spreads.length - 1 && (
-            <button type="button" className="rail-nav next" aria-label="Next spread" onClick={() => goToSpread(1)}>›</button>
+            <button type="button" className="rail-nav next" aria-label="Next spread" onClick={() => goToSpread(1)}><ChevronRightIcon aria-hidden="true" /></button>
           )}
           </div>
 
@@ -1049,10 +1050,10 @@ export default function Workspace({ album }: { album: Album }) {
                 </label>
                 <p className="muted">Drag the photo to reposition it. Drag another photo to swap them.</p>
                 <div className="button-row">
-                  <button type="button" className="btn" onClick={() => changeFit(frame.id, { scale: 1, cx: 0.5, cy: 0.5 })}>
+                  <button type="button" className="btn" onClick={() => changeFit(frame.id, { scale: 1, cx: 0.5, cy: 0.5 })}><RotateCcwIcon aria-hidden="true" />
                     Reset crop
                   </button>
-                  <button type="button" className="btn" onClick={() => void removeFromSpread(current, framePhoto.id)}>
+                  <button type="button" className="btn" onClick={() => void removeFromSpread(current, framePhoto.id)}><ImageMinusIcon aria-hidden="true" />
                     Remove from spread
                   </button>
                 </div>
@@ -1143,9 +1144,9 @@ export default function Workspace({ album }: { album: Album }) {
             </button>
             <div className="spread-actions">
               <span>{String(i + 1).padStart(2, '0')}</span>
-              <button type="button" aria-label={`Move spread ${i + 1} earlier`} disabled={i === 0} onClick={() => moveSpread(s.id, -1)}>←</button>
-              <button type="button" aria-label={`Move spread ${i + 1} later`} disabled={i === spreads.length - 1} onClick={() => moveSpread(s.id, 1)}>→</button>
-              <button type="button" aria-label={`Delete spread ${i + 1}`} onClick={() => deleteSpread(s.id)}>×</button>
+              <button type="button" aria-label={`Move spread ${i + 1} earlier`} disabled={i === 0} onClick={() => moveSpread(s.id, -1)}><ArrowLeftIcon aria-hidden="true" /></button>
+              <button type="button" aria-label={`Move spread ${i + 1} later`} disabled={i === spreads.length - 1} onClick={() => moveSpread(s.id, 1)}><ArrowRightIcon aria-hidden="true" /></button>
+              <button type="button" aria-label={`Delete spread ${i + 1}`} onClick={() => deleteSpread(s.id)}><XIcon aria-hidden="true" /></button>
             </div>
           </div>
         ))}
@@ -1162,9 +1163,7 @@ export default function Workspace({ album }: { album: Album }) {
             const ids = droppedPhotos(e);
             if (ids.length) void addPhotos(ids, null);
           }}
-        >
-          + New spread
-        </button>
+        ><PlusIcon aria-hidden="true" />New spread</button>
       </section>
 
       </>
@@ -1173,10 +1172,10 @@ export default function Workspace({ album }: { album: Album }) {
       {showBrowser && (
         <section className="browser" aria-label="Photos">
           <div className="browser-bar">
-            <button type="button" className="btn" disabled={importing} onClick={() => void chooseFolder()}>
+            <button type="button" className="btn" disabled={importing} onClick={() => void chooseFolder()}><ImagePlusIcon aria-hidden="true" />
               {importing ? 'Reading photos…' : 'Import photos'}
             </button>
-            <button type="button" className="btn" disabled={!photos.length} onClick={() => setShowBuild(true)}>Auto Build</button>
+            <button type="button" className="btn" disabled={!photos.length} onClick={() => setShowBuild(true)}><ZapIcon aria-hidden="true" />Auto Build</button>
             <strong className="muted">{usedIds.size} of {photos.length} used</strong>
             <select className="input" aria-label="Show photos" value={filter} onChange={(e) => setFilter(e.target.value as PhotoFilter)}>
               <option value="all">All photos</option>
@@ -1203,7 +1202,7 @@ export default function Workspace({ album }: { album: Album }) {
               onChange={(e) => setThumbSize(Number(e.target.value))}
             />
             {selectedIds.length > 0 && current && (
-              <button type="button" className="btn" onClick={() => void addPhotos(selectedIds, current.id)}>
+              <button type="button" className="btn" onClick={() => void addPhotos(selectedIds, current.id)}><PlusIcon aria-hidden="true" />
                 Add {selectedIds.length} to this spread
               </button>
             )}

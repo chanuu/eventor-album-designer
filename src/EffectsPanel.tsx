@@ -1,3 +1,4 @@
+import { RotateCcwIcon, Wand2Icon } from 'lucide-react';
 import { useState } from 'react';
 import type { Adjustments } from './api';
 
@@ -66,7 +67,7 @@ export default function EffectsPanel({
       <h3>{title}</h3>
       <p className="muted">{hint}</p>
 
-      <button type="button" className="btn" disabled={autoBusy} onClick={onAuto}>
+      <button type="button" className="btn" disabled={autoBusy} onClick={onAuto}><Wand2Icon aria-hidden="true" />
         {autoBusy ? 'Working…' : 'Auto colour and levels'}
       </button>
 
@@ -106,7 +107,7 @@ export default function EffectsPanel({
           onGestureStart();
           onChange(NO_ADJUSTMENTS);
         }}
-      >
+      ><RotateCcwIcon aria-hidden="true" />
         Reset effects
       </button>
     </section>

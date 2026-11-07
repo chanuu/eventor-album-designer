@@ -1,3 +1,4 @@
+import { ImageOffIcon, ImagesIcon, LightbulbIcon, SparklesIcon, XIcon } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import {
@@ -205,10 +206,10 @@ export default function AutoBuild({
             <fieldset>
               <legend>Photos</legend>
               <div className="segment">
-                <button type="button" aria-pressed={source === 'all'} className={source === 'all' ? 'on' : ''} onClick={() => setSource('all')}>
+                <button type="button" aria-pressed={source === 'all'} className={source === 'all' ? 'on' : ''} onClick={() => setSource('all')}><ImagesIcon aria-hidden="true" />
                   All ({photos.length})
                 </button>
-                <button type="button" aria-pressed={source === 'unused'} className={source === 'unused' ? 'on' : ''} disabled={!unused.length} onClick={() => setSource('unused')}>
+                <button type="button" aria-pressed={source === 'unused'} className={source === 'unused' ? 'on' : ''} disabled={!unused.length} onClick={() => setSource('unused')}><ImageOffIcon aria-hidden="true" />
                   Unused ({unused.length})
                 </button>
               </div>
@@ -217,7 +218,7 @@ export default function AutoBuild({
             <fieldset>
               <legend className="legend-row">
                 <span>Spreads</span>
-                <button type="button" className="link" onClick={() => setWanted(null)}>Suggest</button>
+                <button type="button" className="link" onClick={() => setWanted(null)}><LightbulbIcon aria-hidden="true" />Suggest</button>
               </legend>
               <div className="spread-count">
                 <input
@@ -325,7 +326,7 @@ export default function AutoBuild({
             )}
 
             {keep.length > 0 && (
-              <button type="button" className="link" onClick={() => setKeep([])}>
+              <button type="button" className="link" onClick={() => setKeep([])}><XIcon aria-hidden="true" />
                 Clear {keep.length} photo{keep.length === 1 ? '' : 's'} put back by hand
               </button>
             )}
@@ -338,8 +339,8 @@ export default function AutoBuild({
         {error && <p className="error">{error}</p>}
 
         <div className="modal-actions">
-          <button type="button" className="btn" disabled={busy} onClick={onClose}>Cancel</button>
-          <button type="button" className="btn-primary" disabled={busy || !plan || !count} onClick={() => void build()}>
+          <button type="button" className="btn" disabled={busy} onClick={onClose}><XIcon aria-hidden="true" />Cancel</button>
+          <button type="button" className="btn-primary" disabled={busy || !plan || !count} onClick={() => void build()}><SparklesIcon aria-hidden="true" />
             {busy ? 'Building…' : 'Build album'}
           </button>
         </div>

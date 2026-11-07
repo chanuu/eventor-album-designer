@@ -1,3 +1,4 @@
+import { ArrowRightIcon, CheckIcon, CircleCheckIcon, CircleDotIcon, XIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { PublishLink } from './api';
 import { currentStaff, listComments, setCommentResolved, type ClientComment, type Staff } from './eventor';
@@ -84,10 +85,10 @@ export default function CommentsDialog({
         {comments !== null && (
           <>
             <div className="comment-tabs" role="tablist">
-              <button type="button" role="tab" aria-selected={!showResolved} className={showResolved ? '' : 'on'} onClick={() => setShowResolved(false)}>
+              <button type="button" role="tab" aria-selected={!showResolved} className={showResolved ? '' : 'on'} onClick={() => setShowResolved(false)}><CircleDotIcon aria-hidden="true" />
                 Open ({open.length})
               </button>
-              <button type="button" role="tab" aria-selected={showResolved} className={showResolved ? 'on' : ''} onClick={() => setShowResolved(true)}>
+              <button type="button" role="tab" aria-selected={showResolved} className={showResolved ? 'on' : ''} onClick={() => setShowResolved(true)}><CircleCheckIcon aria-hidden="true" />
                 Resolved ({resolved.length})
               </button>
             </div>
@@ -106,9 +107,9 @@ export default function CommentsDialog({
                     <p>{comment.body}</p>
                     <div className="comment-actions">
                       {at >= 0 && (
-                        <button type="button" className="btn" onClick={() => onGoToSpread(comment.spreadId!)}>Go to spread</button>
+                        <button type="button" className="btn" onClick={() => onGoToSpread(comment.spreadId!)}><ArrowRightIcon aria-hidden="true" />Go to spread</button>
                       )}
-                      <button type="button" className="btn" disabled={busyId === comment.id} onClick={() => void change(comment, !comment.resolved_at)}>
+                      <button type="button" className="btn" disabled={busyId === comment.id} onClick={() => void change(comment, !comment.resolved_at)}><CheckIcon aria-hidden="true" />
                         {comment.resolved_at ? 'Reopen' : 'Resolve'}
                       </button>
                     </div>
@@ -120,7 +121,7 @@ export default function CommentsDialog({
         )}
 
         <div className="modal-actions">
-          <button type="button" className="btn" onClick={onClose}>Close</button>
+          <button type="button" className="btn" onClick={onClose}><XIcon aria-hidden="true" />Close</button>
         </div>
       </div>
     </div>
