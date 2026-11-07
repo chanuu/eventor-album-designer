@@ -172,7 +172,7 @@ export default function Workspace({ album }: { album: Album }) {
 
   // Shows how many comments are waiting, once this album is linked to a job.
   useEffect(() => {
-    if (!publishLink) return undefined;
+    if (!publishLink?.album_id) return undefined;
     let current = true;
     currentStaff()
       .then((staff) => (staff ? listComments(publishLink.album_id, staff) : null))
@@ -372,6 +372,16 @@ export default function Workspace({ album }: { album: Album }) {
       setImporting(false);
     }
   }
+
+  // A new album asks for its photos straight away. Cancelling just leaves it empty.
+  const askedForFolder = useRef(false);
+  useEffect(() => {
+    if (!album.importOnOpen || askedForFolder.current) return;
+    askedForFolder.current = true;
+    void chooseFolder();
+    // Once, when the album opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /** The best layouts for a set of photos, or null with a message if none fits. */
   const layoutFor = useCallback(
@@ -752,7 +762,7 @@ export default function Workspace({ album }: { album: Album }) {
         {!designerOpen && (
           <button type="button" className={`btn pane-btn ${showSide ? 'active' : ''}`} aria-pressed={showSide} onClick={() => setShowSide(!showSide)}>Panel</button>
         )}
-        {publishLink && (
+        {publishLink?.album_id && (
           <button type="button" className="btn" onClick={() => setShowComments(true)}>
             Comments{openComments > 0 && <span className="count-badge">{openComments}</span>}
           </button>

@@ -105,6 +105,7 @@ export type Rating = 'red' | 'yellow' | 'green';
 export type PhotoRating = { id: string; rating: Rating; reasons: string[] };
 
 /** The Eventor job this album has been published to. */
+/** `album_id` is empty until it is first published, for an album started from a job's selection. */
 export type PublishLink = { job_id: string; job_title: string; album_id: string };
 
 export type Project = {
@@ -173,6 +174,21 @@ export const varyLayout = (
     current,
     seed,
   });
+
+export type SelectionMatch = {
+  photos: PhotoInfo[];
+  changed: string[];
+  missing: string[];
+  ambiguous: { file_name: string; options: PhotoInfo[] }[];
+};
+
+export const matchCustomerSelection = (
+  folder: string,
+  wanted: { file_name: string; source_hash: string | null }[],
+) => invoke<SelectionMatch>('match_customer_selection', { folder, wanted });
+
+export const uploadGalleryPhoto = (photo: PhotoInfo, fullUrl: string, thumbUrl: string) =>
+  invoke<string>('upload_gallery_photo', { photoId: photo.id, fullUrl, thumbUrl });
 
 export const publishSpread = (project: Project, spreadId: string, uploadUrl: string) =>
   invoke<number>('publish_spread', { project, spreadId, uploadUrl });

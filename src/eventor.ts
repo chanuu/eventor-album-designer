@@ -66,6 +66,216 @@ export async function signIn(email: string, password: string): Promise<Staff> {
 
 export async function signOut(): Promise<void> {
   await eventor().auth.signOut();
+  try {
+    localStorage.removeItem(ACCESS_KEY);
+  } catch {
+    // Nothing was remembered, then.
+  }
+}
+
+// ─── Whether this studio's package includes the tool ────────────────────────
+
+/** How long the tool keeps working with no connection since it last checked. */
+export const OFFLINE_DAYS = 7;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const ACCESS_KEY = 'designer-access';
+const FEATURE = 'album_designer';
+
+export type Access =
+  | { state: 'allowed'; staff: Staff | null; canCreateGallery: boolean; offline: boolean }
+  | { state: 'signed-out' }
+  | { state: 'not-in-package' }
+  | { state: 'offline-too-long' }
+  | { state: 'problem'; message: string };
+
+type RememberedAccess = { checkedAt: number; canCreateGallery: boolean; staff: Staff };
+
+function remembered(): RememberedAccess | null {
+  try {
+    return JSON.parse(localStorage.getItem(ACCESS_KEY) ?? 'null') as RememberedAccess | null;
+  } catch {
+    return null;
+  }
+}
+
+function fromMemory(): Access {
+  const last = remembered();
+  if (!last) return { state: 'signed-out' };
+  if (Date.now() - last.checkedAt > OFFLINE_DAYS * DAY_MS) return { state: 'offline-too-long' };
+  return { state: 'allowed', staff: last.staff, canCreateGallery: last.canCreateGallery, offline: true };
+}
+
+/** A dropped connection is not the same as being refused. */
+function isConnectionProblem(error: { message?: string } | null | undefined): boolean {
+  return /failed to fetch|network|load failed/i.test(error?.message ?? '');
+}
+
+/**
+ * Whether this person may use the tool. The answer comes from the plan's features, which
+ * are set in the platform admin, so access can be changed with no new release.
+ */
+export async function checkAccess(): Promise<Access> {
+  const db = eventor();
+  let session;
+  try {
+    const { data, error } = await db.auth.getSession();
+    if (error) return isConnectionProblem(error) ? fromMemory() : { state: 'signed-out' };
+    session = data.session;
+  } catch {
+    return fromMemory();
+  }
+  if (!session) return { state: 'signed-out' };
+
+  try {
+    const staff = await staffFor(session.user.id);
+    if (!staff) return { state: 'signed-out' };
+
+    const { data, error } = await db.rpc('my_features');
+    if (error) {
+      return isConnectionProblem(error) ? fromMemory() : { state: 'problem', message: error.message };
+    }
+    const features = new Set(((data ?? []) as { feature_key: string }[]).map((f) => f.feature_key));
+    const canCreateGallery = features.has('gallery');
+
+    if (!features.has(FEATURE)) {
+      // Until Eventor has been updated this feature does not exist, so nobody can lack it.
+      const { data: known, error: knownError } = await db.from('features').select('key').eq('key', FEATURE).maybeSingle();
+      if (knownError) {
+        return isConnectionProblem(knownError) ? fromMemory() : { state: 'problem', message: knownError.message };
+      }
+      if (known) {
+        localStorage.removeItem(ACCESS_KEY);
+        return { state: 'not-in-package' };
+      }
+    }
+
+    try {
+      localStorage.setItem(ACCESS_KEY, JSON.stringify({ checkedAt: Date.now(), canCreateGallery, staff }));
+    } catch {
+      // It only means no offline use until storage works again.
+    }
+    return { state: 'allowed', staff, canCreateGallery, offline: false };
+  } catch (e) {
+    if (isConnectionProblem(e instanceof Error ? e : null)) return fromMemory();
+    throw e;
+  }
+}
+
+// ─── Jobs, galleries and what the customer selected ─────────────────────────
+
+export type JobGallery = {
+  id: string;
+  title: string;
+  status: string;
+  selection_submitted_at: string | null;
+};
+
+export type JobName = { id: string; title: string; clientName: string; galleries: JobGallery[] };
+
+export async function listJobNames(staff: Staff): Promise<JobName[]> {
+  const { data, error } = await eventor()
+    .from('jobs')
+    .select('id, title, clients(full_name), galleries(id, title, status, selection_submitted_at)')
+    .eq('studio_id', staff.studio_id)
+    .order('created_at', { ascending: false })
+    .limit(300);
+  if (error) throw plainError(error);
+  type Row = {
+    id: string;
+    title: string;
+    clients: { full_name: string } | { full_name: string }[] | null;
+    galleries: JobGallery[] | null;
+  };
+  return ((data ?? []) as unknown as Row[]).map((row) => ({
+    id: row.id,
+    title: row.title,
+    clientName: one(row.clients)?.full_name ?? 'No client',
+    galleries: row.galleries ?? [],
+  }));
+}
+
+export type SelectedPhoto = { file_name: string; source_hash: string | null };
+
+/** Everything selected in a gallery. The server sends at most a thousand rows at a time. */
+export async function selectedPhotos(galleryId: string): Promise<SelectedPhoto[]> {
+  const PAGE = 1000;
+  const all: SelectedPhoto[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await eventor()
+      .from('gallery_photos')
+      .select('file_name, source_hash')
+      .eq('gallery_id', galleryId)
+      .eq('is_selected', true)
+      .eq('is_active', true)
+      .order('sort_order')
+      .range(from, from + PAGE - 1);
+    if (error) throw plainError(error);
+    const rows = (data ?? []) as SelectedPhoto[];
+    all.push(...rows);
+    if (rows.length < PAGE) return all;
+  }
+}
+
+/** Hidden until every photo is up, so a customer never sees half a gallery. */
+export async function startGallery(jobId: string, title: string, deadline: string): Promise<string> {
+  const { data, error } = await eventor()
+    .from('galleries')
+    .insert({
+      job_id: jobId,
+      title,
+      status: 'hidden',
+      selection_deadline: deadline ? new Date(deadline).toISOString() : null,
+    })
+    .select('id')
+    .single();
+  if (error) {
+    throw error.message.includes('row-level security')
+      ? new Error('Your package or role does not allow creating galleries.')
+      : plainError(error);
+  }
+  return (data as { id: string }).id;
+}
+
+type Ticket = { uploadUrl: string; publicUrl: string };
+
+export async function galleryUploadAddresses(
+  galleryId: string,
+  count: number,
+): Promise<{ full: Ticket; thumb: Ticket }[]> {
+  const item = { kind: 'gallery', parentId: galleryId, ext: 'jpg', contentType: 'image/jpeg' };
+  const { data, error } = await eventor().functions.invoke('storage', {
+    body: { items: Array.from({ length: count * 2 }, () => item) },
+  });
+  const payload = data as { error?: string; tickets?: Ticket[] } | null;
+  if (error || payload?.error) throw new Error(payload?.error ?? error?.message ?? 'Could not prepare the upload.');
+  const tickets = payload?.tickets ?? [];
+  if (tickets.length !== count * 2) throw new Error('Could not prepare the upload.');
+  return Array.from({ length: count }, (_, i) => ({ full: tickets[i * 2], thumb: tickets[i * 2 + 1] }));
+}
+
+export type GalleryPhotoRow = { url: string; thumbUrl: string; fileName: string; hash: string; order: number };
+
+export async function recordGalleryPhotos(staff: Staff, galleryId: string, photos: GalleryPhotoRow[]): Promise<void> {
+  const { error } = await eventor().from('gallery_photos').insert(photos.map((p) => ({
+    studio_id: staff.studio_id,
+    gallery_id: galleryId,
+    storage_path: p.url,
+    thumb_path: p.thumbUrl,
+    file_name: p.fileName.slice(0, 200),
+    sort_order: p.order,
+    source_hash: p.hash,
+  })));
+  if (error) throw plainError(error);
+}
+
+export async function openGalleryForSelection(galleryId: string): Promise<void> {
+  const { data, error } = await eventor()
+    .from('galleries')
+    .update({ status: 'proofing' })
+    .eq('id', galleryId)
+    .select('id');
+  if (error) throw plainError(error);
+  if (!data?.length) throw new Error('Your account is not allowed to open this gallery.');
 }
 
 export type EventorJob = {

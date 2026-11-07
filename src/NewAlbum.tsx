@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { open } from '@tauri-apps/plugin-dialog';
+
 import { makeSpec, printOptions, type Binding, type PrintOptions } from './api';
 import type { Album } from './App';
-import { ALBUM_FILTERS, loadAlbum, recentAlbums, type RecentAlbum } from './project';
+import CustomerSelection from './CustomerSelection';
+import type { Staff } from './eventor';
 
 const CM_PER_INCH = 2.54;
 
@@ -11,9 +12,17 @@ const FEATURED_SIZES: [number, number][] = [[12, 30], [12, 24], [16, 24]];
 
 type Unit = 'in' | 'cm';
 
-export default function NewAlbum({ onCreate }: { onCreate: (album: Album) => void }) {
+export default function NewAlbum({
+  staff, onCreate, onBack,
+}: {
+  staff: Staff | null;
+  onCreate: (album: Album) => void;
+  onBack: () => void;
+}) {
   const [options, setOptions] = useState<PrintOptions | null>(null);
-  const [step, setStep] = useState<1 | 2>(1);
+  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [pending, setPending] = useState<Album | null>(null);
+  const [fromSelection, setFromSelection] = useState(false);
   const [name, setName] = useState('');
   const [binding, setBinding] = useState<Binding>('layflat');
   const [size, setSize] = useState<[number, number]>([12, 30]);
@@ -24,7 +33,6 @@ export default function NewAlbum({ onCreate }: { onCreate: (album: Album) => voi
   const [dpi, setDpi] = useState(300);
   const [paper, setPaper] = useState('#FFFFFF');
   const [error, setError] = useState('');
-  const [recent] = useState<RecentAlbum[]>(recentAlbums);
 
   useEffect(() => {
     printOptions().then(setOptions).catch((e) => setError(String(e)));
@@ -36,19 +44,6 @@ export default function NewAlbum({ onCreate }: { onCreate: (album: Album) => voi
     : size;
   const shapeKnown = heightIn > 0 && openWidthIn > 0;
 
-  async function openPath(path: string) {
-    setError('');
-    try {
-      onCreate(await loadAlbum(path));
-    } catch (e) {
-      setError(String(e));
-    }
-  }
-
-  async function chooseFile() {
-    const path = await open({ title: 'Open an album', filters: ALBUM_FILTERS });
-    if (typeof path === 'string') await openPath(path);
-  }
 
   async function create() {
     setError('');
@@ -66,7 +61,8 @@ export default function NewAlbum({ onCreate }: { onCreate: (album: Album) => voi
       const sizeLabel = custom.on
         ? `${custom.height}×${custom.width} ${custom.unit}`
         : `${heightIn}×${openWidthIn} in`;
-      onCreate({
+      setStep(3);
+      setPending({
         name: name.trim() || 'Untitled album',
         spec,
         sizeLabel,
@@ -105,39 +101,64 @@ export default function NewAlbum({ onCreate }: { onCreate: (album: Album) => voi
             <span>Album Designer</span>
           </div>
         </div>
-        <button type="button" className="btn wide-left" onClick={() => void chooseFile()}>
-          Open album…
-        </button>
-        <h2 className="eyebrow">Recent</h2>
-        {recent.length ? (
-          <ul className="recent">
-            {recent.map((item) => (
-              <li key={item.path}>
-                <button type="button" title={item.path} onClick={() => void openPath(item.path)}>
-                  {item.name}
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="muted">Albums you save or open appear here.</p>
-        )}
+        <button type="button" className="btn wide-left" onClick={onBack}>‹ Back</button>
       </aside>
 
       <section className="welcome-main">
         <header className="welcome-head">
           <div>
             <h1>New album</h1>
-            <p>{step === 1 ? 'Who it is for, and the book you are making.' : 'How the pages look and print.'}</p>
+            <p>
+              {step === 1 && 'Who it is for, and the book you are making.'}
+              {step === 2 && 'How the pages look and print.'}
+              {step === 3 && 'Where the photos for this album come from.'}
+            </p>
           </div>
           <ol className="steps" aria-label="Progress">
             <li className={step === 1 ? 'on' : 'done'}><span>{step === 1 ? '1' : '✓'}</span>The book</li>
-            <li className={step === 2 ? 'on' : ''}><span>2</span>Pages and print</li>
+            <li className={step === 2 ? 'on' : step === 3 ? 'done' : ''}><span>{step === 3 ? '✓' : '2'}</span>Pages and print</li>
+            <li className={step === 3 ? 'on' : ''}><span>3</span>Photos</li>
           </ol>
         </header>
 
         <div className="welcome-body">
-          {step === 1 ? (
+          {step === 3 ? (
+            fromSelection && staff ? (
+              <CustomerSelection
+                staff={staff}
+                onCancel={() => setFromSelection(false)}
+                onReady={(photos, link) => {
+                  if (pending) onCreate({ ...pending, photos, publish: link });
+                }}
+              />
+            ) : (
+              <div className="source-cards">
+                <button
+                  type="button"
+                  className="home-card"
+                  data-source="folder"
+                  onClick={() => { if (pending) onCreate({ ...pending, importOnOpen: true }); }}
+                >
+                  <strong>Import from folder</strong>
+                  <span>Choose a folder of photos on this computer.</span>
+                </button>
+                <button
+                  type="button"
+                  className="home-card"
+                  data-source="selection"
+                  disabled={!staff}
+                  onClick={() => setFromSelection(true)}
+                >
+                  <strong>Customer selection</strong>
+                  <span>
+                    {staff
+                      ? 'Use the photos your customer selected. The originals are found in your folder.'
+                      : 'Needs an internet connection.'}
+                  </span>
+                </button>
+              </div>
+            )
+          ) : step === 1 ? (
             <>
               <label className="field">
                 Album name
@@ -277,11 +298,15 @@ export default function NewAlbum({ onCreate }: { onCreate: (album: Album) => voi
           {step === 2 && (
             <button type="button" className="btn" onClick={() => setStep(1)}>Back</button>
           )}
-          {step === 1 ? (
+          {step === 3 && !fromSelection && (
+            <button type="button" className="btn" onClick={() => setStep(2)}>Back</button>
+          )}
+          {step === 1 && (
             <button type="button" className="btn-primary" disabled={!shapeKnown} onClick={() => setStep(2)}>
               Next
             </button>
-          ) : (
+          )}
+          {step === 2 && (
             <button type="button" className="btn-primary" onClick={() => void create()}>
               Create album
             </button>
