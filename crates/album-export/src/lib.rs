@@ -349,6 +349,70 @@ fn write_jpeg(image: &RgbImage, path: &Path, dpi: f64) -> Result<(), ExportError
         .map_err(|e| write_error(path, e))
 }
 
+/// Wide enough for a full screen, and small enough for a client on a phone connection.
+const WEB_WIDTH_PX: f64 = 3600.0;
+
+/// The same ceiling the studio admin holds album pages to.
+const MAX_WEB_BYTES: usize = 2 * 1024 * 1024;
+
+/// Tried in turn until the image fits. If none does, the image is made smaller and they
+/// are tried again, down to this width, which is used however large it comes out.
+const WEB_QUALITIES: [u8; 5] = [85, 78, 70, 62, 55];
+const SMALLEST_WEB_WIDTH_PX: u32 = 1200;
+
+/// One spread as the client should see it online: cropped to the trim, so the bleed that
+/// the lab cuts off is not shown, and drawn by the same code as the print.
+pub fn render_web_spread(project: &Project, spread_id: &str) -> Result<Vec<u8>, ExportError> {
+    let spread = project
+        .spreads
+        .iter()
+        .find(|s| s.id == spread_id)
+        .ok_or_else(|| ExportError::Render("that spread is not in this album".to_string()))?;
+
+    let trim_width_in = project.spec.trim_w_mm * 2.0 / MM_PER_INCH;
+    let dpi = WEB_WIDTH_PX / trim_width_in;
+    let spec = ProjectSpec {
+        target_dpi: dpi,
+        ..project.spec.clone()
+    };
+    let canvas = render_spread(&spread.design, &spec, &photos_by_id(project))?;
+
+    // Measured from the middle, so that rounding cannot shift the picture off its trim.
+    let width = (WEB_WIDTH_PX as u32).min(canvas.width());
+    let height =
+        (((project.spec.trim_h_mm / MM_PER_INCH) * dpi).round() as u32).min(canvas.height());
+    let left = (canvas.width() - width) / 2;
+    let top = (canvas.height() - height) / 2;
+    let mut image = imageops::crop_imm(&canvas, left, top, width, height).to_image();
+
+    loop {
+        let mut bytes = Vec::new();
+        for quality in WEB_QUALITIES {
+            bytes.clear();
+            JpegEncoder::new_with_quality(&mut bytes, quality)
+                .encode_image(&image)
+                .map_err(|e| ExportError::Render(e.to_string()))?;
+            if bytes.len() <= MAX_WEB_BYTES {
+                return Ok(bytes);
+            }
+        }
+        if image.width() <= SMALLEST_WEB_WIDTH_PX {
+            return Ok(bytes);
+        }
+        image = imageops::thumbnail(&image, image.width() * 3 / 4, image.height() * 3 / 4);
+    }
+}
+
+/// Where a published image may be sent. The address comes from a server, but it is still
+/// checked, because an album's photos should only ever leave over an encrypted connection.
+pub fn is_upload_address(url: &str) -> bool {
+    if url.contains(char::is_whitespace) {
+        return false;
+    }
+    url.starts_with("https://")
+        || (cfg!(debug_assertions) && url.starts_with("http://127.0.0.1:") && !url.contains('@'))
+}
+
 struct PdfPage {
     jpeg: PathBuf,
     pixels: (u32, u32),
@@ -668,6 +732,7 @@ mod tests {
             name: "Test / Album?".to_string(),
             size_label: "5×10 in".to_string(),
             ratings: Default::default(),
+            publish: None,
             spec: spec(),
             photos,
             spreads: vec![SavedSpread {
@@ -677,6 +742,86 @@ mod tests {
                 design: design(frames, "#FFFFFF"),
             }],
         }
+    }
+
+    #[test]
+    fn a_web_spread_is_cropped_to_the_trim_and_web_sized() {
+        let dir = TempDir::new();
+        let photo = split_photo(&dir.0, "a.png", 800, 400);
+        let bleed = spec().bleed_mm;
+        // The photo sits only in the left bleed, so it must vanish once that is cut off.
+        let strip = RectMm {
+            x: 0.0,
+            y: 0.0,
+            w: bleed,
+            h: spec().canvas_mm().h,
+        };
+        let p = project(vec![photo], vec![frame(strip, "a.png", Fit::default())]);
+
+        let bytes = render_web_spread(&p, "s1").unwrap();
+        let image = image::load_from_memory(&bytes).unwrap().to_rgb8();
+        assert_eq!(image.width(), 3600);
+        // A 10 x 5 in spread is twice as wide as it is tall, with no bleed left on it.
+        assert!(image.height().abs_diff(1800) <= 1, "{}", image.height());
+        // A few pixels in, because the trim can fall part way through the first one.
+        assert!(close_to(image.get_pixel(4, 900), [255, 255, 255]));
+    }
+
+    #[test]
+    fn a_web_spread_shows_what_the_print_shows() {
+        let dir = TempDir::new();
+        let photo = split_photo(&dir.0, "a.png", 800, 400);
+        let p = project(
+            vec![photo],
+            vec![frame(whole_canvas(), "a.png", Fit::default())],
+        );
+        let bytes = render_web_spread(&p, "s1").unwrap();
+        let image = image::load_from_memory(&bytes).unwrap().to_rgb8();
+        assert!(close_to(image.get_pixel(100, 900), RED));
+        assert!(close_to(image.get_pixel(3500, 900), BLUE));
+    }
+
+    #[test]
+    fn a_detailed_web_spread_stays_within_the_size_limit() {
+        let dir = TempDir::new();
+        let path = dir.0.join("busy.png");
+        let mut seed = 1u32;
+        RgbImage::from_fn(1200, 600, |_, _| {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            let [r, g, b, _] = seed.to_le_bytes();
+            Rgb([r, g, b])
+        })
+        .save(&path)
+        .unwrap();
+        let photo = PhotoInfo {
+            id: "busy.png".to_string(),
+            path,
+            file_name: "busy.png".to_string(),
+            width: 1200,
+            height: 600,
+            orientation: 1,
+        };
+        let p = project(
+            vec![photo],
+            vec![frame(whole_canvas(), "busy.png", Fit::default())],
+        );
+        let bytes = render_web_spread(&p, "s1").unwrap();
+        assert!(bytes.len() <= MAX_WEB_BYTES, "{} bytes", bytes.len());
+    }
+
+    #[test]
+    fn publishing_an_unknown_spread_is_refused() {
+        let p = project(Vec::new(), Vec::new());
+        assert!(render_web_spread(&p, "not-there").is_err());
+    }
+
+    #[test]
+    fn photos_only_leave_over_an_encrypted_connection() {
+        assert!(is_upload_address("https://s3.example.com/a.jpg?sig=1"));
+        assert!(!is_upload_address("http://s3.example.com/a.jpg"));
+        assert!(!is_upload_address("file:///C:/a.jpg"));
+        assert!(!is_upload_address("https://s3.example.com/a b.jpg"));
+        assert!(!is_upload_address("http://127.0.0.1:80@evil.example/a.jpg"));
     }
 
     #[test]

@@ -18,7 +18,10 @@ use album_core::document::{
 };
 use album_core::layoutvary::vary_layout;
 use album_core::pack::{load_pack_dir, TemplateRegistry};
-use album_export::{check_album, export_album, ExportFormats, ExportResult, Issue};
+use album_export::{
+    check_album, export_album, is_upload_address, render_web_spread, ExportFormats, ExportResult,
+    Issue,
+};
 use album_media::analyze::{analyze_photo, auto_adjust};
 use album_media::{
     adjusted_preview, ensure_preview, scan_folder, PhotoInfo, PreviewTier, ScanResult,
@@ -432,6 +435,53 @@ async fn export_print_files(
     .map_err(|e| e.to_string())
 }
 
+/// Sends one finished image to the address `storage` gave for it. These headers are part
+/// of what that address was signed with, and a dropped connection is normal on a long
+/// upload. Errors leave the address out, because it is a working credential for minutes.
+fn upload_image(address: &str, bytes: &[u8]) -> Result<(), String> {
+    const ATTEMPTS: u32 = 3;
+    let mut problem = String::new();
+    for attempt in 0..ATTEMPTS {
+        if attempt > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(500 * u64::from(attempt)));
+        }
+        let sent = ureq::put(address)
+            .set("Content-Type", "image/jpeg")
+            .set("Cache-Control", "public, max-age=31536000, immutable")
+            .send_bytes(bytes);
+        match sent {
+            Ok(_) => return Ok(()),
+            Err(ureq::Error::Status(code, _)) => {
+                problem = format!("Storage refused the image (error {code}).");
+            }
+            Err(ureq::Error::Transport(_)) => {
+                problem = "Could not reach storage. Check your internet connection.".to_string();
+            }
+        }
+    }
+    Err(problem)
+}
+
+/// Draws one spread for the web and uploads it. Returns how many bytes were sent.
+#[tauri::command]
+async fn publish_spread(
+    project: Project,
+    spread_id: String,
+    upload_url: String,
+) -> Result<usize, String> {
+    project.validate().map_err(|e| e.to_string())?;
+    if !is_upload_address(&upload_url) {
+        return Err("That upload address is not allowed.".to_string());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let bytes = render_web_spread(&project, &spread_id).map_err(|e| e.to_string())?;
+        upload_image(&upload_url, &bytes)?;
+        Ok(bytes.len())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Layout packs a studio has added, alongside the built-in one.
 fn load_registry(packs_dir: &PathBuf) -> TemplateRegistry {
     let mut registry = TemplateRegistry::with_builtin();
@@ -571,7 +621,8 @@ fn main() {
             analyze_photos,
             plan_for_album,
             check_for_export,
-            export_print_files
+            export_print_files,
+            publish_spread
         ])
         .run(tauri::generate_context!())
         .expect("the app window could not start");

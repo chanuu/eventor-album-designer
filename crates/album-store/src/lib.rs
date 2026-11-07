@@ -40,6 +40,14 @@ pub struct SavedSpread {
     pub design: SpreadDesign,
 }
 
+/// The Eventor job this album has been published to, so it can go back to the same one.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PublishLink {
+    pub job_id: String,
+    pub job_title: String,
+    pub album_id: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Project {
     pub version: u32,
@@ -51,6 +59,8 @@ pub struct Project {
     /// Ratings the photographer set by hand, which outrank the app's own suggestions.
     #[serde(default)]
     pub ratings: HashMap<String, Rating>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub publish: Option<PublishLink>,
 }
 
 fn invalid(reason: impl Into<String>) -> StoreError {
@@ -239,6 +249,7 @@ mod tests {
             name: "Nimal & Sachini".into(),
             size_label: "12×30 in".into(),
             ratings: Default::default(),
+            publish: None,
             spec: ProjectSpec::from_open_inches(30.0, 12.0),
             photos: vec![photo(photo_path)],
             spreads: vec![SavedSpread {
