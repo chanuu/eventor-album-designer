@@ -368,6 +368,17 @@ legend { padding: 0; margin-bottom: 7px; font-size: 12px; font-weight: 600; widt
 .fx-head { display: flex; justify-content: space-between; width: 100%; padding: 8px 0; border: 0; background: none; font-weight: 600; font-size: 13px; color: var(--ink); }
 .fx-head span { color: var(--ink-mid); }
 .fx-body { display: flex; flex-direction: column; gap: 8px; padding-bottom: 10px; }
+.fx-head svg.lucide { width: 16px; height: 16px; color: var(--ink-mid); }
+.fx-name { display: flex; align-items: center; gap: 7px; min-width: 0; white-space: nowrap; }
+.fx-dot { flex: none; width: 9px; height: 9px; border-radius: 50%; }
+.mix-tabs { display: grid; grid-template-columns: repeat(3, 1fr); margin-bottom: 4px; }
+.fx-row.mix-row { grid-template-columns: 86px minmax(0, 1fr) 34px 22px; }
+.fx-row.mix-row input[type='range'] { -webkit-appearance: none; appearance: none; height: 5px; border-radius: 3px; background: var(--track); }
+.fx-row.mix-row input[type='range']::-webkit-slider-thumb { -webkit-appearance: none; width: 15px; height: 15px; border-radius: 50%; background: #fff; border: 0; box-shadow: 0 1px 4px rgb(0 0 0 / 50%); cursor: pointer; }
+.fx-reset { display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--ink-mid); }
+.fx-reset:hover:not(:disabled) { background: var(--panel-raised); color: var(--ink); }
+.fx-reset:disabled { opacity: 0.3; }
+.fx-reset svg.lucide { width: 13px; height: 13px; }
 .fx-row { display: grid; grid-template-columns: 78px minmax(0, 1fr) 38px; gap: 8px; align-items: center; font-size: 12px; color: var(--ink-mid); }
 .fx-row input { width: 100%; margin: 0; }
 .fx-row output { text-align: right; color: var(--ink); font-variant-numeric: tabular-nums; }

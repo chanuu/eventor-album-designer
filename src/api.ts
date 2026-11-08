@@ -27,6 +27,15 @@ export type Adjustments = {
   tint: number;
   saturation: number;
   black_and_white: boolean;
+  whites: number;
+  blacks: number;
+  vibrance: number;
+  hue: number;
+  lightness: number;
+  /** Per colour: red, orange, yellow, green, aqua, blue, purple, magenta. */
+  mix_hue: number[];
+  mix_saturation: number[];
+  mix_luminance: number[];
 };
 
 export type FrameStyle = { opacity: number; border_mm: number; border_colour: string };
@@ -279,6 +288,8 @@ const PREVIEW_ORIGIN = navigator.userAgent.includes('Windows')
 export function previewUrl(photoId: string, width: number, adjust?: Adjustments): string {
   const base = `${PREVIEW_ORIGIN}/preview/${photoId}?w=${width}`;
   if (!adjust) return base;
+  // An album saved before the newer controls has none of them, which means no change.
+  const eight = (values: number[] | undefined) => Array.from({ length: 8 }, (_, i) => values?.[i] ?? 0);
   const values = [
     adjust.exposure,
     adjust.contrast,
@@ -288,6 +299,14 @@ export function previewUrl(photoId: string, width: number, adjust?: Adjustments)
     adjust.tint,
     adjust.saturation,
     adjust.black_and_white ? 1 : 0,
+    adjust.whites ?? 0,
+    adjust.blacks ?? 0,
+    adjust.vibrance ?? 0,
+    adjust.hue ?? 0,
+    adjust.lightness ?? 0,
+    ...eight(adjust.mix_hue),
+    ...eight(adjust.mix_saturation),
+    ...eight(adjust.mix_luminance),
   ];
   return values.every((v) => v === 0) ? base : `${base}&fx=${values.join(',')}`;
 }
