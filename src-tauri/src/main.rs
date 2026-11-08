@@ -24,6 +24,7 @@ use album_export::{
     Issue,
 };
 use album_media::analyze::{analyze_photo, auto_adjust};
+use album_media::eyes::photo_has_closed_eyes;
 use album_media::selection::{make_gallery_copies, match_selection, SelectionMatch, WantedPhoto};
 use album_media::{
     adjusted_preview, ensure_preview, scan_folder, PhotoInfo, PreviewTier, ScanResult,
@@ -296,20 +297,40 @@ fn suggest_ratings(
     Ok(rate_photos(&facts))
 }
 
-/// Which of these analysed photos not to offer a customer, and why.
+/// Which of these analysed photos not to offer a customer, and why. Looking for closed eyes
+/// takes a moment per photo, so it runs on every core, and each answer is kept.
 #[tauri::command]
-fn check_for_gallery(
+async fn check_for_gallery(
     ids: Vec<String>,
     state: State<'_, AppState>,
 ) -> Result<Vec<GalleryLeftOut>, String> {
-    let store = state.facts.lock().map_err(|e| e.to_string())?;
-    let photos = state.photos.lock().map_err(|e| e.to_string())?;
-    let facts: Vec<PhotoFacts> = ids.iter().filter_map(|id| store.get(id).cloned()).collect();
-    let edges: Vec<(String, u32)> = ids
-        .iter()
-        .filter_map(|id| photos.get(id).map(|p| (id.clone(), p.width.max(p.height))))
-        .collect();
-    Ok(gallery_left_out(&facts, &edges))
+    let facts: Vec<PhotoFacts> = {
+        let store = state.facts.lock().map_err(|e| e.to_string())?;
+        ids.iter().filter_map(|id| store.get(id).cloned()).collect()
+    };
+    let photos: Vec<PhotoInfo> = {
+        let known = state.photos.lock().map_err(|e| e.to_string())?;
+        ids.iter().filter_map(|id| known.get(id).cloned()).collect()
+    };
+    let cache_dir = state.cache_dir.clone();
+    let pool = state.preview_pool.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let edges: Vec<(String, u32)> = photos
+            .iter()
+            .map(|p| (p.id.clone(), p.width.max(p.height)))
+            .collect();
+        // A photo that cannot be checked is offered, rather than hidden for no reason.
+        let closed: Vec<String> = pool.install(|| {
+            photos
+                .par_iter()
+                .filter(|photo| photo_has_closed_eyes(photo, &cache_dir).unwrap_or(false))
+                .map(|photo| photo.id.clone())
+                .collect()
+        });
+        Ok(gallery_left_out(&facts, &edges, &closed))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Suggested white balance and levels for one photo.

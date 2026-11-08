@@ -227,7 +227,7 @@ export default function CreateGallery({ staff, onDone }: { staff: Staff; onDone:
               <section className="quality-review" aria-label="Photos left out">
                 <h2>{stillOut.length} left out of the gallery</h2>
                 <p className="muted">
-                  These look overexposed, blurry, too dark or too small. Check them, and click any good photo to put it back.
+                  These look overexposed, blurry, too dark or too small, or someone has their eyes closed. Check them, and click any good photo to put it back.
                   Nothing is deleted from your computer.
                 </p>
                 <div className="left-out quality-grid">

@@ -464,9 +464,14 @@ pub struct GalleryLeftOut {
     pub reasons: Vec<String>,
 }
 
-/// Which photos not to offer a customer: overexposed, blurry, too dark or too small.
-/// `long_edges` gives each photo's longest side in pixels.
-pub fn gallery_left_out(facts: &[PhotoFacts], long_edges: &[(String, u32)]) -> Vec<GalleryLeftOut> {
+/// Which photos not to offer a customer: overexposed, blurry, too dark, too small, or with
+/// someone's eyes closed. `long_edges` gives each photo's longest side in pixels, and
+/// `closed_eyes` the photos where someone blinked.
+pub fn gallery_left_out(
+    facts: &[PhotoFacts],
+    long_edges: &[(String, u32)],
+    closed_eyes: &[String],
+) -> Vec<GalleryLeftOut> {
     let plan = plan_album(
         facts,
         &PlanOptions {
@@ -489,6 +494,7 @@ pub fn gallery_left_out(facts: &[PhotoFacts], long_edges: &[(String, u32)]) -> V
         .iter()
         .map(|(id, edge)| (id.as_str(), *edge))
         .collect();
+    let blinked: HashSet<&str> = closed_eyes.iter().map(String::as_str).collect();
 
     facts
         .iter()
@@ -508,6 +514,9 @@ pub fn gallery_left_out(facts: &[PhotoFacts], long_edges: &[(String, u32)]) -> V
                 .is_some_and(|edge| *edge < GALLERY_SMALLEST_EDGE_PX)
             {
                 reasons.push("Low resolution".to_string());
+            }
+            if blinked.contains(fact.id.as_str()) {
+                reasons.push("Eyes closed".to_string());
             }
             (!reasons.is_empty()).then(|| GalleryLeftOut {
                 id: fact.id.clone(),

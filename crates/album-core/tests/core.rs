@@ -538,7 +538,7 @@ fn gallery_fact(id: &str, sharpness: f64, blown: f64, crushed: f64) -> PhotoFact
 }
 
 fn gallery_reasons(facts: &[PhotoFacts], edges: &[(String, u32)], id: &str) -> Vec<String> {
-    gallery_left_out(facts, edges)
+    gallery_left_out(facts, edges, &[])
         .into_iter()
         .find(|item| item.id == id)
         .map_or_else(Vec::new, |item| item.reasons)
@@ -552,7 +552,7 @@ fn normal_gallery() -> Vec<PhotoFacts> {
 
 #[test]
 fn a_gallery_keeps_ordinary_photos() {
-    assert!(gallery_left_out(&normal_gallery(), &[]).is_empty());
+    assert!(gallery_left_out(&normal_gallery(), &[], &[]).is_empty());
 }
 
 #[test]
@@ -764,4 +764,13 @@ fn varying_refuses_the_wrong_number_of_photos() {
     let wrong = photos(&vec![LANDSCAPE; template.frames.len() + 1]);
     assert!(vary_layout(&template, &wrong, &spec, &[], 1).is_none());
     assert!(vary_layout(&template, &[], &spec, &[], 1).is_none());
+}
+
+#[test]
+fn a_gallery_leaves_out_photos_where_someone_blinked() {
+    let facts = normal_gallery();
+    let left = gallery_left_out(&facts, &[], &["p2".to_string()]);
+    assert_eq!(left.len(), 1);
+    assert_eq!(left[0].id, "p2");
+    assert_eq!(left[0].reasons, ["Eyes closed"]);
 }
