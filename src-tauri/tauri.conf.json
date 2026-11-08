@@ -27,7 +27,17 @@
     }
   },
   "bundle": {
-    "active": false,
-    "icon": ["icons/icon.ico", "icons/icon.png"]
+    "active": true,
+    "targets": ["nsis"],
+    "publisher": "Eventor",
+    "copyright": "© 2026 Eventor",
+    "category": "Photography",
+    "shortDescription": "Design wedding albums and publish them to Eventor",
+    "icon": ["icons/icon.ico", "icons/icon.png"],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
   }
 }
