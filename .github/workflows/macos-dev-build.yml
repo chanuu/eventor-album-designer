@@ -23,7 +23,8 @@ permissions:
 
 jobs:
   build:
-    runs-on: macos-14
+    # macos-14 has been retired, and GitHub refuses jobs that ask for it.
+    runs-on: macos-latest
     timeout-minutes: 90
     env:
       # The same public project address and anon key the studio admin ships with.
