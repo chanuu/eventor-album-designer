@@ -76,6 +76,7 @@ export default function AutoBuild({
   const [splitByTime, setSplitByTime] = useState(true);
   const [syncClocks, setSyncClocks] = useState(true);
   const [keepMono, setKeepMono] = useState(true);
+  const [story, setStory] = useState(true);
   const [useEvery, setUseEvery] = useState(false);
   const [leaveBlurry, setLeaveBlurry] = useState(true);
   const [leaveSimilar, setLeaveSimilar] = useState(true);
@@ -117,11 +118,12 @@ export default function AutoBuild({
       leave_out_blurry: !useEvery && leaveBlurry,
       leave_out_similar: !useEvery && leaveSimilar,
       keep: [...keep, ...alwaysKeep],
+      tell_story: story,
     })
       .then((next) => { if (current) setPlan(next); })
       .catch((e) => { if (current) setError(String(e)); });
     return () => { current = false; };
-  }, [analysed, chosenIds, wanted, splitByTime, syncClocks, keepMono, useEvery, leaveBlurry, leaveSimilar, keep, alwaysKeep]);
+  }, [analysed, chosenIds, wanted, splitByTime, syncClocks, keepMono, useEvery, leaveBlurry, leaveSimilar, keep, alwaysKeep, story]);
 
   async function build() {
     if (!plan) return;
@@ -131,9 +133,12 @@ export default function AutoBuild({
       const groups = plan.spreads.map((ids) => ids.flatMap((id) => byId.get(id) ?? []));
       const allOptions = await Promise.all(groups.map((group) => suggestLayouts(group, spec)));
       let previous: string | null = null;
+      let singles = 0;
       const spreads: Spread[] = groups.map((group, i) => {
         const options = allOptions[i];
-        const optionIndex = chooseLayout(options, tag, previous);
+        // A feature photo takes turns: filling the spread, then sitting in open space.
+        const style = group.length === 1 ? (singles++ % 2 === 0 ? 'hero' : 'airy') : tag;
+        const optionIndex = chooseLayout(options, style, previous);
         const design = options[optionIndex].design;
         previous = design.template_id;
         return {
@@ -237,6 +242,10 @@ export default function AutoBuild({
 
             <fieldset className="smart-choices">
               <legend>Smart choices</legend>
+              <label className="toggle" title="Opens and closes on a single photo, and gives each long part of the day a feature spread">
+                <input type="checkbox" checked={story} onChange={(e) => setStory(e.target.checked)} />
+                Tell a story with single-photo feature spreads
+              </label>
               <label className="toggle">
                 <input type="checkbox" checked={useEvery} onChange={(e) => setUseEvery(e.target.checked)} />
                 Use every photo

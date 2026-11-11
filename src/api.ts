@@ -231,6 +231,8 @@ export type PlanOptions = {
   leave_out_blurry: boolean;
   leave_out_similar: boolean;
   keep: string[];
+  /** Open and close on a single photo, and give each long part of the day a feature spread. */
+  tell_story: boolean;
 };
 
 export type LeftOut = { id: string; reason: 'blurry' } | { id: string; reason: 'similar'; kept: string };

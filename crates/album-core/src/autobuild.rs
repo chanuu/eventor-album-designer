@@ -91,6 +91,90 @@ pub struct PlanOptions {
     pub leave_out_similar: bool,
     /// Photos the photographer has chosen to keep, whatever the rules say.
     pub keep: Vec<String>,
+    /// Open and close on a single photo, and give each long part of the day a feature spread.
+    #[serde(default)]
+    pub tell_story: bool,
+}
+
+/// Fewer photos than this make too short an album for single-photo spreads.
+const STORY_MIN_PHOTOS: usize = 10;
+/// A part of the day needs this many photos to earn a feature spread of its own.
+const STORY_MIN_PART: usize = 6;
+/// The opening and closing spreads can come from shorter parts.
+const STORY_MIN_END_PART: usize = 3;
+/// Single-photo spreads stay a minority, or the album feels empty.
+const STORY_MAX_SHARE: f64 = 0.34;
+
+/// One photo given a spread of its own, and whether it closes its part instead of opening it.
+struct Feature {
+    run: usize,
+    photo: usize,
+    closing: bool,
+}
+
+/// How strong a photo is as a feature: sharp, and neither burnt out nor lost in shadow.
+fn feature_score(fact: &PhotoFacts) -> f64 {
+    fact.sharpness.unwrap_or(0.0) * (1.0 - fact.blown.min(1.0)) * (1.0 - fact.crushed.min(1.0))
+}
+
+/// Chooses the feature photos, opening first, then closing, then the longest parts, only as
+/// far as the album still has room for every other photo.
+fn choose_features(kept: &[Placed], runs: &[Run], spreads_wanted: usize) -> Vec<Feature> {
+    if kept.len() < STORY_MIN_PHOTOS || runs.is_empty() {
+        return Vec::new();
+    }
+    // A black and white group stays together on its spreads, so it gives up no feature.
+    let colour: Vec<usize> = (0..runs.len())
+        .filter(|&r| !runs[r].photos.iter().all(|&i| kept[i].fact.mono))
+        .collect();
+    let (Some(&first), Some(&last)) = (colour.first(), colour.last()) else {
+        return Vec::new();
+    };
+    let mut order: Vec<(usize, bool, usize)> = Vec::new();
+    order.push((first, false, STORY_MIN_END_PART));
+    if last != first {
+        order.push((last, true, STORY_MIN_END_PART));
+    }
+    let mut middle: Vec<usize> = colour
+        .iter()
+        .copied()
+        .filter(|&r| r != first && r != last)
+        .collect();
+    middle.sort_by_key(|&r| std::cmp::Reverse(runs[r].photos.len()));
+    order.extend(middle.into_iter().map(|r| (r, false, STORY_MIN_PART)));
+
+    let most = ((spreads_wanted as f64 * STORY_MAX_SHARE).floor() as usize).max(1);
+    let mut features: Vec<Feature> = Vec::new();
+    for (run, closing, needed) in order {
+        let photos = &runs[run].photos;
+        if features.len() >= most || photos.len() < needed {
+            continue;
+        }
+        // Every other photo must still fit in the spreads that are left.
+        let rest: usize = runs
+            .iter()
+            .enumerate()
+            .map(|(r, other)| {
+                let taken = features.iter().filter(|f| f.run == r).count() + usize::from(r == run);
+                (other.photos.len() - taken).div_ceil(MAX_PER_SPREAD)
+            })
+            .sum();
+        if rest + features.len() + 1 > spreads_wanted {
+            continue;
+        }
+        let best = photos
+            .iter()
+            .copied()
+            .max_by(|&a, &b| feature_score(kept[a].fact).total_cmp(&feature_score(kept[b].fact)));
+        if let Some(photo) = best {
+            features.push(Feature {
+                run,
+                photo,
+                closing,
+            });
+        }
+    }
+    features
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -482,6 +566,7 @@ pub fn gallery_left_out(
             leave_out_blurry: true,
             leave_out_similar: false,
             keep: Vec::new(),
+            tell_story: false,
         },
     );
     let blurry: HashSet<&str> = plan
@@ -538,6 +623,7 @@ pub fn rate_photos(facts: &[PhotoFacts]) -> Vec<PhotoRating> {
             leave_out_blurry: true,
             leave_out_similar: true,
             keep: Vec::new(),
+            tell_story: false,
         },
     );
     let left_out: HashMap<&str, &LeftOutReason> = plan
@@ -614,7 +700,17 @@ pub fn plan_album(facts: &[PhotoFacts], options: &PlanOptions) -> AlbumPlan {
         .unwrap_or(suggested_spreads)
         .clamp(min_spreads, max_spreads);
 
-    let shares = share_spreads(&runs, spreads_wanted);
+    // A story opens and closes on a single photo, and gives each long part its own.
+    let features = if options.tell_story {
+        choose_features(&kept, &runs, spreads_wanted)
+    } else {
+        Vec::new()
+    };
+    let mut runs = runs;
+    for feature in &features {
+        runs[feature.run].photos.retain(|&i| i != feature.photo);
+    }
+    let shares = share_spreads(&runs, spreads_wanted - features.len());
     let mut spreads = Vec::new();
     let mut parts: Vec<PlanPart> = starts
         .iter()
@@ -630,11 +726,26 @@ pub fn plan_album(facts: &[PhotoFacts], options: &PlanOptions) -> AlbumPlan {
             }
         })
         .collect();
-    for (run, &share) in runs.iter().zip(&shares) {
+    let mut closing: Option<(Vec<String>, usize)> = None;
+    for (index, (run, &share)) in runs.iter().zip(&shares).enumerate() {
         parts[run.part].spreads += share;
+        let feature = features.iter().find(|f| f.run == index);
+        let alone = |f: &Feature| vec![kept[f.photo].fact.id.clone()];
+        if let Some(f) = feature.filter(|f| !f.closing) {
+            spreads.push(alone(f));
+            parts[run.part].spreads += 1;
+        }
         for group in cut_run(run, share, &kept) {
             spreads.push(group.iter().map(|&i| kept[i].fact.id.clone()).collect());
         }
+        if let Some(f) = feature.filter(|f| f.closing) {
+            closing = Some((alone(f), run.part));
+        }
+    }
+    // The last word, even when a black and white group follows its part of the day.
+    if let Some((spread, part)) = closing {
+        spreads.push(spread);
+        parts[part].spreads += 1;
     }
 
     AlbumPlan {
@@ -654,6 +765,162 @@ mod tests {
     use super::*;
 
     const HOUR: i64 = 3600;
+
+    fn shot(id: &str, at: i64, sharpness: f64) -> PhotoFacts {
+        PhotoFacts {
+            id: id.to_string(),
+            taken_at: Some(at),
+            camera: None,
+            sharpness: Some(sharpness),
+            hash: None,
+            mono: false,
+            blown: 0.0,
+            crushed: 0.0,
+        }
+    }
+
+    /// Three parts of the day, an hour apart, with one clearly best photo in each.
+    fn day(per_part: usize) -> Vec<PhotoFacts> {
+        (0..3)
+            .flat_map(|part| {
+                (0..per_part).map(move |i| {
+                    let sharp = if i == per_part / 2 {
+                        400.0
+                    } else {
+                        100.0 + i as f64
+                    };
+                    shot(
+                        &format!("p{part}-{i}"),
+                        part as i64 * HOUR * 3 + i as i64 * 60,
+                        sharp,
+                    )
+                })
+            })
+            .collect()
+    }
+
+    fn story(spreads: Option<usize>) -> PlanOptions {
+        PlanOptions {
+            spreads,
+            split_by_time: true,
+            sync_clocks: false,
+            keep_mono_together: false,
+            leave_out_blurry: false,
+            leave_out_similar: false,
+            keep: Vec::new(),
+            tell_story: true,
+        }
+    }
+
+    #[test]
+    fn a_story_opens_and_closes_on_a_single_photo() {
+        let plan = plan_album(&day(12), &story(None));
+        assert_eq!(plan.spreads.first().unwrap(), &["p0-6"]);
+        assert_eq!(plan.spreads.last().unwrap(), &["p2-6"]);
+    }
+
+    #[test]
+    fn each_long_part_of_the_day_gets_its_own_feature() {
+        let plan = plan_album(&day(12), &story(None));
+        let middle = plan.spreads.iter().position(|s| s == &["p1-6"]);
+        assert!(middle.is_some(), "{:?}", plan.spreads);
+        // It opens its part: the spread before it is from the part before.
+        let before = &plan.spreads[middle.unwrap() - 1];
+        assert!(before.iter().all(|id| id.starts_with("p0-")), "{before:?}");
+    }
+
+    #[test]
+    fn a_story_never_puts_two_single_photos_side_by_side() {
+        for per_part in [6, 8, 12, 20] {
+            let plan = plan_album(&day(per_part), &story(None));
+            for pair in plan.spreads.windows(2) {
+                assert!(
+                    pair[0].len() > 1 || pair[1].len() > 1,
+                    "{per_part}: {:?}",
+                    plan.spreads
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_story_places_every_photo_once_and_in_the_spreads_asked_for() {
+        let facts = day(12);
+        for wanted in [6, 9, 12] {
+            let plan = plan_album(&facts, &story(Some(wanted)));
+            assert_eq!(plan.spreads.len(), wanted);
+            let mut ids: Vec<&String> = plan.spreads.iter().flatten().collect();
+            ids.sort();
+            ids.dedup();
+            assert_eq!(ids.len(), facts.len());
+            assert!(plan
+                .spreads
+                .iter()
+                .all(|s| !s.is_empty() && s.len() <= MAX_PER_SPREAD));
+        }
+    }
+
+    #[test]
+    fn single_photo_spreads_stay_a_minority() {
+        let plan = plan_album(&day(20), &story(Some(6)));
+        let singles = plan.spreads.iter().filter(|s| s.len() == 1).count();
+        assert!(
+            singles * 3 <= plan.spreads.len() + 1,
+            "{singles} of {}",
+            plan.spreads.len()
+        );
+    }
+
+    #[test]
+    fn black_and_white_photos_are_never_split_off_as_a_feature() {
+        let mut facts = day(12);
+        for fact in facts.iter_mut().filter(|f| f.id.starts_with("p2-")).take(4) {
+            fact.mono = true;
+        }
+        let options = PlanOptions {
+            keep_mono_together: true,
+            ..story(None)
+        };
+        let plan = plan_album(&facts, &options);
+        let mono: Vec<&Vec<String>> = plan
+            .spreads
+            .iter()
+            .filter(|s| {
+                s.iter()
+                    .any(|id| facts.iter().any(|f| &f.id == id && f.mono))
+            })
+            .collect();
+        assert_eq!(mono.len(), 1, "{mono:?}");
+        assert_eq!(mono[0].len(), 4);
+        // Even with the black and white group last, the album still ends on its feature.
+        assert_eq!(plan.spreads.last().unwrap().len(), 1, "{:?}", plan.spreads);
+    }
+
+    #[test]
+    fn a_short_album_has_no_single_photo_spreads() {
+        let plan = plan_album(&day(3), &story(None));
+        assert!(
+            plan.spreads.iter().all(|s| s.len() > 1),
+            "{:?}",
+            plan.spreads
+        );
+    }
+
+    #[test]
+    fn without_a_story_nothing_is_given_a_spread_of_its_own() {
+        let plan = plan_album(
+            &day(12),
+            &PlanOptions {
+                tell_story: false,
+                ..story(None)
+            },
+        );
+        assert!(
+            plan.spreads.iter().all(|s| s.len() > 1),
+            "{:?}",
+            plan.spreads
+        );
+    }
 
     fn photo(id: &str, taken_at: Option<i64>) -> PhotoFacts {
         PhotoFacts {
@@ -709,6 +976,7 @@ mod tests {
             leave_out_blurry: true,
             leave_out_similar: true,
             keep: Vec::new(),
+            tell_story: false,
         }
     }
 
