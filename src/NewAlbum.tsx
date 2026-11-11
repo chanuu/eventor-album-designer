@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { makeSpec, printOptions, type Binding, type PrintOptions } from './api';
 import type { Album } from './App';
 import CustomerSelection from './CustomerSelection';
+import { LoaderScreen } from './Loader';
 import type { Staff } from './eventor';
 
 const CM_PER_INCH = 2.54;
@@ -81,7 +82,7 @@ export default function NewAlbum({
   }
 
   if (!options) {
-    return <p className="center-note">{error || 'Loading…'}</p>;
+    return error ? <p className="center-note error">{error}</p> : <LoaderScreen label="Getting album sizes…" />;
   }
 
   const moreSizes = options.sizes_in.filter(

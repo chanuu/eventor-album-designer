@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import type { Album } from './App';
 import type { Staff } from './eventor';
+import { LoaderScreen } from './Loader';
 import { ALBUM_FILTERS, loadAlbum, recentAlbums, type RecentAlbum } from './project';
 
 /** The first screen: what the studio has come here to do. */
@@ -19,13 +20,17 @@ export default function Home({
 }) {
   const [recent] = useState<RecentAlbum[]>(recentAlbums);
   const [error, setError] = useState('');
+  const [opening, setOpening] = useState('');
 
   async function openPath(path: string) {
     setError('');
+    setOpening(path.split(/[\\/]/).pop() ?? 'album');
     try {
       onOpen(await loadAlbum(path));
     } catch (e) {
       setError(String(e));
+    } finally {
+      setOpening('');
     }
   }
 
@@ -36,6 +41,7 @@ export default function Home({
 
   return (
     <main className="home">
+      {opening && <LoaderScreen label={`Opening ${opening}…`} />}
       <header className="home-head">
         <div className="brand">
           <span className="brand-mark" aria-hidden="true">E</span>

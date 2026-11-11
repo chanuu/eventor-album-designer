@@ -5,6 +5,8 @@ import CreateGallery from './CreateGallery';
 import { checkAccess, OFFLINE_DAYS, signOut, type Access } from './eventor';
 import EventorSignIn from './EventorSignIn';
 import Home from './Home';
+import { LoaderScreen } from './Loader';
+import { hideSplash } from './splash';
 import NewAlbum from './NewAlbum';
 import Workspace from './Workspace';
 
@@ -39,8 +41,13 @@ export default function App() {
   }, []);
   useEffect(check, [check]);
 
+  // The start-up screen stays until there is something real to show.
+  useEffect(() => {
+    if (access) hideSplash();
+  }, [access]);
+
   if (album) return <Workspace album={album} />;
-  if (!access) return <p className="center-note">Checking your account…</p>;
+  if (!access) return <LoaderScreen label="Checking your account…" />;
 
   if (access.state !== 'allowed') {
     return (

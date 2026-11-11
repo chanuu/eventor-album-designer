@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import type { PublishLink } from './api';
 import { currentStaff, listComments, setCommentResolved, type ClientComment, type Staff } from './eventor';
 import EventorSignIn from './EventorSignIn';
+import Loader from './Loader';
 
 const when = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
 
@@ -80,7 +81,7 @@ export default function CommentsDialog({
 
         {needsSignIn && <EventorSignIn onSignedIn={(who) => void load(who)} />}
 
-        {!needsSignIn && comments === null && <p className="muted">Loading…</p>}
+        {!needsSignIn && comments === null && <Loader label="Loading comments…" />}
 
         {comments !== null && (
           <>
