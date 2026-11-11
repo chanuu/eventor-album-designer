@@ -22,7 +22,7 @@ import {
 } from './designerGeometry';
 import EffectsPanel, { NO_ADJUSTMENTS } from './EffectsPanel';
 import { visibleArea } from './crop';
-import { DRAG_PHOTOS, FrameBorder, FramedPhoto, frameStyle, percent, useTextImage } from './spreadParts';
+import { DRAG_PHOTOS, foldStyle, FrameBorder, FramedPhoto, frameStyle, percent, useTextImage } from './spreadParts';
 import TextPanel from './TextPanel';
 import { TEXT_TEMPLATES, type TextTemplate } from './textTemplates';
 
@@ -529,7 +529,7 @@ export default function Designer({
 
             <span className="guide trim" style={{ left: percent(spec.bleed_mm, w), right: percent(spec.bleed_mm, w), top: percent(spec.bleed_mm, h), bottom: percent(spec.bleed_mm, h) }} />
             <span className="guide safe" style={{ left: percent(inset, w), right: percent(inset, w), top: percent(inset, h), bottom: percent(inset, h) }} />
-            <span className="fold" />
+            <span className="fold" style={foldStyle(spec.binding, w)} />
 
             {[...frames, ...texts].map((item) => (
               <span

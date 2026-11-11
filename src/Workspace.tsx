@@ -40,7 +40,7 @@ import ExportDialog from './ExportDialog';
 import PublishDialog from './PublishDialog';
 import { useHistory } from './history';
 import { ALBUM_EXTENSION, ALBUM_FILTERS, rememberAlbum, toProject } from './project';
-import { DRAG_PHOTOS, FrameBorder, FramedPhoto, frameStyle, percent, TextOnSpread, ThumbText } from './spreadParts';
+import { DRAG_PHOTOS, foldStyle, FrameBorder, FramedPhoto, frameStyle, percent, TextOnSpread, ThumbText } from './spreadParts';
 import { useSpreadRail } from './spreadRail';
 import TextPanel from './TextPanel';
 
@@ -1475,7 +1475,7 @@ function SpreadCanvas({
           <span className="guide safe" style={{ left: percent(safe, w), right: percent(safe, w), top: percent(safe, h), bottom: percent(safe, h) }} />
         </>
       )}
-      <span className="fold" />
+      <span className="fold" style={foldStyle(spec.binding, w)} />
     </div>
   );
 }
