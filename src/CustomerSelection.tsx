@@ -3,6 +3,8 @@ import { useEffect, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { matchCustomerSelection, type PhotoInfo, type PublishLink, type SelectionMatch } from './api';
 import { listJobNames, selectedPhotos, type JobGallery, type JobName, type SelectedPhoto, type Staff } from './eventor';
+import { galleryFolder, rememberGalleryFolder } from './galleryFolders';
+import Loader from './Loader';
 
 type Chosen = { job: JobName; gallery: JobGallery; wanted: SelectedPhoto[] };
 
@@ -21,6 +23,9 @@ export default function CustomerSelection({
   const [picks, setPicks] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  /** Where the photos were looked for, and what to tell the photographer about it. */
+  const [searchedIn, setSearchedIn] = useState('');
+  const [folderNote, setFolderNote] = useState('');
 
   useEffect(() => {
     listJobNames(staff).then(setJobs).catch((e) => {
@@ -38,10 +43,50 @@ export default function CustomerSelection({
         setError(`${job.clientName} has not selected any photos in “${gallery.title}” yet.`);
         return;
       }
-      setChosen({ job, gallery, wanted });
+      const next = { job, gallery, wanted };
+      setChosen(next);
       setReport(null);
+      setFolderNote('');
+      // A gallery uploaded from this computer remembers its folder, so there is nothing to ask.
+      const saved = galleryFolder(gallery.id);
+      if (saved) await findIn(next, saved, true);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * Looks for the selected photos in a folder. Looking by itself in the remembered folder,
+   * a folder that has gone or holds none of them means asking for the folder instead.
+   */
+  async function findIn(target: Chosen, folder: string, automatic: boolean) {
+    setBusy(true);
+    setError('');
+    setFolderNote('');
+    setPicks({});
+    try {
+      const found = await matchCustomerSelection(folder, target.wanted);
+      const usable = found.photos.length + found.ambiguous.length;
+      if (automatic && usable === 0) {
+        setReport(null);
+        setFolderNote(`None of the selected photos are in ${folder} any more. The folder may have been moved or renamed. Choose the folder where they are now.`);
+        return;
+      }
+      setReport(found);
+      setSearchedIn(folder);
+      if (!automatic && usable > 0) rememberGalleryFolder(target.gallery.id, folder);
+      if (automatic && found.missing.length) {
+        setFolderNote(`Some photos are no longer in ${folder}. If they have been moved, choose the folder where they are now.`);
+      }
+    } catch (e) {
+      if (automatic) {
+        setReport(null);
+        setFolderNote(`The folder this gallery was uploaded from, ${folder}, cannot be found. It may have been moved or renamed, or be on a drive that is not connected. Choose the folder where the photos are now.`);
+      } else {
+        setError(`Could not read that folder: ${String(e)}`);
+      }
     } finally {
       setBusy(false);
     }
@@ -51,16 +96,7 @@ export default function CustomerSelection({
     if (!chosen) return;
     const folder = await open({ directory: true, title: 'Choose the folder with the original photos' });
     if (typeof folder !== 'string') return;
-    setBusy(true);
-    setError('');
-    try {
-      setPicks({});
-      setReport(await matchCustomerSelection(folder, chosen.wanted));
-    } catch (e) {
-      setError(`Could not read that folder: ${String(e)}`);
-    } finally {
-      setBusy(false);
-    }
+    await findIn(chosen, folder, false);
   }
 
   function finish() {
@@ -89,11 +125,18 @@ export default function CustomerSelection({
         )}
         {error && <p className="error" role="alert">{error}</p>}
 
-        {!report && <p className="muted">Choose the folder that holds the original photos of this shoot.</p>}
+        {folderNote && (
+          <p className="folder-note" role="alert">{folderNote}</p>
+        )}
+        {busy && !report && <Loader label="Finding your customer's photos…" />}
+        {!report && !busy && !folderNote && (
+          <p className="muted">Choose the folder that holds the original photos of this shoot. It is remembered for next time.</p>
+        )}
 
         {report && (
           <div className="selection-report" role="status">
             <strong>{found} of {chosen.wanted.length} photos found</strong>
+            <span className="muted folder-path" title={searchedIn}>In {searchedIn}</span>
             {report.changed.length > 0 && (
               <p className="muted">
                 {report.changed.length} {report.changed.length === 1 ? 'has' : 'have'} changed since the gallery was uploaded,
@@ -129,7 +172,7 @@ export default function CustomerSelection({
         )}
 
         <div className="flow-actions">
-          <button type="button" className="btn" disabled={busy} onClick={() => { setChosen(null); setReport(null); setError(''); }}><ChevronLeftIcon aria-hidden="true" />Back</button>
+          <button type="button" className="btn" disabled={busy} onClick={() => { setChosen(null); setReport(null); setError(''); setFolderNote(''); }}><ChevronLeftIcon aria-hidden="true" />Back</button>
           <button type="button" className={report ? 'btn' : 'btn-primary'} disabled={busy} onClick={() => void chooseFolder()}><FolderOpenIcon aria-hidden="true" />
             {busy ? 'Finding photos…' : report ? 'Choose another folder' : 'Choose photo folder'}
           </button>
@@ -152,7 +195,7 @@ export default function CustomerSelection({
     <div className="selection">
       <h2>Which customer selection?</h2>
       {error && <p className="error" role="alert">{error}</p>}
-      {jobs === null && <p className="muted">Loading your galleries…</p>}
+      {jobs === null && <Loader label="Loading your galleries…" />}
       {jobs !== null && (
         <>
           <input

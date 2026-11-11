@@ -1,6 +1,8 @@
 import { CheckIcon, ChevronLeftIcon, EyeIcon, FolderOpenIcon, RefreshCwIcon, SquareIcon, UploadIcon } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
+import { rememberGalleryFolder } from './galleryFolders';
+import Loader from './Loader';
 import {
   analyzePhotos, checkForGallery, GRID_PREVIEW, importFolder, previewUrl, uploadGalleryPhoto, type PhotoInfo,
 } from './api';
@@ -128,6 +130,8 @@ export default function CreateGallery({ staff, onDone }: { staff: Staff; onDone:
     try {
       if (!gallery.current) {
         gallery.current = await startGallery(job.id, title.trim() || 'Photo selection', deadline);
+        // So that Customer selection can find the originals again without asking.
+        rememberGalleryFolder(gallery.current, folder);
       }
       await send(job, list);
       if (stopping.current) setError('Stopped. Your customer cannot see this gallery until it is finished.');
@@ -175,7 +179,7 @@ export default function CreateGallery({ staff, onDone }: { staff: Staff; onDone:
         {stage.name === 'job' && (
           <>
             <h1>Which job is this for?</h1>
-            {jobs === null && <p className="muted">Loading your jobs…</p>}
+            {jobs === null && <Loader label="Loading your jobs…" />}
             {jobs !== null && (
               <>
                 <input
@@ -222,7 +226,7 @@ export default function CreateGallery({ staff, onDone }: { staff: Staff; onDone:
                 </span>
               )}
             </div>
-            {checking && <p className="muted" role="status">Checking photo quality…</p>}
+            {checking && <Loader label="Checking photo quality…" />}
             {!checking && folder && leftOutPhotos.length > 0 && (
               <section className="quality-review" aria-label="Photos left out">
                 <h2>{stillOut.length} left out of the gallery</h2>
