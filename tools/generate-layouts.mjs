@@ -28,6 +28,9 @@ const PAGES = {
     { key: 'framed', name: 'Framed', airy: true, cells: [box(0.14, 0.14, 0.72, 0.72)] },
     { key: 'tall', name: 'Tall', airy: true, cells: [box(0.2, 0.08, 0.6, 0.84)] },
     { key: 'wide', name: 'Wide', airy: true, cells: [box(0.08, 0.24, 0.84, 0.52)] },
+    { key: 'small', name: 'Small centred', airy: true, cells: [box(0.24, 0.27, 0.52, 0.46)] },
+    { key: 'corner', name: 'Upper corner', airy: true, cells: [box(0.1, 0.1, 0.58, 0.52)] },
+    { key: 'low', name: 'Low and wide', airy: true, cells: [box(0.12, 0.46, 0.76, 0.42)] },
   ],
   2: [
     { key: 'side', name: 'Side by side', cells: [box(0, 0, 0.5, 1), box(0.5, 0, 0.5, 1)] },
@@ -35,6 +38,8 @@ const PAGES = {
     { key: 'big-left', name: 'Big left', cells: [box(0, 0, 0.64, 1), box(0.64, 0, 0.36, 1)] },
     { key: 'big-top', name: 'Big top', cells: [box(0, 0, 1, 0.64), box(0, 0.64, 1, 0.36)] },
     { key: 'steps', name: 'Stepped', airy: true, cells: [box(0.06, 0.08, 0.54, 0.48), box(0.4, 0.56, 0.54, 0.36)] },
+    { key: 'pair', name: 'Floating pair', airy: true, cells: [box(0.08, 0.28, 0.4, 0.44), box(0.52, 0.28, 0.4, 0.44)] },
+    { key: 'pair-stack', name: 'Floating stack', airy: true, cells: [box(0.18, 0.08, 0.64, 0.4), box(0.18, 0.52, 0.64, 0.4)] },
   ],
   3: [
     { key: 'lead-left', name: 'Lead left', cells: [box(0, 0, 0.62, 1), box(0.62, 0, 0.38, 0.5), box(0.62, 0.5, 0.38, 0.5)] },
@@ -43,6 +48,7 @@ const PAGES = {
     { key: 'lead-base', name: 'Lead base', cells: [box(0, 0, 0.5, 0.4), box(0.5, 0, 0.5, 0.4), box(0, 0.4, 1, 0.6)] },
     { key: 'columns', name: 'Three columns', grid: true, cells: [box(0, 0, third, 1), box(third, 0, third, 1), box(2 * third, 0, third, 1)] },
     { key: 'rows', name: 'Three rows', grid: true, cells: [box(0, 0, 1, third), box(0, third, 1, third), box(0, 2 * third, 1, third)] },
+    { key: 'floating-row', name: 'Floating row', airy: true, cells: [box(0.06, 0.3, 0.28, 0.4), box(0.36, 0.3, 0.28, 0.4), box(0.66, 0.3, 0.28, 0.4)] },
   ],
   4: [
     { key: 'grid', name: 'Four grid', grid: true, cells: [box(0, 0, 0.5, 0.5), box(0.5, 0, 0.5, 0.5), box(0, 0.5, 0.5, 0.5), box(0.5, 0.5, 0.5, 0.5)] },
@@ -54,7 +60,7 @@ const PAGES = {
 };
 
 /** How many layouts to keep for each photo count, spread evenly across the combinations. */
-const KEEP = { 1: 6, 2: 12, 3: 14, 4: 16, 5: 16, 6: 16, 7: 14, 8: 14 };
+const KEEP = { 1: 6, 2: 18, 3: 20, 4: 20, 5: 18, 6: 18, 7: 14, 8: 14 };
 
 function onSpread(page, side) {
   const offset = side === 'left' ? 0 : 0.5;
@@ -64,11 +70,13 @@ function onSpread(page, side) {
   }));
 }
 
+/** A layout can be more than one style: a full page beside open space is both hero and airy. */
 function tagFor(left, right) {
-  if (left.full || right.full) return 'hero';
-  if (left.grid && right.grid) return 'grid';
-  if (left.airy || right.airy) return 'airy';
-  return 'clean';
+  const tags = [];
+  if (left.full || right.full) tags.push('hero');
+  if (left.grid && right.grid) tags.push('grid');
+  if (left.airy || right.airy) tags.push('airy');
+  return tags.length ? tags : ['clean'];
 }
 
 const made = [];
@@ -146,7 +154,7 @@ for (const layout of made) {
   const frames = layout.frames.map((f) => `    ${JSON.stringify(f)}`).join(',\n');
   writeFileSync(
     join(templates, `${layout.id}.json`),
-    `{\n  "id": "eventor-essentials/${layout.id}",\n  "name": ${JSON.stringify(layout.name)},\n  "frame_count": ${layout.frames.length},\n  "spread_aspect": "any",\n  "tags": [${JSON.stringify(layout.tag)}],\n  "frames": [\n${frames}\n  ]\n}\n`,
+    `{\n  "id": "eventor-essentials/${layout.id}",\n  "name": ${JSON.stringify(layout.name)},\n  "frame_count": ${layout.frames.length},\n  "spread_aspect": "any",\n  "tags": ${JSON.stringify([layout.tag].flat())},\n  "frames": [\n${frames}\n  ]\n}\n`,
   );
   added++;
 }

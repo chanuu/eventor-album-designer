@@ -1,0 +1,15 @@
+{
+  "id": "eventor-essentials/6-pair-and-lead-column",
+  "name": "Floating pair + lead and column",
+  "frame_count": 6,
+  "spread_aspect": "any",
+  "tags": ["airy"],
+  "frames": [
+    {"rect_pct":{"x":0.04,"y":0.28,"w":0.2,"h":0.44}},
+    {"rect_pct":{"x":0.26,"y":0.28,"w":0.2,"h":0.44}},
+    {"rect_pct":{"x":0.5,"y":0,"w":0.33,"h":1}},
+    {"rect_pct":{"x":0.83,"y":0,"w":0.17,"h":0.3333}},
+    {"rect_pct":{"x":0.83,"y":0.3333,"w":0.17,"h":0.3334}},
+    {"rect_pct":{"x":0.83,"y":0.6667,"w":0.17,"h":0.3333}}
+  ]
+}

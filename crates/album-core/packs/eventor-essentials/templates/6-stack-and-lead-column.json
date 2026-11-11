@@ -1,0 +1,15 @@
+{
+  "id": "eventor-essentials/6-stack-and-lead-column",
+  "name": "Stacked + lead and column",
+  "frame_count": 6,
+  "spread_aspect": "any",
+  "tags": ["clean"],
+  "frames": [
+    {"rect_pct":{"x":0,"y":0,"w":0.5,"h":0.5}},
+    {"rect_pct":{"x":0,"y":0.5,"w":0.5,"h":0.5}},
+    {"rect_pct":{"x":0.5,"y":0,"w":0.33,"h":1}},
+    {"rect_pct":{"x":0.83,"y":0,"w":0.17,"h":0.3333}},
+    {"rect_pct":{"x":0.83,"y":0.3333,"w":0.17,"h":0.3334}},
+    {"rect_pct":{"x":0.83,"y":0.6667,"w":0.17,"h":0.3333}}
+  ]
+}

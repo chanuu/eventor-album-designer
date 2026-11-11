@@ -1,0 +1,12 @@
+{
+  "id": "eventor-essentials/3-small-and-pair-stack",
+  "name": "Small centred + floating stack",
+  "frame_count": 3,
+  "spread_aspect": "any",
+  "tags": ["airy"],
+  "frames": [
+    {"rect_pct":{"x":0.12,"y":0.27,"w":0.26,"h":0.46}},
+    {"rect_pct":{"x":0.59,"y":0.08,"w":0.32,"h":0.4}},
+    {"rect_pct":{"x":0.59,"y":0.52,"w":0.32,"h":0.4}}
+  ]
+}

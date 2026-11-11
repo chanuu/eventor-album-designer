@@ -1,0 +1,14 @@
+{
+  "id": "eventor-essentials/5-lead-top-and-steps",
+  "name": "Lead top + stepped",
+  "frame_count": 5,
+  "spread_aspect": "any",
+  "tags": ["airy"],
+  "frames": [
+    {"rect_pct":{"x":0,"y":0,"w":0.5,"h":0.6}},
+    {"rect_pct":{"x":0,"y":0.6,"w":0.25,"h":0.4}},
+    {"rect_pct":{"x":0.25,"y":0.6,"w":0.25,"h":0.4}},
+    {"rect_pct":{"x":0.53,"y":0.08,"w":0.27,"h":0.48}},
+    {"rect_pct":{"x":0.7,"y":0.56,"w":0.27,"h":0.36}}
+  ]
+}
