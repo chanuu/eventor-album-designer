@@ -35,6 +35,8 @@ use serde::{Deserialize, Serialize};
 use tauri::http::{header, Response, StatusCode};
 use tauri::{AppHandle, Emitter, Manager, State};
 
+mod device;
+
 const MM_PER_INCH: f64 = 25.4;
 
 /// Decoding a large photo is heavy on memory, so previews are made a few at a time.
@@ -657,6 +659,13 @@ fn serve_preview(
     }
 }
 
+/// This computer's id for Eventor's per-plan device limit, with a name the studio will recognise.
+#[tauri::command]
+fn device_identity(app: AppHandle) -> Result<device::DeviceIdentity, String> {
+    let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    Ok(device::identity(&data_dir))
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -716,7 +725,8 @@ fn main() {
             export_print_files,
             publish_spread,
             match_customer_selection,
-            upload_gallery_photo
+            upload_gallery_photo,
+            device_identity
         ])
         .run(tauri::generate_context!())
         .expect("the app window could not start");
