@@ -230,6 +230,11 @@ legend { padding: 0; margin-bottom: 7px; font-size: 12px; font-weight: 600; widt
 .home-open-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .gate { align-items: flex-start; justify-content: center; gap: 16px; width: min(440px, 100%); margin: 0 auto; padding: 24px; }
 .gate .eventor-form { align-self: stretch; }
+.device-list { list-style: none; align-self: stretch; display: flex; flex-direction: column; gap: 8px; }
+.device-list li { display: flex; align-items: center; gap: 12px; padding: 10px 12px; background: var(--panel-raised); border: 1px solid var(--line); border-radius: 10px; }
+.device-list li > svg.lucide { width: 20px; height: 20px; color: var(--ink-mid); flex: none; }
+.device-list li > div { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.device-list strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gate-actions, .flow-row { display: flex; align-items: center; gap: 10px; }
 .flow-body { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; width: min(720px, 100%); margin: 0 auto; padding: 32px 24px; }
 .flow-body progress { width: 100%; accent-color: var(--brand); }

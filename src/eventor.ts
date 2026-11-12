@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { publishSpread, type ProjectSpec, type PublishLink, type Project } from './api';
+import { deviceIdentity, publishSpread, type ProjectSpec, type PublishLink, type Project } from './api';
 
 /**
  * The link to Eventor: who is signed in, their jobs, publishing and client comments.
@@ -73,7 +73,7 @@ export async function signOut(): Promise<void> {
   }
 }
 
-// ─── Whether this studio's package includes the tool ────────────────────────
+// â”€â”€â”€ Whether this studio's package includes the tool â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /** How long the tool keeps working with no connection since it last checked. */
 export const OFFLINE_DAYS = 7;
@@ -85,6 +85,7 @@ export type Access =
   | { state: 'allowed'; staff: Staff | null; canCreateGallery: boolean; offline: boolean }
   | { state: 'signed-out' }
   | { state: 'not-in-package' }
+  | { state: 'device-limit'; used: number; limit: number; devices: DesignerDevice[]; canRemove: boolean }
   | { state: 'offline-too-long' }
   | { state: 'problem'; message: string };
 
@@ -149,6 +150,14 @@ export async function checkAccess(): Promise<Access> {
       }
     }
 
+    const device = await registerDevice();
+    if (device.state !== 'allowed') {
+      if (device.state === 'offline') return fromMemory();
+      // A computer turned away must not keep working offline on an earlier answer.
+      localStorage.removeItem(ACCESS_KEY);
+      return device;
+    }
+
     try {
       localStorage.setItem(ACCESS_KEY, JSON.stringify({ checkedAt: Date.now(), canCreateGallery, staff }));
     } catch {
@@ -161,7 +170,67 @@ export async function checkAccess(): Promise<Access> {
   }
 }
 
-// ─── Jobs, galleries and what the customer selected ─────────────────────────
+// â”€â”€â”€ How many computers the plan allows â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+export type DesignerDevice = {
+  id: string;
+  name: string | null;
+  platform: string | null;
+  last_seen: string;
+};
+
+/** The database has no device limit yet, so nothing can be over it. */
+const NO_FUNCTION = new Set(['PGRST202', '42883']);
+
+type DeviceCheck =
+  | { state: 'allowed' }
+  | { state: 'offline' }
+  | Extract<Access, { state: 'device-limit' | 'problem' }>;
+
+/**
+ * Records this computer against the studio, or is turned away if the plan's limit is
+ * already used by others. A computer already registered always gets in.
+ */
+async function registerDevice(): Promise<DeviceCheck> {
+  const db = eventor();
+  const me = await deviceIdentity();
+  const { data, error } = await db.rpc('register_designer_device', {
+    p_device_id: me.id,
+    p_name: me.name,
+    p_platform: me.platform,
+  });
+  if (error) {
+    if (error.code && NO_FUNCTION.has(error.code)) return { state: 'allowed' };
+    return isConnectionProblem(error) ? { state: 'offline' } : { state: 'problem', message: error.message };
+  }
+  const answer = data as { allowed: boolean; used: number; limit: number | null };
+  if (answer.allowed || answer.limit === null) return { state: 'allowed' };
+
+  const [devices, canRemove] = await Promise.all([
+    db
+      .from('designer_devices')
+      .select('id, name, platform, last_seen')
+      .is('removed_at', null)
+      .order('last_seen', { ascending: false }),
+    db.rpc('has_permission', { p_key: 'settings.manage' }),
+  ]);
+  if (devices.error) return { state: 'problem', message: devices.error.message };
+  return {
+    state: 'device-limit',
+    used: answer.used,
+    limit: answer.limit,
+    devices: (devices.data ?? []) as DesignerDevice[],
+    canRemove: canRemove.data === true,
+  };
+}
+
+/** Frees a computer's place so another can be used. Needs "Manage studio settings". */
+export async function removeDevice(id: string): Promise<void> {
+  const { error } = await eventor().rpc('remove_designer_device', { p_id: id });
+  if (error) throw plainError(error);
+}
+
+// â”€â”€â”€ Jobs, galleries and what the customer selected â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export type JobGallery = {
   id: string;

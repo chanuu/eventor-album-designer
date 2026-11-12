@@ -196,6 +196,11 @@ export const matchCustomerSelection = (
   wanted: { file_name: string; source_hash: string | null }[],
 ) => invoke<SelectionMatch>('match_customer_selection', { folder, wanted });
 
+export type DeviceIdentity = { id: string; name: string | null; platform: string };
+
+/** This computer's id for the plan's device limit. */
+export const deviceIdentity = () => invoke<DeviceIdentity>('device_identity');
+
 export const uploadGalleryPhoto = (photo: PhotoInfo, fullUrl: string, thumbUrl: string) =>
   invoke<string>('upload_gallery_photo', { photoId: photo.id, fullUrl, thumbUrl });
 

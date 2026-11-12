@@ -2,6 +2,7 @@ import { LogOutIcon, RefreshCwIcon } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import type { PhotoInfo, ProjectSpec, Rating, Spread, PublishLink } from './api';
 import CreateGallery from './CreateGallery';
+import DeviceLimit from './DeviceLimit';
 import { checkAccess, OFFLINE_DAYS, signOut, type Access } from './eventor';
 import EventorSignIn from './EventorSignIn';
 import Home from './Home';
@@ -47,7 +48,7 @@ export default function App() {
   }, [access]);
 
   if (album) return <Workspace album={album} />;
-  if (!access) return <LoaderScreen label="Checking your account…" />;
+  if (!access) return <LoaderScreen label="Checking your accountâ€¦" />;
 
   if (access.state !== 'allowed') {
     return (
@@ -66,6 +67,15 @@ export default function App() {
             <p className="muted">The album designer tool is not included in your Eventor package. Please contact Eventor to add it.</p>
           </>
         )}
+        {access.state === 'device-limit' && (
+          <DeviceLimit
+            used={access.used}
+            limit={access.limit}
+            devices={access.devices}
+            canRemove={access.canRemove}
+            onFreed={check}
+          />
+        )}
         {access.state === 'offline-too-long' && (
           <>
             <h1>Please connect to the internet</h1>
@@ -81,7 +91,7 @@ export default function App() {
         {access.state !== 'signed-out' && (
           <div className="gate-actions">
             <button type="button" className="btn-primary" onClick={check}><RefreshCwIcon aria-hidden="true" />Check again</button>
-            {access.state === 'not-in-package' && (
+            {(access.state === 'not-in-package' || access.state === 'device-limit') && (
               <button type="button" className="btn" onClick={() => void signOut().then(check)}><LogOutIcon aria-hidden="true" />Sign out</button>
             )}
           </div>
