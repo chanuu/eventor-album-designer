@@ -1,0 +1,12 @@
+{
+  "id": "eventor-essentials/3-fine-art-small-pair-and-lead-mirrored",
+  "name": "Small pair with a large photo (mirrored)",
+  "frame_count": 3,
+  "spread_aspect": "any",
+  "tags": ["fineart","panorama"],
+  "frames": [
+    {"rect_pct":{"x":0,"y":0,"w":0.64,"h":1},"bleed":true},
+    {"rect_pct":{"x":0.68,"y":0.3,"w":0.14,"h":0.36}},
+    {"rect_pct":{"x":0.82,"y":0.3,"w":0.14,"h":0.36}}
+  ]
+}

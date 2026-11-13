@@ -1,0 +1,11 @@
+{
+  "id": "eventor-essentials/2-fine-art-wide-and-square-mirrored",
+  "name": "Across the fold with a small square (mirrored)",
+  "frame_count": 2,
+  "spread_aspect": "any",
+  "tags": ["fineart","panorama"],
+  "frames": [
+    {"rect_pct":{"x":0.035,"y":0.32,"w":0.07,"h":0.18}},
+    {"rect_pct":{"x":0.14,"y":0,"w":0.56,"h":1},"bleed":true}
+  ]
+}

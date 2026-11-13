@@ -1,0 +1,13 @@
+{
+  "id": "eventor-essentials/4-fine-art-edge-and-columns-mirrored",
+  "name": "Edge photo and three columns (mirrored)",
+  "frame_count": 4,
+  "spread_aspect": "any",
+  "tags": ["fineart"],
+  "frames": [
+    {"rect_pct":{"x":0,"y":0,"w":0.1667,"h":1},"bleed":true},
+    {"rect_pct":{"x":0.1667,"y":0,"w":0.1666,"h":1},"bleed":true},
+    {"rect_pct":{"x":0.3333,"y":0,"w":0.1667,"h":1},"bleed":true},
+    {"rect_pct":{"x":0.82,"y":0,"w":0.18,"h":1},"bleed":true}
+  ]
+}

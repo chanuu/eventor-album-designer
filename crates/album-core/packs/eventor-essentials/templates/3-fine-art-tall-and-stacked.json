@@ -1,0 +1,12 @@
+{
+  "id": "eventor-essentials/3-fine-art-tall-and-stacked",
+  "name": "Tall and stacked on one page",
+  "frame_count": 3,
+  "spread_aspect": "any",
+  "tags": ["fineart"],
+  "frames": [
+    {"rect_pct":{"x":0.56,"y":0.14,"w":0.185,"h":0.72}},
+    {"rect_pct":{"x":0.745,"y":0.14,"w":0.19,"h":0.36}},
+    {"rect_pct":{"x":0.745,"y":0.5,"w":0.19,"h":0.36}}
+  ]
+}

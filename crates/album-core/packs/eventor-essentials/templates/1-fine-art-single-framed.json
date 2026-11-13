@@ -1,0 +1,10 @@
+{
+  "id": "eventor-essentials/1-fine-art-single-framed",
+  "name": "Single framed photo",
+  "frame_count": 1,
+  "spread_aspect": "any",
+  "tags": ["fineart"],
+  "frames": [
+    {"rect_pct":{"x":0.56,"y":0.18,"w":0.38,"h":0.64}}
+  ]
+}

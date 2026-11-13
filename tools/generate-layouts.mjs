@@ -141,6 +141,82 @@ for (let total = 2; total <= 8; total++) {
   }
 }
 
+// Fine art: a few photos with plenty of paper, a full page set against a quiet one,
+// photos running off one edge. Whole-spread fractions, left to right.
+const art = (left, top, right, bottom, bleed = false) => ({
+  rect_pct: edges(left, top, right, bottom),
+  ...(bleed ? { bleed: true } : {}),
+});
+const FINE_ART = [
+  {
+    key: 'framed-and-full', name: 'Framed beside a full page',
+    frames: [art(0.08, 0.12, 0.42, 0.88), art(0.5, 0, 1, 1, true)],
+  },
+  {
+    key: 'pair-and-full', name: 'Pair beside a full page',
+    frames: [art(0.065, 0.14, 0.25, 0.86), art(0.25, 0.14, 0.435, 0.86), art(0.5, 0, 1, 1, true)],
+  },
+  {
+    key: 'lead-and-column', name: 'Across the fold with a column',
+    frames: [art(0, 0, 0.66, 1, true), art(0.75, 0, 0.94, 0.5, true), art(0.75, 0.5, 0.94, 1, true)],
+  },
+  {
+    key: 'small-pair-and-lead', name: 'Small pair with a large photo',
+    frames: [art(0.04, 0.3, 0.18, 0.66), art(0.18, 0.3, 0.32, 0.66), art(0.36, 0, 1, 1, true)],
+  },
+  {
+    key: 'wide-and-square', name: 'Across the fold with a small square',
+    frames: [art(0.3, 0, 0.86, 1, true), art(0.895, 0.32, 0.965, 0.5)],
+  },
+  {
+    key: 'single-framed', name: 'Single framed photo',
+    frames: [art(0.56, 0.18, 0.94, 0.82)],
+  },
+  {
+    key: 'single-tall', name: 'Single tall photo',
+    frames: [art(0.62, 0.1, 0.88, 0.9)],
+  },
+  {
+    key: 'edge-and-floating', name: 'Edge photo with a small one',
+    frames: [art(0, 0, 0.22, 1, true), art(0.28, 0.3, 0.44, 0.7)],
+  },
+  {
+    key: 'edge-and-columns', name: 'Edge photo and three columns',
+    frames: [art(0, 0, 0.18, 1, true), art(0.5, 0, 2 / 3, 1, true), art(2 / 3, 0, 5 / 6, 1, true), art(5 / 6, 0, 1, 1, true)],
+  },
+  {
+    key: 'story', name: 'Edge, floating, tall and stacked',
+    frames: [
+      art(0, 0, 0.22, 1, true), art(0.27, 0.3, 0.44, 0.7),
+      art(0.56, 0.14, 0.745, 0.86), art(0.745, 0.14, 0.935, 0.5), art(0.745, 0.5, 0.935, 0.86),
+    ],
+  },
+  {
+    key: 'tall-and-stacked', name: 'Tall and stacked on one page',
+    frames: [art(0.56, 0.14, 0.745, 0.86), art(0.745, 0.14, 0.935, 0.5), art(0.745, 0.5, 0.935, 0.86)],
+  },
+];
+const mirror = (frame) => ({
+  ...frame,
+  rect_pct: edges(1 - frame.rect_pct.x - frame.rect_pct.w, frame.rect_pct.y, 1 - frame.rect_pct.x, frame.rect_pct.y + frame.rect_pct.h),
+});
+const crossesFold = (f) => f.rect_pct.x < 0.5 - 1e-6 && f.rect_pct.x + f.rect_pct.w > 0.5 + 1e-6;
+// Photos fill frames in order, so the mirrored frames are listed left to right again.
+const readingOrder = (a, b) => a.rect_pct.x - b.rect_pct.x || a.rect_pct.y - b.rect_pct.y;
+for (const layout of FINE_ART) {
+  // Each also the other way round, so the full page or open paper can fall on either side.
+  for (const [suffix, label, frames] of [['', '', layout.frames], ['-mirrored', ' (mirrored)', layout.frames.map(mirror).sort(readingOrder)]]) {
+    made.push({
+      total: frames.length,
+      id: `${frames.length}-fine-art-${layout.key}${suffix}`,
+      name: `${layout.name}${label}`,
+      // A photo across the binding is a panorama too, so it is never mistaken for a page.
+      tag: frames.some(crossesFold) ? ['fineart', 'panorama'] : 'fineart',
+      frames,
+    });
+  }
+}
+
 const shape = (frames) => frames.map((f) => JSON.stringify(f.rect_pct)).sort().join('|');
 const existing = new Set(
   readdirSync(templates).map((f) => shape(JSON.parse(readFileSync(join(templates, f), 'utf8')).frames)),
