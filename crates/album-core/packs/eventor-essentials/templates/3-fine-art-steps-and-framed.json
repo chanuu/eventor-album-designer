@@ -1,0 +1,12 @@
+{
+  "id": "eventor-essentials/3-fine-art-steps-and-framed",
+  "name": "Stepped pair beside a framed photo",
+  "frame_count": 3,
+  "spread_aspect": "any",
+  "tags": ["fineart"],
+  "frames": [
+    {"rect_pct":{"x":0.053,"y":0.075,"w":0.197,"h":0.85}},
+    {"rect_pct":{"x":0.25,"y":0.39,"w":0.2,"h":0.535}},
+    {"rect_pct":{"x":0.526,"y":0.14,"w":0.451,"h":0.69}}
+  ]
+}

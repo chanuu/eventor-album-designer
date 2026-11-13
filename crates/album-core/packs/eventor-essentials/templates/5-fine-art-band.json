@@ -1,0 +1,14 @@
+{
+  "id": "eventor-essentials/5-fine-art-band",
+  "name": "Band across the fold between stacks",
+  "frame_count": 5,
+  "spread_aspect": "any",
+  "tags": ["fineart","panorama"],
+  "frames": [
+    {"rect_pct":{"x":0,"y":0.09,"w":0.25,"h":0.41},"bleed":true},
+    {"rect_pct":{"x":0,"y":0.5,"w":0.25,"h":0.41},"bleed":true},
+    {"rect_pct":{"x":0.25,"y":0.09,"w":0.5,"h":0.82}},
+    {"rect_pct":{"x":0.75,"y":0.09,"w":0.25,"h":0.41},"bleed":true},
+    {"rect_pct":{"x":0.75,"y":0.5,"w":0.25,"h":0.41},"bleed":true}
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "id": "eventor-essentials/6-fine-art-full-tall-and-grid",
+  "name": "Full page with a tall and a grid",
+  "frame_count": 6,
+  "spread_aspect": "any",
+  "tags": ["fineart"],
+  "frames": [
+    {"rect_pct":{"x":0,"y":0,"w":0.5,"h":1},"bleed":true},
+    {"rect_pct":{"x":0.52,"y":0.06,"w":0.202,"h":0.88}},
+    {"rect_pct":{"x":0.722,"y":0.06,"w":0.128,"h":0.44}},
+    {"rect_pct":{"x":0.85,"y":0.06,"w":0.127,"h":0.44}},
+    {"rect_pct":{"x":0.722,"y":0.5,"w":0.128,"h":0.44}},
+    {"rect_pct":{"x":0.85,"y":0.5,"w":0.127,"h":0.44}}
+  ]
+}

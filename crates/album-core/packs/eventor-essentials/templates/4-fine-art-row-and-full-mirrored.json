@@ -1,0 +1,13 @@
+{
+  "id": "eventor-essentials/4-fine-art-row-and-full-mirrored",
+  "name": "Row of three beside a full page (mirrored)",
+  "frame_count": 4,
+  "spread_aspect": "any",
+  "tags": ["fineart"],
+  "frames": [
+    {"rect_pct":{"x":0,"y":0,"w":0.5,"h":1},"bleed":true},
+    {"rect_pct":{"x":0.534,"y":0.21,"w":0.143,"h":0.54}},
+    {"rect_pct":{"x":0.677,"y":0.21,"w":0.144,"h":0.54}},
+    {"rect_pct":{"x":0.821,"y":0.21,"w":0.143,"h":0.54}}
+  ]
+}

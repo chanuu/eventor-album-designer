@@ -1,0 +1,13 @@
+{
+  "id": "eventor-essentials/4-fine-art-full-and-lead-stack-mirrored",
+  "name": "Full page beside a lead and stack (mirrored)",
+  "frame_count": 4,
+  "spread_aspect": "any",
+  "tags": ["fineart"],
+  "frames": [
+    {"rect_pct":{"x":0.079,"y":0.21,"w":0.169,"h":0.29}},
+    {"rect_pct":{"x":0.079,"y":0.5,"w":0.169,"h":0.295}},
+    {"rect_pct":{"x":0.248,"y":0.21,"w":0.181,"h":0.585}},
+    {"rect_pct":{"x":0.5,"y":0,"w":0.5,"h":1},"bleed":true}
+  ]
+}

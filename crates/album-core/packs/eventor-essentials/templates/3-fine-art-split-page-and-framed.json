@@ -1,0 +1,12 @@
+{
+  "id": "eventor-essentials/3-fine-art-split-page-and-framed",
+  "name": "Split page beside a framed photo",
+  "frame_count": 3,
+  "spread_aspect": "any",
+  "tags": ["fineart"],
+  "frames": [
+    {"rect_pct":{"x":0,"y":0,"w":0.25,"h":1},"bleed":true},
+    {"rect_pct":{"x":0.25,"y":0,"w":0.25,"h":1},"bleed":true},
+    {"rect_pct":{"x":0.63,"y":0.21,"w":0.236,"h":0.58}}
+  ]
+}

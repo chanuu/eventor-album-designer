@@ -1,0 +1,13 @@
+{
+  "id": "eventor-essentials/4-fine-art-stack-across-and-tall-mirrored",
+  "name": "Stack, across the fold and tall (mirrored)",
+  "frame_count": 4,
+  "spread_aspect": "any",
+  "tags": ["fineart","panorama"],
+  "frames": [
+    {"rect_pct":{"x":0.023,"y":0.06,"w":0.227,"h":0.88}},
+    {"rect_pct":{"x":0.25,"y":0.06,"w":0.5,"h":0.88}},
+    {"rect_pct":{"x":0.75,"y":0.06,"w":0.227,"h":0.44}},
+    {"rect_pct":{"x":0.75,"y":0.5,"w":0.227,"h":0.44}}
+  ]
+}

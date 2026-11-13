@@ -1,0 +1,13 @@
+{
+  "id": "eventor-essentials/4-fine-art-framed-tall-and-stack-mirrored",
+  "name": "Framed beside a tall and a stack (mirrored)",
+  "frame_count": 4,
+  "spread_aspect": "any",
+  "tags": ["fineart"],
+  "frames": [
+    {"rect_pct":{"x":0.023,"y":0.06,"w":0.227,"h":0.44}},
+    {"rect_pct":{"x":0.023,"y":0.5,"w":0.227,"h":0.44}},
+    {"rect_pct":{"x":0.25,"y":0.06,"w":0.23,"h":0.88}},
+    {"rect_pct":{"x":0.545,"y":0.13,"w":0.408,"h":0.715}}
+  ]
+}

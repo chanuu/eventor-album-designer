@@ -1,0 +1,13 @@
+{
+  "id": "eventor-essentials/4-fine-art-trio-and-full-mirrored",
+  "name": "Three beside a full page (mirrored)",
+  "frame_count": 4,
+  "spread_aspect": "any",
+  "tags": ["fineart"],
+  "frames": [
+    {"rect_pct":{"x":0,"y":0,"w":0.5,"h":1},"bleed":true},
+    {"rect_pct":{"x":0.523,"y":0.06,"w":0.227,"h":0.44}},
+    {"rect_pct":{"x":0.523,"y":0.5,"w":0.454,"h":0.44}},
+    {"rect_pct":{"x":0.75,"y":0.06,"w":0.227,"h":0.44}}
+  ]
+}

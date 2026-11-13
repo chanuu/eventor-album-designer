@@ -141,59 +141,110 @@ for (let total = 2; total <= 8; total++) {
   }
 }
 
-// Fine art: a few photos with plenty of paper, a full page set against a quiet one,
-// photos running off one edge. Whole-spread fractions, left to right.
+// Fine art: photos set in open paper, a full page beside a quiet one, a band across the
+// fold. Whole-spread fractions, in reading order. Neighbours share an edge, so the album's
+// own gap spaces them.
 const art = (left, top, right, bottom, bleed = false) => ({
   rect_pct: edges(left, top, right, bottom),
   ...(bleed ? { bleed: true } : {}),
 });
+const fullLeft = art(0, 0, 0.5, 1, true);
+const fullRight = art(0.5, 0, 1, 1, true);
+// Pages that several layouts share.
+const pairLeft = [art(0.068, 0.13, 0.25, 0.87), art(0.25, 0.13, 0.432, 0.87)];
+const trioLeft = [art(0.023, 0.06, 0.25, 0.5), art(0.25, 0.06, 0.477, 0.5), art(0.023, 0.5, 0.477, 0.94)];
+const tallAndSquareRight = [art(0.52, 0.06, 0.75, 0.94), art(0.75, 0.06, 0.977, 0.7)];
+const tallAndStackRight = [art(0.52, 0.06, 0.75, 0.94), art(0.75, 0.06, 0.977, 0.5), art(0.75, 0.5, 0.977, 0.94)];
 const FINE_ART = [
+  { key: 'single-framed', name: 'Single framed photo', frames: [art(0.59, 0.19, 0.91, 0.81)] },
+  { key: 'single-large', name: 'Single large photo', frames: [art(0.56, 0.13, 0.94, 0.87)] },
   {
     key: 'framed-and-full', name: 'Framed beside a full page',
-    frames: [art(0.08, 0.12, 0.42, 0.88), art(0.5, 0, 1, 1, true)],
+    frames: [art(0.06, 0.13, 0.44, 0.87), fullRight],
   },
   {
-    key: 'pair-and-full', name: 'Pair beside a full page',
-    frames: [art(0.065, 0.14, 0.25, 0.86), art(0.25, 0.14, 0.435, 0.86), art(0.5, 0, 1, 1, true)],
+    key: 'small-framed-and-full', name: 'Small framed beside a full page',
+    frames: [art(0.09, 0.19, 0.41, 0.81), fullRight],
+  },
+  { key: 'pair-and-full', name: 'Pair beside a full page', frames: [...pairLeft, fullRight] },
+  {
+    key: 'across-and-column', name: 'Across the fold with a column',
+    frames: [art(0, 0, 0.67, 1, true), art(0.745, 0, 0.93, 0.47, true), art(0.745, 0.47, 0.93, 1, true)],
   },
   {
-    key: 'lead-and-column', name: 'Across the fold with a column',
-    frames: [art(0, 0, 0.66, 1, true), art(0.75, 0, 0.94, 0.5, true), art(0.75, 0.5, 0.94, 1, true)],
+    key: 'edge-across-and-side', name: 'Edge photo and a pair across the fold',
+    frames: [art(0, 0.14, 0.18, 0.855, true), art(0.35, 0.14, 0.68, 0.855), art(0.68, 0.14, 0.96, 0.855)],
+  },
+  { key: 'full-tall-and-square', name: 'Full page with a tall and a square', frames: [fullLeft, ...tallAndSquareRight] },
+  {
+    key: 'split-page-and-framed', name: 'Split page beside a framed photo',
+    frames: [art(0, 0, 0.25, 1, true), art(0.25, 0, 0.5, 1, true), art(0.63, 0.21, 0.866, 0.79)],
   },
   {
-    key: 'small-pair-and-lead', name: 'Small pair with a large photo',
-    frames: [art(0.04, 0.3, 0.18, 0.66), art(0.18, 0.3, 0.32, 0.66), art(0.36, 0, 1, 1, true)],
+    key: 'small-stack-and-across', name: 'Small stack with a photo across the fold',
+    frames: [art(0.08, 0.16, 0.25, 0.5), art(0.08, 0.5, 0.25, 0.84), art(0.33, 0, 1, 1, true)],
   },
   {
-    key: 'wide-and-square', name: 'Across the fold with a small square',
-    frames: [art(0.3, 0, 0.86, 1, true), art(0.895, 0.32, 0.965, 0.5)],
+    key: 'steps-and-framed', name: 'Stepped pair beside a framed photo',
+    frames: [art(0.053, 0.075, 0.25, 0.925), art(0.25, 0.39, 0.45, 0.925), art(0.526, 0.14, 0.977, 0.83)],
   },
   {
-    key: 'single-framed', name: 'Single framed photo',
-    frames: [art(0.56, 0.18, 0.94, 0.82)],
-  },
-  {
-    key: 'single-tall', name: 'Single tall photo',
-    frames: [art(0.62, 0.1, 0.88, 0.9)],
-  },
-  {
-    key: 'edge-and-floating', name: 'Edge photo with a small one',
-    frames: [art(0, 0, 0.22, 1, true), art(0.28, 0.3, 0.44, 0.7)],
-  },
-  {
-    key: 'edge-and-columns', name: 'Edge photo and three columns',
-    frames: [art(0, 0, 0.18, 1, true), art(0.5, 0, 2 / 3, 1, true), art(2 / 3, 0, 5 / 6, 1, true), art(5 / 6, 0, 1, 1, true)],
-  },
-  {
-    key: 'story', name: 'Edge, floating, tall and stacked',
+    key: 'stack-across-and-tall', name: 'Stack, across the fold and tall',
     frames: [
-      art(0, 0, 0.22, 1, true), art(0.27, 0.3, 0.44, 0.7),
-      art(0.56, 0.14, 0.745, 0.86), art(0.745, 0.14, 0.935, 0.5), art(0.745, 0.5, 0.935, 0.86),
+      art(0.023, 0.06, 0.25, 0.5), art(0.023, 0.5, 0.25, 0.94),
+      art(0.25, 0.06, 0.75, 0.94), art(0.75, 0.06, 0.977, 0.94),
     ],
   },
   {
-    key: 'tall-and-stacked', name: 'Tall and stacked on one page',
-    frames: [art(0.56, 0.14, 0.745, 0.86), art(0.745, 0.14, 0.935, 0.5), art(0.745, 0.5, 0.935, 0.86)],
+    key: 'framed-tall-and-stack', name: 'Framed beside a tall and a stack',
+    frames: [art(0.047, 0.13, 0.455, 0.845), ...tallAndStackRight],
+  },
+  { key: 'trio-and-full', name: 'Three beside a full page', frames: [...trioLeft, fullRight] },
+  {
+    key: 'row-and-full', name: 'Row of three beside a full page',
+    frames: [art(0.036, 0.21, 0.179, 0.75), art(0.179, 0.21, 0.323, 0.75), art(0.323, 0.21, 0.466, 0.75), fullRight],
+  },
+  {
+    key: 'lead-stack-and-full', name: 'Lead and small stack beside a full page',
+    frames: [art(0.087, 0.134, 0.328, 0.868), art(0.328, 0.134, 0.414, 0.5), art(0.328, 0.5, 0.414, 0.868), fullRight],
+  },
+  {
+    key: 'pair-tall-and-framed', name: 'Pair, tall across the fold and framed',
+    frames: [
+      art(0.042, 0.21, 0.227, 0.795), art(0.227, 0.21, 0.412, 0.795),
+      art(0.412, 0, 0.77, 1, true), art(0.77, 0.21, 0.955, 0.795),
+    ],
+  },
+  {
+    key: 'full-and-lead-stack', name: 'Full page beside a lead and stack',
+    frames: [fullLeft, art(0.571, 0.21, 0.752, 0.795), art(0.752, 0.21, 0.921, 0.5), art(0.752, 0.5, 0.921, 0.795)],
+  },
+  {
+    key: 'band', name: 'Band across the fold between stacks',
+    frames: [
+      art(0, 0.09, 0.25, 0.5, true), art(0, 0.5, 0.25, 0.91, true),
+      art(0.25, 0.09, 0.75, 0.91),
+      art(0.75, 0.09, 1, 0.5, true), art(0.75, 0.5, 1, 0.91, true),
+    ],
+  },
+  { key: 'pair-tall-and-stack', name: 'Pair beside a tall and a stack', frames: [...pairLeft, ...tallAndStackRight] },
+  { key: 'trio-tall-and-square', name: 'Three beside a tall and a square', frames: [...trioLeft, ...tallAndSquareRight] },
+  {
+    key: 'tall-and-mosaic', name: 'Tall beside a mosaic of five',
+    frames: [
+      art(0.023, 0.06, 0.258, 0.94),
+      art(0.52, 0.06, 0.652, 0.5), art(0.52, 0.5, 0.652, 0.94),
+      art(0.652, 0.06, 0.845, 0.94),
+      art(0.845, 0.06, 0.977, 0.5), art(0.845, 0.5, 0.977, 0.94),
+    ],
+  },
+  {
+    key: 'full-tall-and-grid', name: 'Full page with a tall and a grid',
+    frames: [
+      fullLeft, art(0.52, 0.06, 0.722, 0.94),
+      art(0.722, 0.06, 0.85, 0.5), art(0.85, 0.06, 0.977, 0.5),
+      art(0.722, 0.5, 0.85, 0.94), art(0.85, 0.5, 0.977, 0.94),
+    ],
   },
 ];
 const mirror = (frame) => ({
