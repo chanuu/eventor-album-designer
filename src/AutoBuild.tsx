@@ -14,7 +14,16 @@ import {
   type Spread,
 } from './api';
 
-type Style = { tag: string; name: string; hint: string; art: string[] };
+type Style = {
+  tag: string;
+  name: string;
+  hint: string;
+  art: string[];
+  /** The most photos its layouts hold on one spread, when that is fewer than usual. */
+  most?: number;
+  /** How many layouts back it avoids repeating. The usual is only the last one. */
+  memory?: number;
+};
 
 /** `art` is a tiny drawing of the style: each entry is left, top, width, height in %. */
 const STYLES: Style[] = [
@@ -22,14 +31,26 @@ const STYLES: Style[] = [
   { tag: 'hero', name: 'Hero', hint: 'One full page beside smaller photos', art: ['0,0,50,100', '54,8,42,40', '54,52,42,40'] },
   { tag: 'panorama', name: 'Panorama', hint: 'One big photo across the fold', art: ['0,0,100,62', '4,68,44,26', '52,68,44,26'] },
   { tag: 'grid', name: 'Grid', hint: 'Columns and rows, more photos', art: ['2,6,22,88', '26,6,22,88', '52,6,22,88', '76,6,22,88'] },
-  { tag: 'fineart', name: 'Fine art', hint: 'Few photos, open paper, full pages', art: ['7,14,17,72', '26,14,17,72', '50,0,50,100'] },
+  { tag: 'fineart', name: 'Fine art', hint: 'Few photos, open paper, full pages', art: ['7,14,17,72', '26,14,17,72', '50,0,50,100'], most: 6, memory: 4 },
 ];
 
-/** Prefers the chosen style, and avoids using the same layout twice in a row. */
-function chooseLayout(options: LayoutOption[], tag: string, previous: string | null) {
+/** A layout and its mirrored copy look alike, so they count as one when avoiding repeats. */
+const family = (templateId: string) => templateId.replace(/-mirrored$/, '');
+
+/** Prefers the chosen style, and avoids the layouts used on the spreads just before. */
+function chooseLayout(options: LayoutOption[], tag: string, recent: string[]) {
   const inStyle = options.filter((o) => o.tags.includes(tag));
   const pool = inStyle.length ? inStyle : options;
-  const pick = pool.find((o) => o.template_id !== previous) ?? pool[0];
+  const families = recent.map(family);
+  // How many spreads ago a layout like this one was used. Never is best.
+  const age = (o: LayoutOption) => {
+    const at = families.indexOf(family(o.template_id));
+    return at < 0 ? Infinity : at;
+  };
+  let pick = pool[0];
+  for (const o of pool) if (age(o) > age(pick)) pick = o;
+  // With nothing else to turn to, at least the mirrored copy is a change.
+  if (pick.template_id === recent[0]) pick = pool.find((o) => o.template_id !== recent[0]) ?? pick;
   return options.indexOf(pick);
 }
 
@@ -73,6 +94,8 @@ export default function AutoBuild({
   const [unreadable, setUnreadable] = useState(0);
 
   const [tag, setTag] = useState('clean');
+  const chosenStyle = STYLES.find((s) => s.tag === tag);
+  const most = chosenStyle?.most ?? null;
   const [wanted, setWanted] = useState<number | null>(null);
   const [splitByTime, setSplitByTime] = useState(true);
   const [syncClocks, setSyncClocks] = useState(true);
@@ -120,11 +143,12 @@ export default function AutoBuild({
       leave_out_similar: !useEvery && leaveSimilar,
       keep: [...keep, ...alwaysKeep],
       tell_story: story,
+      max_per_spread: most,
     })
       .then((next) => { if (current) setPlan(next); })
       .catch((e) => { if (current) setError(String(e)); });
     return () => { current = false; };
-  }, [analysed, chosenIds, wanted, splitByTime, syncClocks, keepMono, useEvery, leaveBlurry, leaveSimilar, keep, alwaysKeep, story]);
+  }, [analysed, chosenIds, wanted, splitByTime, syncClocks, keepMono, useEvery, leaveBlurry, leaveSimilar, keep, alwaysKeep, story, most]);
 
   async function build() {
     if (!plan) return;
@@ -133,16 +157,16 @@ export default function AutoBuild({
     try {
       const groups = plan.spreads.map((ids) => ids.flatMap((id) => byId.get(id) ?? []));
       const allOptions = await Promise.all(groups.map((group) => suggestLayouts(group, spec)));
-      let previous: string | null = null;
+      const recent: string[] = [];
       let singles = 0;
       const spreads: Spread[] = groups.map((group, i) => {
         const options = allOptions[i];
         // A feature photo takes turns: filling the spread, then sitting in open space.
         // Fine art has its own single-photo pages.
-        const style = group.length === 1 && tag !== 'fineart' ? (singles++ % 2 === 0 ? 'hero' : 'airy') : tag;
-        const optionIndex = chooseLayout(options, style, previous);
+        const look = group.length === 1 && tag !== 'fineart' ? (singles++ % 2 === 0 ? 'hero' : 'airy') : tag;
+        const optionIndex = chooseLayout(options, look, recent.slice(0, chosenStyle?.memory ?? 1));
         const design = options[optionIndex].design;
-        previous = design.template_id;
+        if (design.template_id) recent.unshift(design.template_id);
         return {
           id: crypto.randomUUID(),
           photoIds: group.map((p) => p.id),

@@ -619,7 +619,9 @@ export default function Workspace({ album }: { album: Album }) {
     const fineArt = current.options[current.optionIndex]?.tags.includes(FINE_ART)
       ? ranked.filter(({ option }) => option.tags.includes(FINE_ART))
       : [];
-    const best = (fineArt.length > 1 ? fineArt : ranked).slice(0, AUTO_DESIGN_CHOICES);
+    const staysFineArt = fineArt.length > 1;
+    // Every fine art layout takes its turn, since there are few and none is rearranged.
+    const best = staysFineArt ? fineArt : ranked.slice(0, AUTO_DESIGN_CHOICES);
     // Never the one on screen, and not one of the last few, while there are others to use.
     const fresh = best.filter(({ option, index }) => index !== current.optionIndex && !recent.includes(option.template_id));
     const others = best.filter(({ index }) => index !== current.optionIndex);
@@ -628,10 +630,18 @@ export default function Workspace({ album }: { album: Album }) {
     const { option, index } = pool[roll % pool.length];
     const list = current.photoIds.flatMap((id) => byId.get(id) ?? []);
     try {
-      const made = await varyLayout(option.template_id, list, spec, option.design.frames.map((f) => f.rect_mm), seed);
+      // A fine art layout is used as drawn. Moving its lines would undo its margins.
+      const made = staysFineArt
+        ? null
+        : await varyLayout(option.template_id, list, spec, option.design.frames.map((f) => f.rect_mm), seed);
       // Only the latest click counts, when they come quicker than the answers.
       if (ticket !== autoDesignTicket.current) return;
-      recentLayouts.current.set(spreadId, [option.template_id, ...recent].slice(0, AUTO_DESIGN_MEMORY));
+      // Fine art layouts come round only after all the others have been shown.
+      const remembered = staysFineArt ? best.length - 1 : AUTO_DESIGN_MEMORY;
+      // The layout being left counts as shown, even if Auto design did not choose it.
+      const shown = [option.template_id, current.options[current.optionIndex]?.template_id, ...recent]
+        .filter((id): id is string => !!id);
+      recentLayouts.current.set(spreadId, [...new Set(shown)].slice(0, remembered));
       setNotice('');
       setFrameId(null);
       history.seal();
