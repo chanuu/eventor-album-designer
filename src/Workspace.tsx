@@ -1,4 +1,4 @@
-import { ArrowLeftIcon, ArrowRightIcon, ChevronLeftIcon, ChevronRightIcon, DownloadIcon, FlipHorizontal2Icon, ImageMinusIcon, ImagePlusIcon, ImagesIcon, LayoutGridIcon, MessageSquareIcon, PanelRightIcon, PenToolIcon, PlusIcon, Redo2Icon, RotateCcwIcon, SaveIcon, SearchIcon, SendIcon, SparklesIcon, Trash2Icon, Undo2Icon, XIcon, ZapIcon } from 'lucide-react';
+import { ArrowLeftIcon, ArrowRightIcon, BookOpenIcon, ChevronLeftIcon, ChevronRightIcon, DownloadIcon, FlipHorizontal2Icon, ImageMinusIcon, ImagePlusIcon, ImagesIcon, LayoutGridIcon, MessageSquareIcon, PaletteIcon, PanelRightIcon, PenToolIcon, PlusIcon, Redo2Icon, RotateCcwIcon, SaveIcon, SearchIcon, SendIcon, SparklesIcon, Trash2Icon, Undo2Icon, XIcon, ZapIcon } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ask, open, save } from '@tauri-apps/plugin-dialog';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -17,9 +17,11 @@ import {
   suggestRatings,
   analyzePhotos,
   type Adjustments,
+  type Cover,
   type Frame,
   type FrameStyle,
   type LayoutOption,
+  type Music,
   type Project,
   type PublishLink,
   type PhotoInfo,
@@ -29,8 +31,10 @@ import {
   type SpreadDesign,
   type TextBlock,
 } from './api';
+import AlbumPreview from './AlbumPreview';
 import type { Album } from './App';
 import AutoBuild from './AutoBuild';
+import CoverDesigner from './CoverDesigner';
 import { effectiveDpi, visibleArea, cropShare } from './crop';
 import EffectsPanel, { NO_ADJUSTMENTS } from './EffectsPanel';
 import CommentsDialog from './CommentsDialog';
@@ -125,6 +129,10 @@ export default function Workspace({ album }: { album: Album }) {
   const [designerOpen, setDesignerOpen] = useState(false);
   const [publishLink, setPublishLink] = useState<PublishLink | null>(album.publish);
   const [publishProject, setPublishProject] = useState<Project | null>(null);
+  const [cover, setCover] = useState<Cover | null>(album.cover ?? null);
+  const [music, setMusic] = useState<Music | null>(album.music ?? null);
+  const [showCover, setShowCover] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
   const [showComments, setShowComments] = useState(false);
   const [openComments, setOpenComments] = useState(0);
   const autoDesignTicket = useRef(0);
@@ -169,14 +177,17 @@ export default function Workspace({ album }: { album: Album }) {
     if (!spreads.some((s) => s.id === currentId)) setCurrentId(spreads[0]?.id ?? null);
   }, [spreads, currentId]);
 
-  const latest = useRef({ photos, spreads, ratings, publishLink, path, dirty: false });
+  const latest = useRef({ photos, spreads, ratings, publishLink, cover, music, path, dirty: false });
   latest.current.path = path;
   useEffect(() => {
     const was = latest.current;
-    if (was.photos === photos && was.spreads === spreads && was.ratings === ratings && was.publishLink === publishLink) return;
-    latest.current = { ...was, photos, spreads, ratings, publishLink, dirty: true };
+    if (
+      was.photos === photos && was.spreads === spreads && was.ratings === ratings
+      && was.publishLink === publishLink && was.cover === cover && was.music === music
+    ) return;
+    latest.current = { ...was, photos, spreads, ratings, publishLink, cover, music, dirty: true };
     setSaveStatus('unsaved');
-  }, [photos, spreads, ratings, publishLink]);
+  }, [photos, spreads, ratings, publishLink, cover, music]);
 
   // Shows how many comments are waiting, once this album is linked to a job.
   useEffect(() => {
@@ -222,7 +233,7 @@ export default function Workspace({ album }: { album: Album }) {
       const snapshot = latest.current;
       setSaveStatus('saving');
       try {
-        await saveAlbum(target, toProject(album, snapshot.photos, snapshot.spreads, snapshot.ratings, snapshot.publishLink));
+        await saveAlbum(target, toProject(album, snapshot.photos, snapshot.spreads, snapshot.ratings, snapshot.publishLink, snapshot.cover, snapshot.music));
         if (latest.current === snapshot) {
           latest.current.dirty = false;
           setSaveStatus('saved');
@@ -797,12 +808,14 @@ export default function Workspace({ album }: { album: Album }) {
             Comments{openComments > 0 && <span className="count-badge">{openComments}</span>}
           </button>
         )}
+        <button type="button" className="btn" title="The digital album's cover and music" onClick={() => setShowCover(true)}><PaletteIcon aria-hidden="true" />Cover</button>
+        <button type="button" className="btn" disabled={!spreads.length} title="Leaf through the album as the client will" onClick={() => setShowPreview(true)}><BookOpenIcon aria-hidden="true" />Preview</button>
         <button
           type="button"
           className="btn"
           disabled={!spreads.length}
           title="Publish as the client's digital album in Eventor"
-          onClick={() => setPublishProject(toProject(album, photos, spreads, ratings, publishLink))}
+          onClick={() => setPublishProject(toProject(album, photos, spreads, ratings, publishLink, cover, music))}
         ><SendIcon aria-hidden="true" />
           Publish
         </button>
@@ -810,7 +823,7 @@ export default function Workspace({ album }: { album: Album }) {
           type="button"
           className="btn-primary"
           disabled={!spreads.length}
-          onClick={() => setExportProject(toProject(album, photos, spreads, ratings, publishLink))}
+          onClick={() => setExportProject(toProject(album, photos, spreads, ratings, publishLink, cover, music))}
         ><DownloadIcon aria-hidden="true" />
           Export
         </button>
@@ -833,6 +846,34 @@ export default function Workspace({ album }: { album: Album }) {
 
       {exportProject && (
         <ExportDialog project={exportProject} onClose={() => setExportProject(null)} />
+      )}
+
+      {showPreview && (
+        <AlbumPreview
+          title={album.name}
+          spec={spec}
+          spreads={spreads}
+          photos={photos}
+          cover={cover}
+          music={music}
+          onDesignCover={() => setShowCover(true)}
+          onClose={() => setShowPreview(false)}
+        />
+      )}
+
+      {showCover && (
+        <CoverDesigner
+          albumName={album.name}
+          spec={spec}
+          cover={cover}
+          music={music}
+          onSave={(nextCover, nextMusic) => {
+            setCover(nextCover);
+            setMusic(nextMusic);
+            setShowCover(false);
+          }}
+          onClose={() => setShowCover(false)}
+        />
       )}
 
       {publishProject && (

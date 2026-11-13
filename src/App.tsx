@@ -1,6 +1,6 @@
 import { LogOutIcon, RefreshCwIcon } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
-import type { PhotoInfo, ProjectSpec, Rating, Spread, PublishLink } from './api';
+import type { Cover, Music, PhotoInfo, ProjectSpec, Rating, Spread, PublishLink } from './api';
 import CreateGallery from './CreateGallery';
 import DeviceLimit from './DeviceLimit';
 import { checkAccess, OFFLINE_DAYS, signOut, type Access } from './eventor';
@@ -25,6 +25,9 @@ export type Album = {
   ratings: Record<string, Rating>;
   /** The Eventor job it has been published to, if any. */
   publish: PublishLink | null;
+  /** The digital album's cover and music, if they have been chosen. */
+  cover?: Cover | null;
+  music?: Music | null;
   /** Ask for a folder of photos as soon as the album opens. */
   importOnOpen?: boolean;
 };
