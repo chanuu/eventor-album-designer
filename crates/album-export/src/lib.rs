@@ -733,6 +733,8 @@ mod tests {
             size_label: "5×10 in".to_string(),
             ratings: Default::default(),
             publish: None,
+            cover: None,
+            music: None,
             spec: spec(),
             photos,
             spreads: vec![SavedSpread {

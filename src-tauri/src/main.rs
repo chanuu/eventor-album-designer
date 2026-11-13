@@ -29,7 +29,7 @@ use album_media::selection::{make_gallery_copies, match_selection, SelectionMatc
 use album_media::{
     adjusted_preview, ensure_preview, scan_folder, PhotoInfo, PreviewTier, ScanResult,
 };
-use album_store::{load_project, save_project, Project, StoreError};
+use album_store::{load_project, music_type, save_project, Project, StoreError};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use tauri::http::{header, Response, StatusCode};
@@ -47,6 +47,12 @@ const PROGRESS_INTERVAL: Duration = Duration::from_millis(100);
 
 /// Sharp on a large screen, without the cost of print resolution.
 const TEXT_PREVIEW_DPI: f64 = 150.0;
+
+/// The same limit as adding music in Eventor itself.
+const MAX_MUSIC_BYTES: u64 = 10 * 1024 * 1024;
+
+/// A cover drawn for the web is a fraction of this.
+const MAX_COVER_BYTES: usize = 8 * 1024 * 1024;
 
 struct AppState {
     /// Only photos the user imported can be served, so the preview address can never be
@@ -480,6 +486,10 @@ async fn export_print_files(
 /// of what that address was signed with, and a dropped connection is normal on a long
 /// upload. Errors leave the address out, because it is a working credential for minutes.
 fn upload_image(address: &str, bytes: &[u8]) -> Result<(), String> {
+    upload_bytes(address, bytes, "image/jpeg")
+}
+
+fn upload_bytes(address: &str, bytes: &[u8], content_type: &str) -> Result<(), String> {
     const ATTEMPTS: u32 = 3;
     let mut problem = String::new();
     for attempt in 0..ATTEMPTS {
@@ -487,13 +497,13 @@ fn upload_image(address: &str, bytes: &[u8]) -> Result<(), String> {
             std::thread::sleep(std::time::Duration::from_millis(500 * u64::from(attempt)));
         }
         let sent = ureq::put(address)
-            .set("Content-Type", "image/jpeg")
+            .set("Content-Type", content_type)
             .set("Cache-Control", "public, max-age=31536000, immutable")
             .send_bytes(bytes);
         match sent {
             Ok(_) => return Ok(()),
             Err(ureq::Error::Status(code, _)) => {
-                problem = format!("Storage refused the image (error {code}).");
+                problem = format!("Storage refused the upload (error {code}).");
             }
             Err(ureq::Error::Transport(_)) => {
                 problem = "Could not reach storage. Check your internet connection.".to_string();
@@ -570,6 +580,88 @@ async fn publish_spread(
         let bytes = render_web_spread(&project, &spread_id).map_err(|e| e.to_string())?;
         upload_image(&upload_url, &bytes)?;
         Ok(bytes.len())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Uploads a cover the cover designer has drawn.
+#[tauri::command]
+async fn upload_cover(upload_url: String, jpeg: Vec<u8>) -> Result<(), String> {
+    if !is_upload_address(&upload_url) {
+        return Err("That upload address is not allowed.".to_string());
+    }
+    if jpeg.len() > MAX_COVER_BYTES || !jpeg.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        return Err("The cover could not be prepared for upload.".to_string());
+    }
+    tauri::async_runtime::spawn_blocking(move || upload_image(&upload_url, &jpeg))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[derive(Serialize)]
+struct MusicFile {
+    name: String,
+    ext: String,
+    content_type: String,
+    /// Changes when the file does, so a replaced track is sent again.
+    stamp: String,
+}
+
+/// Only a music file of a sensible size, so that no other file can be read or sent.
+fn music_file(path: &str) -> Result<MusicFile, String> {
+    let (ext, content_type) =
+        music_type(path).ok_or_else(|| "Choose an MP3, M4A, AAC, OGG or WAV file.".to_string())?;
+    let details =
+        fs::metadata(path).map_err(|_| "That music file could not be found.".to_string())?;
+    if !details.is_file() {
+        return Err("That music file could not be found.".to_string());
+    }
+    if details.len() > MAX_MUSIC_BYTES {
+        return Err("That track is over 10 MB.".to_string());
+    }
+    let modified = details
+        .modified()
+        .ok()
+        .and_then(|at| at.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |since| since.as_secs());
+    let name = PathBuf::from(path)
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    Ok(MusicFile {
+        name,
+        ext: ext.to_string(),
+        content_type: content_type.to_string(),
+        stamp: format!("{}-{modified}", details.len()),
+    })
+}
+
+#[tauri::command]
+fn music_details(path: String) -> Result<MusicFile, String> {
+    music_file(&path)
+}
+
+/// The track itself, to play in the album preview.
+#[tauri::command]
+async fn read_music(path: String) -> Result<tauri::ipc::Response, String> {
+    music_file(&path)?;
+    let bytes = tauri::async_runtime::spawn_blocking(move || fs::read(path))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|_| "That music file could not be read.".to_string())?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+#[tauri::command]
+async fn upload_music(path: String, upload_url: String) -> Result<(), String> {
+    if !is_upload_address(&upload_url) {
+        return Err("That upload address is not allowed.".to_string());
+    }
+    let file = music_file(&path)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let bytes = fs::read(path).map_err(|_| "That music file could not be read.".to_string())?;
+        upload_bytes(&upload_url, &bytes, &file.content_type)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -724,6 +816,10 @@ fn main() {
             check_for_export,
             export_print_files,
             publish_spread,
+            upload_cover,
+            music_details,
+            read_music,
+            upload_music,
             match_customer_selection,
             upload_gallery_photo,
             device_identity
