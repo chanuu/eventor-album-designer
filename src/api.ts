@@ -238,6 +238,8 @@ export type PlanOptions = {
   keep: string[];
   /** Open and close on a single photo, and give each long part of the day a feature spread. */
   tell_story: boolean;
+  /** The most photos on one spread, for a style that keeps spreads quiet. */
+  max_per_spread?: number | null;
 };
 
 export type LeftOut = { id: string; reason: 'blurry' } | { id: string; reason: 'similar'; kept: string };

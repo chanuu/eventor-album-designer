@@ -94,6 +94,17 @@ pub struct PlanOptions {
     /// Open and close on a single photo, and give each long part of the day a feature spread.
     #[serde(default)]
     pub tell_story: bool,
+    /// The most photos on one spread, for a style that keeps spreads quiet. None allows as
+    /// many as layouts exist for.
+    #[serde(default)]
+    pub max_per_spread: Option<usize>,
+}
+
+impl PlanOptions {
+    fn most_per_spread(&self) -> usize {
+        self.max_per_spread
+            .map_or(MAX_PER_SPREAD, |most| most.clamp(1, MAX_PER_SPREAD))
+    }
 }
 
 /// Fewer photos than this make too short an album for single-photo spreads.
@@ -119,7 +130,12 @@ fn feature_score(fact: &PhotoFacts) -> f64 {
 
 /// Chooses the feature photos, opening first, then closing, then the longest parts, only as
 /// far as the album still has room for every other photo.
-fn choose_features(kept: &[Placed], runs: &[Run], spreads_wanted: usize) -> Vec<Feature> {
+fn choose_features(
+    kept: &[Placed],
+    runs: &[Run],
+    spreads_wanted: usize,
+    per_spread: usize,
+) -> Vec<Feature> {
     if kept.len() < STORY_MIN_PHOTOS || runs.is_empty() {
         return Vec::new();
     }
@@ -156,7 +172,7 @@ fn choose_features(kept: &[Placed], runs: &[Run], spreads_wanted: usize) -> Vec<
             .enumerate()
             .map(|(r, other)| {
                 let taken = features.iter().filter(|f| f.run == r).count() + usize::from(r == run);
-                (other.photos.len() - taken).div_ceil(MAX_PER_SPREAD)
+                (other.photos.len() - taken).div_ceil(per_spread)
             })
             .sum();
         if rest + features.len() + 1 > spreads_wanted {
@@ -481,11 +497,8 @@ fn make_runs(kept: &[Placed], starts: &[usize], options: &PlanOptions) -> Vec<Ru
 }
 
 /// Shares spreads between runs in proportion to their photos.
-fn share_spreads(runs: &[Run], spreads: usize) -> Vec<usize> {
-    let mut shares: Vec<usize> = runs
-        .iter()
-        .map(|r| r.photos.len().div_ceil(MAX_PER_SPREAD))
-        .collect();
+fn share_spreads(runs: &[Run], spreads: usize, most: usize) -> Vec<usize> {
+    let mut shares: Vec<usize> = runs.iter().map(|r| r.photos.len().div_ceil(most)).collect();
     let mut left = spreads.saturating_sub(shares.iter().sum());
     while left > 0 {
         let fullest = runs
@@ -506,7 +519,7 @@ fn share_spreads(runs: &[Run], spreads: usize) -> Vec<usize> {
 }
 
 /// Cuts a run into spreads, preferring to cut where there is a pause in the shooting.
-fn cut_run(run: &Run, count: usize, kept: &[Placed]) -> Vec<Vec<usize>> {
+fn cut_run(run: &Run, count: usize, kept: &[Placed], most: usize) -> Vec<Vec<usize>> {
     let len = run.photos.len();
     let gap_before = |at: usize| {
         let time = |i: usize| kept[run.photos[i]].time;
@@ -519,8 +532,8 @@ fn cut_run(run: &Run, count: usize, kept: &[Placed]) -> Vec<Vec<usize>> {
         let ideal = (k * len + count / 2) / count;
         let spreads_after = count - k;
         // Whatever is cut, every later spread must still be possible.
-        let lowest = (previous + 1).max(len.saturating_sub(spreads_after * MAX_PER_SPREAD));
-        let highest = (previous + MAX_PER_SPREAD).min(len - spreads_after);
+        let lowest = (previous + 1).max(len.saturating_sub(spreads_after * most));
+        let highest = (previous + most).min(len - spreads_after);
         let near = ideal.saturating_sub(1).max(lowest)..=(ideal + 1).min(highest);
         let cut = near
             .clone()
@@ -567,6 +580,7 @@ pub fn gallery_left_out(
             leave_out_similar: false,
             keep: Vec::new(),
             tell_story: false,
+            max_per_spread: None,
         },
     );
     let blurry: HashSet<&str> = plan
@@ -624,6 +638,7 @@ pub fn rate_photos(facts: &[PhotoFacts]) -> Vec<PhotoRating> {
             leave_out_similar: true,
             keep: Vec::new(),
             tell_story: false,
+            max_per_spread: None,
         },
     );
     let left_out: HashMap<&str, &LeftOutReason> = plan
@@ -688,13 +703,13 @@ pub fn plan_album(facts: &[PhotoFacts], options: &PlanOptions) -> AlbumPlan {
 
     let starts = part_starts(&kept, options);
     let runs = make_runs(&kept, &starts, options);
-    let min_spreads: usize = runs
-        .iter()
-        .map(|r| r.photos.len().div_ceil(MAX_PER_SPREAD))
-        .sum();
+    let most = options.most_per_spread();
+    let min_spreads: usize = runs.iter().map(|r| r.photos.len().div_ceil(most)).sum();
     let max_spreads = kept.len();
+    // A style with fewer photos to a spread is suggested more spreads, in step.
+    let usual = USUAL_PER_SPREAD * most as f64 / MAX_PER_SPREAD as f64;
     let suggested_spreads =
-        ((kept.len() as f64 / USUAL_PER_SPREAD).round() as usize).clamp(min_spreads, max_spreads);
+        ((kept.len() as f64 / usual).round() as usize).clamp(min_spreads, max_spreads);
     let spreads_wanted = options
         .spreads
         .unwrap_or(suggested_spreads)
@@ -702,7 +717,7 @@ pub fn plan_album(facts: &[PhotoFacts], options: &PlanOptions) -> AlbumPlan {
 
     // A story opens and closes on a single photo, and gives each long part its own.
     let features = if options.tell_story {
-        choose_features(&kept, &runs, spreads_wanted)
+        choose_features(&kept, &runs, spreads_wanted, most)
     } else {
         Vec::new()
     };
@@ -710,7 +725,7 @@ pub fn plan_album(facts: &[PhotoFacts], options: &PlanOptions) -> AlbumPlan {
     for feature in &features {
         runs[feature.run].photos.retain(|&i| i != feature.photo);
     }
-    let shares = share_spreads(&runs, spreads_wanted - features.len());
+    let shares = share_spreads(&runs, spreads_wanted - features.len(), most);
     let mut spreads = Vec::new();
     let mut parts: Vec<PlanPart> = starts
         .iter()
@@ -735,7 +750,7 @@ pub fn plan_album(facts: &[PhotoFacts], options: &PlanOptions) -> AlbumPlan {
             spreads.push(alone(f));
             parts[run.part].spreads += 1;
         }
-        for group in cut_run(run, share, &kept) {
+        for group in cut_run(run, share, &kept, most) {
             spreads.push(group.iter().map(|&i| kept[i].fact.id.clone()).collect());
         }
         if let Some(f) = feature.filter(|f| f.closing) {
@@ -809,6 +824,7 @@ mod tests {
             leave_out_similar: false,
             keep: Vec::new(),
             tell_story: true,
+            max_per_spread: None,
         }
     }
 
@@ -912,6 +928,7 @@ mod tests {
             &day(12),
             &PlanOptions {
                 tell_story: false,
+                max_per_spread: None,
                 ..story(None)
             },
         );
@@ -977,6 +994,7 @@ mod tests {
             leave_out_similar: true,
             keep: Vec::new(),
             tell_story: false,
+            max_per_spread: None,
         }
     }
 
@@ -1079,6 +1097,45 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn a_style_can_ask_for_fewer_photos_on_a_spread() {
+        for count in [1, 7, 13, 26, 100] {
+            let mut facts = session("a", 0, count);
+            facts.extend(session("b", 9 * HOUR, count / 2));
+            for tell_story in [false, true] {
+                for spreads in [None, Some(1), Some(40)] {
+                    let plan = plan_album(
+                        &facts,
+                        &PlanOptions {
+                            spreads,
+                            tell_story,
+                            max_per_spread: Some(6),
+                            ..options()
+                        },
+                    );
+                    assert_eq!(placed_ids(&plan).len(), facts.len());
+                    assert!(
+                        plan.spreads.iter().all(|s| !s.is_empty() && s.len() <= 6),
+                        "{count} photos, {spreads:?} spreads"
+                    );
+                }
+            }
+        }
+        // Fewer to a spread means more spreads are suggested for the same photos.
+        let facts = session("a", 0, 48);
+        let usual = plan_album(&facts, &options());
+        let quiet = plan_album(
+            &facts,
+            &PlanOptions {
+                max_per_spread: Some(6),
+                ..options()
+            },
+        );
+        assert_eq!(usual.suggested_spreads, 12);
+        assert_eq!(quiet.suggested_spreads, 16);
+        assert_eq!(quiet.min_spreads, 8);
     }
 
     #[test]
