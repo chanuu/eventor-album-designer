@@ -115,7 +115,30 @@ export type PhotoRating = { id: string; rating: Rating; reasons: string[] };
 
 /** The Eventor job this album has been published to. */
 /** `album_id` is empty until it is first published, for an album started from a job's selection. */
-export type PublishLink = { job_id: string; job_title: string; album_id: string };
+export type PublishLink = {
+  job_id: string;
+  job_title: string;
+  album_id: string;
+  /** The music sent with it, so the same file is not uploaded again each time. */
+  music?: { stamp: string; url: string } | null;
+};
+
+/** The digital album's cover. The choices are listed in `cover.ts`. */
+export type Cover = {
+  material: string;
+  colour: string;
+  foil: string;
+  design: string;
+  first_name: string;
+  second_name: string;
+  date: string;
+  venue: string;
+};
+
+/** Music for the digital album: a file on this computer, sent when the album is published. */
+export type Music = { path: string; name: string };
+
+export const MUSIC_EXTENSIONS = ['mp3', 'm4a', 'aac', 'ogg', 'wav'];
 
 export type Project = {
   version: number;
@@ -126,6 +149,8 @@ export type Project = {
   spreads: SavedSpread[];
   ratings: Record<string, Rating>;
   publish?: PublishLink | null;
+  cover?: Cover | null;
+  music?: Music | null;
 };
 
 export type ScanResult = {
@@ -206,6 +231,22 @@ export const uploadGalleryPhoto = (photo: PhotoInfo, fullUrl: string, thumbUrl: 
 
 export const publishSpread = (project: Project, spreadId: string, uploadUrl: string) =>
   invoke<number>('publish_spread', { project, spreadId, uploadUrl });
+
+export const uploadCover = (uploadUrl: string, jpeg: Uint8Array) =>
+  invoke<void>('upload_cover', { uploadUrl, jpeg: Array.from(jpeg) });
+
+export type MusicFile = { name: string; ext: string; content_type: string; stamp: string };
+
+/** Checks a file is music the digital album can play, and small enough to send. */
+export const musicDetails = (path: string) => invoke<MusicFile>('music_details', { path });
+
+export async function readMusic(path: string): Promise<Blob> {
+  const [file, bytes] = await Promise.all([musicDetails(path), invoke<ArrayBuffer>('read_music', { path })]);
+  return new Blob([bytes], { type: file.content_type });
+}
+
+export const uploadMusic = (path: string, uploadUrl: string) =>
+  invoke<void>('upload_music', { path, uploadUrl });
 
 export const suggestRatings = (ids: string[]) => invoke<PhotoRating[]>('suggest_ratings', { ids });
 
