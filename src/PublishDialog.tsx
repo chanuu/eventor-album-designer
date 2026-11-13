@@ -128,6 +128,15 @@ export default function PublishDialog({
               {project.spreads.length} spread{project.spreads.length === 1 ? '' : 's'} will be published, cropped to
               the printed size and made smaller for the web. Your client will see them in their portal straight away.
             </p>
+            {(project.cover || project.music) && (
+              <p className="muted">
+                {project.cover && project.music
+                  ? 'The cover you designed and the music you chose go with them.'
+                  : project.cover
+                    ? 'The cover you designed goes with them.'
+                    : 'The music you chose goes with them.'}
+              </p>
+            )}
             {stage.job.pagesToReplace > 0 && (
               <p className="warn" role="alert">
                 This job already has an album, and {stage.job.pagesToReplace} of its page
