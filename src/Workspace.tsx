@@ -56,6 +56,7 @@ const AUTOSAVE_DELAY_MS = 1500;
 const AUTO_DESIGN_CHOICES = 12;
 /** How many recent layouts it avoids repeating on the same spread. */
 const AUTO_DESIGN_MEMORY = 4;
+const FINE_ART = 'fineart';
 
 type SaveStatus = 'saved' | 'unsaved' | 'saving' | 'failed';
 type PhotoFilter = 'all' | 'unused' | 'used' | 'missing' | Rating;
@@ -613,9 +614,12 @@ export default function Workspace({ album }: { album: Album }) {
     const spreadId = current.id;
     const ticket = ++autoDesignTicket.current;
     const recent = recentLayouts.current.get(spreadId) ?? [];
-    const best = current.options
-      .map((option, index) => ({ option, index }))
-      .slice(0, AUTO_DESIGN_CHOICES);
+    const ranked = current.options.map((option, index) => ({ option, index }));
+    // A fine art spread stays fine art: its layouts sit low in the ranking, behind fuller ones.
+    const fineArt = current.options[current.optionIndex]?.tags.includes(FINE_ART)
+      ? ranked.filter(({ option }) => option.tags.includes(FINE_ART))
+      : [];
+    const best = (fineArt.length > 1 ? fineArt : ranked).slice(0, AUTO_DESIGN_CHOICES);
     // Never the one on screen, and not one of the last few, while there are others to use.
     const fresh = best.filter(({ option, index }) => index !== current.optionIndex && !recent.includes(option.template_id));
     const others = best.filter(({ index }) => index !== current.optionIndex);

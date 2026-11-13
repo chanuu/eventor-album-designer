@@ -107,7 +107,7 @@ legend { padding: 0; margin-bottom: 7px; font-size: 12px; font-weight: 600; widt
 .issues li { margin-bottom: 3px; }
 
 /* Auto Build */
-.style-cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.style-cards { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
 .style-card { display: flex; flex-direction: column; gap: 3px; padding: 10px; text-align: left; background: var(--panel-raised); border: 1px solid var(--line); border-radius: 10px; }
 .style-card strong { color: var(--ink); font-size: 13px; margin-top: 4px; }
 .style-card > span:last-child { font-size: 11px; color: var(--ink-mid); }

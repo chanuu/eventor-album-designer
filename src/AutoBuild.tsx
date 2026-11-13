@@ -22,6 +22,7 @@ const STYLES: Style[] = [
   { tag: 'hero', name: 'Hero', hint: 'One full page beside smaller photos', art: ['0,0,50,100', '54,8,42,40', '54,52,42,40'] },
   { tag: 'panorama', name: 'Panorama', hint: 'One big photo across the fold', art: ['0,0,100,62', '4,68,44,26', '52,68,44,26'] },
   { tag: 'grid', name: 'Grid', hint: 'Columns and rows, more photos', art: ['2,6,22,88', '26,6,22,88', '52,6,22,88', '76,6,22,88'] },
+  { tag: 'fineart', name: 'Fine art', hint: 'Few photos, open paper, full pages', art: ['7,14,17,72', '26,14,17,72', '50,0,50,100'] },
 ];
 
 /** Prefers the chosen style, and avoids using the same layout twice in a row. */
@@ -137,7 +138,8 @@ export default function AutoBuild({
       const spreads: Spread[] = groups.map((group, i) => {
         const options = allOptions[i];
         // A feature photo takes turns: filling the spread, then sitting in open space.
-        const style = group.length === 1 ? (singles++ % 2 === 0 ? 'hero' : 'airy') : tag;
+        // Fine art has its own single-photo pages.
+        const style = group.length === 1 && tag !== 'fineart' ? (singles++ % 2 === 0 ? 'hero' : 'airy') : tag;
         const optionIndex = chooseLayout(options, style, previous);
         const design = options[optionIndex].design;
         previous = design.template_id;
