@@ -2,7 +2,7 @@ import { AlignCenterIcon, AlignLeftIcon, AlignRightIcon } from 'lucide-react';
 import { Trash2Icon } from 'lucide-react';
 import type { TextBlock } from './api';
 
-const MIN_SIZE_PT = 6;
+const MIN_SIZE_PT = 3;
 const MAX_SIZE_PT = 200;
 const COLOURS = ['#000000', '#3A3A3A', '#FFFFFF', '#C9A24B', '#8C1D40', '#1F3A5F'];
 

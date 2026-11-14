@@ -63,6 +63,19 @@ export type TextBlock = {
   italic: boolean;
   line_height: number;
   opacity: number;
+  /** On a card: the pattern these words were made from, or "message" for a placeholder. */
+  role?: string | null;
+  /** 0, 90 or 270. The box keeps its place; the words turn in it. */
+  rot_deg?: number;
+};
+
+/** A flat panel of colour, such as the block a card's message sits on. */
+export type Shape = {
+  id: string;
+  rect_mm: { x: number; y: number; w: number; h: number };
+  colour: string;
+  opacity: number;
+  z: number;
 };
 
 export type SpreadDesign = {
@@ -73,6 +86,7 @@ export type SpreadDesign = {
   background: { type: 'color'; value: string };
   frames: Frame[];
   texts: TextBlock[];
+  shapes?: Shape[];
 };
 
 export type LayoutOption = {
@@ -140,8 +154,21 @@ export type Music = { path: string; name: string };
 
 export const MUSIC_EXTENSIONS = ['mp3', 'm4a', 'aac', 'ogg', 'wav'];
 
+/** Who a set of thank you cards is for. It fills in the cards' words. */
+export type CardDetails = {
+  first_name: string;
+  second_name: string;
+  date: string;
+  venue: string;
+  mua: string;
+  studio: string;
+};
+
 export type Project = {
   version: number;
+  /** Absent for an album. */
+  kind?: 'album' | 'cards';
+  details?: CardDetails | null;
   name: string;
   size_label: string;
   spec: ProjectSpec;
@@ -192,6 +219,16 @@ export const suggestLayouts = (photos: PhotoInfo[], spec: ProjectSpec) =>
     photos: photos.map((p) => ({ asset_id: p.id, aspect: p.width / p.height })),
     spec,
   });
+
+/** Every thank you card design for these photos and this card, best first. */
+export const suggestCardLayouts = (photos: PhotoInfo[], spec: ProjectSpec) =>
+  invoke<LayoutOption[]>('suggest_card_layouts', {
+    photos: photos.map((p) => ({ asset_id: p.id, aspect: p.width / p.height })),
+    spec,
+  });
+
+/** How many photos the card designs for this shape of card take. */
+export const cardPhotoCounts = (spec: ProjectSpec) => invoke<number[]>('card_photo_counts', { spec });
 
 /** A new arrangement in this layout's style, or null if the style has nothing to move. */
 export const varyLayout = (

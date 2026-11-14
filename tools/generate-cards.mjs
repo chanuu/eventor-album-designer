@@ -30,15 +30,31 @@ const photo = (l, t, r, b, more = {}) => ({ rect_pct: rect(l, t, r, b), ...more 
 /** A flat panel of colour. */
 const panel = (l, t, r, b, colour, more = {}) => ({ rect_pct: rect(l, t, r, b), colour, ...more });
 /** Words. `size` is the letter height as a share of the card's height. */
-const words = (l, t, r, b, text, size, more = {}) => ({
-  rect_pct: rect(l, t, r, b),
-  text,
-  size,
-  font: SANS,
-  colour: INK,
-  align: 'center',
-  ...more,
-});
+const words = (l, t, r, b, text, size, more = {}) => {
+  const font = more.font ?? SANS;
+  // The box must hold every line plus the text engine's inset, or the words are cut off.
+  // A measured box is often just the ink, so it is grown about its middle when too small.
+  if (!more.rot_deg) {
+    const lines = text.split('\n').length;
+    const roomy = font === SIGNATURE || font === SCRIPT ? 1.55 : 1.15;
+    const needed = lines * size * (more.line_height ?? 1.2) * roomy + 0.018;
+    if (b - t < needed) {
+      const middle = (t + b) / 2;
+      t = Math.max(0, middle - needed / 2);
+      b = Math.min(1, t + needed);
+      t = Math.max(0, b - needed);
+    }
+  }
+  return {
+    rect_pct: rect(l, t, r, b),
+    text,
+    size,
+    font,
+    colour: INK,
+    align: 'center',
+    ...more,
+  };
+};
 
 const MESSAGE = 'Write your message here';
 const STUDIO = '{STUDIO}\nMUA | {MUA}';
@@ -112,7 +128,7 @@ const cards = [
       words(0.12, 0.082, 0.44, 0.148, '{FIRST}\n& {SECOND}', 0.024, { font: SERIF, colour: WHITE, line_height: 1.15 }),
       words(0.184, 0.845, 0.449, 0.86, 'MEMORABLE DAY !', 0.006, { colour: WHITE }),
       words(0.184, 0.857, 0.449, 0.885, '{date:dd MON yyyy}', 0.0165, { colour: WHITE }),
-      words(0.775, 0.63, 0.875, 0.895, 'Much Love', 0.06, { font: SIGNATURE, colour: WHITE, rot_deg: 270 }),
+      words(0.765, 0.63, 0.895, 0.895, 'Much Love', 0.06, { font: SIGNATURE, colour: WHITE, rot_deg: 270 }),
       words(0.1, 0.922, 0.9, 0.968, STUDIO, 0.0095, { colour: WHITE }),
     ],
   },

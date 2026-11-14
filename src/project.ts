@@ -1,4 +1,5 @@
-import { openAlbum, suggestLayouts, type Cover, type Music, type PhotoInfo, type Project, type PublishLink, type Rating, type Spread } from './api';
+import { openAlbum, suggestCardLayouts, suggestLayouts, type CardDetails, type Cover, type Music, type PhotoInfo, type Project, type PublishLink, type Rating, type Spread } from './api';
+import { fillOptions, NO_DETAILS } from './cards';
 import type { Album } from './App';
 
 export const ALBUM_EXTENSION = 'evalbum';
@@ -37,8 +38,11 @@ export function toProject(
   publish: PublishLink | null,
   cover: Cover | null,
   music: Music | null,
+  details: CardDetails | null = null,
 ): Project {
   return {
+    // An album writes neither, so its file is what it always was.
+    ...(album.kind === 'cards' ? { kind: 'cards' as const, details: details ?? NO_DETAILS } : {}),
     ratings,
     publish,
     cover,
@@ -61,13 +65,17 @@ export function toProject(
 export async function loadAlbum(path: string): Promise<Album> {
   const { project, missing } = await openAlbum(path);
   const byId = new Map(project.photos.map((p) => [p.id, p]));
+  const cards = project.kind === 'cards';
+  const details = project.details ?? NO_DETAILS;
 
   const spreads = await Promise.all(
     project.spreads.map(async (saved): Promise<Spread> => {
       const list = saved.photo_ids.flatMap((id) => byId.get(id) ?? []);
       // Alternatives are not saved, since packs may have changed since. The saved
       // design stays on screen until the photographer chooses another layout.
-      const options = await suggestLayouts(list, project.spec);
+      const options = cards
+        ? fillOptions(await suggestCardLayouts(list, project.spec), details)
+        : await suggestLayouts(list, project.spec);
       const at = options.findIndex((o) => o.template_id === saved.design.template_id);
       return {
         id: saved.id,
@@ -81,6 +89,7 @@ export async function loadAlbum(path: string): Promise<Album> {
 
   rememberAlbum(path, project.name);
   return {
+    ...(cards ? { kind: 'cards' as const, details } : {}),
     name: project.name,
     spec: project.spec,
     sizeLabel: project.size_label,

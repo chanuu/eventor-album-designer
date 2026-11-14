@@ -46,6 +46,30 @@ export function FrameBorder({ frame, design }: { frame: Frame; design: SpreadDes
   );
 }
 
+/** A design's flat panels of colour. They sit among the photos, in the same order as the print. */
+export function Panels({ design }: { design: SpreadDesign }) {
+  const { w, h } = design.size_mm;
+  return (
+    <>
+      {(design.shapes ?? []).map((s) => (
+        <span
+          key={s.id}
+          className="panel"
+          style={{
+            left: percent(s.rect_mm.x, w),
+            top: percent(s.rect_mm.y, h),
+            width: percent(s.rect_mm.w, w),
+            height: percent(s.rect_mm.h, h),
+            zIndex: s.z,
+            background: s.colour,
+            opacity: s.opacity,
+          }}
+        />
+      ))}
+    </>
+  );
+}
+
 export function frameStyle(frame: Frame, design: SpreadDesign): React.CSSProperties {
   const { rect_mm: r } = frame;
   return {

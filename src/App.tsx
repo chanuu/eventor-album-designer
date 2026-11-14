@@ -1,6 +1,6 @@
 import { LogOutIcon, RefreshCwIcon } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
-import type { Cover, Music, PhotoInfo, ProjectSpec, Rating, Spread, PublishLink } from './api';
+import type { CardDetails, Cover, Music, PhotoInfo, ProjectSpec, Rating, Spread, PublishLink } from './api';
 import CreateGallery from './CreateGallery';
 import DeviceLimit from './DeviceLimit';
 import { checkAccess, OFFLINE_DAYS, signOut, type Access } from './eventor';
@@ -9,9 +9,14 @@ import Home from './Home';
 import { LoaderScreen } from './Loader';
 import { hideSplash } from './splash';
 import NewAlbum from './NewAlbum';
+import NewCards from './NewCards';
 import Workspace from './Workspace';
 
 export type Album = {
+  /** A set of thank you cards is kept as an album whose spreads are the cards. */
+  kind?: 'album' | 'cards';
+  /** The couple's details, for cards. */
+  details?: CardDetails | null;
   name: string;
   spec: ProjectSpec;
   sizeLabel: string;
@@ -35,7 +40,7 @@ export type Album = {
 export default function App() {
   const [access, setAccess] = useState<Access | null>(null);
   const [album, setAlbum] = useState<Album | null>(null);
-  const [screen, setScreen] = useState<'home' | 'album' | 'gallery'>('home');
+  const [screen, setScreen] = useState<'home' | 'album' | 'gallery' | 'cards'>('home');
 
   const check = useCallback(() => {
     setAccess(null);
@@ -106,6 +111,9 @@ export default function App() {
   if (screen === 'gallery' && access.staff) {
     return <CreateGallery staff={access.staff} onDone={() => setScreen('home')} />;
   }
+  if (screen === 'cards') {
+    return <NewCards onCreate={setAlbum} onBack={() => setScreen('home')} />;
+  }
   if (screen === 'album') {
     return <NewAlbum staff={access.offline ? null : access.staff} onCreate={setAlbum} onBack={() => setScreen('home')} />;
   }
@@ -116,6 +124,7 @@ export default function App() {
       offline={access.offline}
       onCreateGallery={() => setScreen('gallery')}
       onCreateAlbum={() => setScreen('album')}
+      onCreateCards={() => setScreen('cards')}
       onOpen={setAlbum}
       onSignOut={() => void signOut().then(check)}
     />

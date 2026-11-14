@@ -546,3 +546,22 @@ legend { padding: 0; margin-bottom: 7px; font-size: 12px; font-weight: 600; widt
 /* A page here is as tall as the open book allows, so the closed book steps back a little to lean without touching the edges. */
 .fb-book.fb-paper.at-front { transform: translateX(-25%) scale(0.8) rotateX(calc(34deg - var(--my) * 5deg)) rotateY(calc(-20deg + var(--mx) * 7deg)) rotateZ(5deg); }
 .fb-book.fb-paper.at-back { transform: translateX(25%) scale(0.8) rotateX(calc(34deg - var(--my) * 5deg)) rotateY(calc(20deg + var(--mx) * 7deg)) rotateZ(-5deg); }
+
+/* Thank you cards */
+.home-body .home-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.panel { position: absolute; display: block; pointer-events: none; }
+.layout-thumb, .spread-thumb { isolation: isolate; }
+.spread-peek.card::after { display: none; }
+.layout-thumb.card i { background: #8c8f99; outline: 1px solid rgb(255 255 255 / 55%); }
+.layout-thumb.card u { position: absolute; left: 12%; right: 12%; height: 2px; background: currentcolor; opacity: 0.55; }
+.card-details { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; }
+.card-details .input { width: 100%; }
+.modal-details { width: min(640px, 100%); }
+fieldset.plain { display: flex; flex-direction: column; gap: 12px; max-width: 760px; }
+fieldset.plain > legend { font-size: 14px; color: var(--ink); margin-bottom: 4px; }
+.size-cards.four { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 0; }
+.card-shape { display: block; height: 58px; background: #f1f1f3; border: 1px solid #a8abb3; }
+.welcome-foot .muted { margin-right: auto; }
+.spread, .spread-peek { isolation: isolate; }
+.timeline.cards .spread-item { width: auto; min-width: 96px; display: flex; flex-direction: column; align-items: center; }
+.timeline.cards .spread-thumb { width: auto; height: 60px; }

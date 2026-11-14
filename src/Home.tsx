@@ -1,4 +1,4 @@
-import { BookOpenIcon, FolderOpenIcon, ImagesIcon, LogOutIcon } from 'lucide-react';
+import { BookOpenIcon, FolderOpenIcon, HeartIcon, ImagesIcon, LogOutIcon } from 'lucide-react';
 import { useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import type { Album } from './App';
@@ -8,13 +8,14 @@ import { ALBUM_FILTERS, loadAlbum, recentAlbums, type RecentAlbum } from './proj
 
 /** The first screen: what the studio has come here to do. */
 export default function Home({
-  staff, canCreateGallery, offline, onCreateGallery, onCreateAlbum, onOpen, onSignOut,
+  staff, canCreateGallery, offline, onCreateGallery, onCreateAlbum, onCreateCards, onOpen, onSignOut,
 }: {
   staff: Staff | null;
   canCreateGallery: boolean;
   offline: boolean;
   onCreateGallery: () => void;
   onCreateAlbum: () => void;
+  onCreateCards: () => void;
   onOpen: (album: Album) => void;
   onSignOut: () => void;
 }) {
@@ -79,11 +80,15 @@ export default function Home({
             <strong>Create album</strong>
             <span>Design an album from a folder of photos, or from your customer&apos;s selection.</span>
           </button>
+          <button type="button" className="home-card" data-go="cards" onClick={onCreateCards}><HeartIcon aria-hidden="true" />
+            <strong>Create thank you card</strong>
+            <span>Lay a few photos into a ready-made card with the couple&apos;s names and date, and export it for print.</span>
+          </button>
         </div>
 
         <div className="home-open">
           <div className="home-open-head">
-            <h2 className="eyebrow">Recent albums</h2>
+            <h2 className="eyebrow">Recent albums and cards</h2>
             <button type="button" className="btn" onClick={() => void chooseFile()}><FolderOpenIcon aria-hidden="true" />Open album…</button>
           </div>
           {error && <p className="error" role="alert">{error}</p>}
@@ -98,7 +103,7 @@ export default function Home({
               ))}
             </ul>
           ) : (
-            <p className="muted">Albums you save or open appear here.</p>
+            <p className="muted">Albums and cards you save or open appear here.</p>
           )}
         </div>
       </section>

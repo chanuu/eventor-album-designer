@@ -22,7 +22,7 @@ import {
 } from './designerGeometry';
 import EffectsPanel, { NO_ADJUSTMENTS } from './EffectsPanel';
 import { visibleArea } from './crop';
-import { DRAG_PHOTOS, foldStyle, FrameBorder, FramedPhoto, frameStyle, percent, useTextImage } from './spreadParts';
+import { DRAG_PHOTOS, foldStyle, FrameBorder, FramedPhoto, frameStyle, Panels, percent, useTextImage } from './spreadParts';
 import TextPanel from './TextPanel';
 import { TEXT_TEMPLATES, type TextTemplate } from './textTemplates';
 
@@ -61,7 +61,7 @@ function inches(mm: number): string {
 
 export default function Designer({
   design, spec, photos, thresholds, paperColours, fonts, showOriginal, autoBusy, onChange, onSeal, onAuto,
-  onShowOriginal, onAddPhoto, onReplacePhoto, onAutoDesign,
+  onShowOriginal, onAddPhoto, onReplacePhoto, onAutoDesign, cards,
 }: {
   design: SpreadDesign;
   spec: ProjectSpec;
@@ -78,6 +78,8 @@ export default function Designer({
   onAddPhoto: (photoIds: string[], xMm: number, yMm: number) => void;
   onReplacePhoto: (frameId: string, photoId: string) => void;
   onAutoDesign: () => void;
+  /** A card is one sheet, with no fold down the middle. */
+  cards?: boolean;
 }) {
   const { w, h } = design.size_mm;
   const canvas = useRef<HTMLDivElement>(null);
@@ -488,6 +490,7 @@ export default function Designer({
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => drop(e, null)}
           >
+            <Panels design={design} />
             {design.frames.map((frame) => {
               const photo = frame.asset_id ? photos.get(frame.asset_id) : undefined;
               return (
@@ -529,7 +532,7 @@ export default function Designer({
 
             <span className="guide trim" style={{ left: percent(spec.bleed_mm, w), right: percent(spec.bleed_mm, w), top: percent(spec.bleed_mm, h), bottom: percent(spec.bleed_mm, h) }} />
             <span className="guide safe" style={{ left: percent(inset, w), right: percent(inset, w), top: percent(inset, h), bottom: percent(inset, h) }} />
-            <span className="fold" style={foldStyle(spec.binding, w)} />
+            {!cards && <span className="fold" style={foldStyle(spec.binding, w)} />}
 
             {[...frames, ...texts].map((item) => (
               <span

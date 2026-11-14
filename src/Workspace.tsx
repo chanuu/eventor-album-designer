@@ -1,8 +1,9 @@
-import { ArrowLeftIcon, ArrowRightIcon, BookOpenIcon, ChevronLeftIcon, ChevronRightIcon, DownloadIcon, FlipHorizontal2Icon, ImageMinusIcon, ImagePlusIcon, ImagesIcon, LayoutGridIcon, MessageSquareIcon, PaletteIcon, PanelRightIcon, PenToolIcon, PlusIcon, Redo2Icon, RotateCcwIcon, SaveIcon, SearchIcon, SendIcon, SparklesIcon, Trash2Icon, Undo2Icon, XIcon, ZapIcon } from 'lucide-react';
+import { ArrowLeftIcon, ArrowRightIcon, BookOpenIcon, ChevronLeftIcon, ChevronRightIcon, DownloadIcon, FlipHorizontal2Icon, ImageMinusIcon, ImagePlusIcon, ImagesIcon, LayoutGridIcon, MessageSquareIcon, PaletteIcon, PanelRightIcon, PenToolIcon, PlusIcon, Redo2Icon, RotateCcwIcon, SaveIcon, SearchIcon, SendIcon, SparklesIcon, Trash2Icon, Undo2Icon, UsersIcon, XIcon, ZapIcon } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ask, open, save } from '@tauri-apps/plugin-dialog';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
+  cardPhotoCounts,
   EDIT_PREVIEW,
   GRID_PREVIEW,
   importFolder,
@@ -11,12 +12,14 @@ import {
   printOptions,
   relinkPhotos,
   saveAlbum,
+  suggestCardLayouts,
   suggestColour,
   suggestLayouts,
   varyLayout,
   suggestRatings,
   analyzePhotos,
   type Adjustments,
+  type CardDetails,
   type Cover,
   type Frame,
   type FrameStyle,
@@ -34,6 +37,8 @@ import {
 import AlbumPreview from './AlbumPreview';
 import type { Album } from './App';
 import AutoBuild from './AutoBuild';
+import CardDetailsDialog from './CardDetailsDialog';
+import { changeCardDesign, fillOptions, listCounts, NO_DETAILS, refillCards } from './cards';
 import CoverDesigner from './CoverDesigner';
 import { effectiveDpi, visibleArea, cropShare } from './crop';
 import EffectsPanel, { NO_ADJUSTMENTS } from './EffectsPanel';
@@ -44,7 +49,7 @@ import ExportDialog from './ExportDialog';
 import PublishDialog from './PublishDialog';
 import { useHistory } from './history';
 import { ALBUM_EXTENSION, ALBUM_FILTERS, rememberAlbum, toProject } from './project';
-import { DRAG_PHOTOS, foldStyle, FrameBorder, FramedPhoto, frameStyle, percent, TextOnSpread, ThumbText } from './spreadParts';
+import { DRAG_PHOTOS, foldStyle, FrameBorder, FramedPhoto, frameStyle, Panels, percent, TextOnSpread, ThumbText } from './spreadParts';
 import { useSpreadRail } from './spreadRail';
 import TextPanel from './TextPanel';
 
@@ -98,6 +103,14 @@ function mirrored(design: SpreadDesign): SpreadDesign {
 
 export default function Workspace({ album }: { album: Album }) {
   const { spec } = album;
+  // A set of thank you cards is worked on like an album whose spreads are the cards.
+  const cards = album.kind === 'cards';
+  const noun = cards ? 'card' : 'spread';
+  const Noun = cards ? 'Card' : 'Spread';
+  const carry = cards ? changeCardDesign : carryOver;
+  const [details, setDetails] = useState<CardDetails | null>(cards ? album.details ?? NO_DETAILS : null);
+  const [showDetails, setShowDetails] = useState(false);
+  const [cardCounts, setCardCounts] = useState<number[]>([]);
   const [photos, setPhotos] = useState<PhotoInfo[]>(album.photos);
   const history = useHistory<Spread[]>(album.spreads);
   const spreads = history.present;
@@ -156,6 +169,10 @@ export default function Workspace({ album }: { album: Album }) {
   }, []);
 
   useEffect(() => {
+    if (cards) cardPhotoCounts(spec).then(setCardCounts).catch(() => setCardCounts([]));
+  }, [cards, spec]);
+
+  useEffect(() => {
     printOptions()
       .then((o) => {
         setThresholds({ warn: o.dpi_warn, tooLow: o.dpi_too_low });
@@ -177,17 +194,18 @@ export default function Workspace({ album }: { album: Album }) {
     if (!spreads.some((s) => s.id === currentId)) setCurrentId(spreads[0]?.id ?? null);
   }, [spreads, currentId]);
 
-  const latest = useRef({ photos, spreads, ratings, publishLink, cover, music, path, dirty: false });
+  const latest = useRef({ photos, spreads, ratings, publishLink, cover, music, details, path, dirty: false });
   latest.current.path = path;
   useEffect(() => {
     const was = latest.current;
     if (
       was.photos === photos && was.spreads === spreads && was.ratings === ratings
       && was.publishLink === publishLink && was.cover === cover && was.music === music
+      && was.details === details
     ) return;
-    latest.current = { ...was, photos, spreads, ratings, publishLink, cover, music, dirty: true };
+    latest.current = { ...was, photos, spreads, ratings, publishLink, cover, music, details, dirty: true };
     setSaveStatus('unsaved');
-  }, [photos, spreads, ratings, publishLink, cover, music]);
+  }, [photos, spreads, ratings, publishLink, cover, music, details]);
 
   // Shows how many comments are waiting, once this album is linked to a job.
   useEffect(() => {
@@ -233,7 +251,7 @@ export default function Workspace({ album }: { album: Album }) {
       const snapshot = latest.current;
       setSaveStatus('saving');
       try {
-        await saveAlbum(target, toProject(album, snapshot.photos, snapshot.spreads, snapshot.ratings, snapshot.publishLink, snapshot.cover, snapshot.music));
+        await saveAlbum(target, toProject(album, snapshot.photos, snapshot.spreads, snapshot.ratings, snapshot.publishLink, snapshot.cover, snapshot.music, snapshot.details));
         if (latest.current === snapshot) {
           latest.current.dirty = false;
           setSaveStatus('saved');
@@ -254,7 +272,7 @@ export default function Workspace({ album }: { album: Album }) {
 
   const saveAs = useCallback(async () => {
     const chosen = await save({
-      title: 'Save album',
+      title: cards ? 'Save cards' : 'Save album',
       defaultPath: `${album.name}.${ALBUM_EXTENSION}`,
       filters: ALBUM_FILTERS,
     });
@@ -265,7 +283,7 @@ export default function Workspace({ album }: { album: Album }) {
       rememberAlbum(chosen, album.name);
     }
     return ok;
-  }, [album.name, writeTo]);
+  }, [album.name, cards, writeTo]);
 
   const saveNow = useCallback(
     () => (latest.current.path ? writeTo(latest.current.path) : saveAs()),
@@ -288,7 +306,7 @@ export default function Workspace({ album }: { album: Album }) {
       if (savedAt && (await writeTo(savedAt))) return;
       event.preventDefault();
       try {
-        const discard = await ask('This album has unsaved changes. Close without saving?', {
+        const discard = await ask(`${cards ? 'These cards have' : 'This album has'} unsaved changes. Close without saving?`, {
           title: 'Unsaved changes',
           kind: 'warning',
         });
@@ -300,7 +318,7 @@ export default function Workspace({ album }: { album: Album }) {
     return () => {
       void stop.then((unlisten) => unlisten());
     };
-  }, [writeTo]);
+  }, [cards, writeTo]);
 
   const shown = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -406,6 +424,14 @@ export default function Workspace({ album }: { album: Album }) {
   const layoutFor = useCallback(
     async (photoIds: string[]) => {
       const list = photoIds.flatMap((id) => byId.get(id) ?? []);
+      if (cards) {
+        const designs = fillOptions(await suggestCardLayouts(list, spec), details ?? NO_DETAILS);
+        if (!designs.length) {
+          setNotice(`No card design takes ${list.length} photo${list.length === 1 ? '' : 's'}. Select ${listCounts(cardCounts)} photos for one card.`);
+          return null;
+        }
+        return designs;
+      }
       const options = await suggestLayouts(list, spec);
       if (!options.length) {
         setNotice(`There is no layout for ${list.length} photos on one spread yet. Try fewer.`);
@@ -413,7 +439,7 @@ export default function Workspace({ album }: { album: Album }) {
       }
       return options;
     },
-    [byId, spec],
+    [byId, spec, cards, details, cardCounts],
   );
 
   /** Adds photos to a spread, or starts a new one, and picks the layout automatically. */
@@ -430,7 +456,7 @@ export default function Workspace({ album }: { album: Album }) {
     if (target) {
       setSpreads((all) => all.map((s) => (
         s.id === target.id
-          ? { ...s, photoIds, options, optionIndex: 0, design: carryOver(s.design, options[0].design) }
+          ? { ...s, photoIds, options, optionIndex: 0, design: carry(s.design, options[0].design) }
           : s
       )));
     } else {
@@ -452,7 +478,7 @@ export default function Workspace({ album }: { album: Album }) {
     setSpreads((all) =>
       all.map((s) => (
         s.id === spread.id
-          ? { ...s, photoIds, options, optionIndex: 0, design: carryOver(s.design, options[0].design) }
+          ? { ...s, photoIds, options, optionIndex: 0, design: carry(s.design, options[0].design) }
           : s
       )),
     );
@@ -518,10 +544,10 @@ export default function Workspace({ album }: { album: Album }) {
         if (s.id !== currentId || !s.options.length) return s;
         const optionIndex = pick(s);
         if (optionIndex === s.optionIndex) return s;
-        return { ...s, optionIndex, design: carryOver(s.design, s.options[optionIndex].design) };
+        return { ...s, optionIndex, design: carry(s.design, s.options[optionIndex].design) };
       }),
     );
-  }, [currentId, setSpreads]);
+  }, [currentId, setSpreads, carry]);
 
   const cycleLayout = useCallback((step: -1 | 1) => {
     chooseLayout((s) => (s.optionIndex + step + s.options.length) % s.options.length);
@@ -589,7 +615,7 @@ export default function Workspace({ album }: { album: Album }) {
     const options = await layoutFor(spread.photoIds);
     if (!options) return;
     setSpreads((all) => all.map((s) => (
-      s.id === spread.id ? { ...s, options, optionIndex: 0, design: carryOver(s.design, options[0].design) } : s
+      s.id === spread.id ? { ...s, options, optionIndex: 0, design: carry(s.design, options[0].design) } : s
     )));
   }
 
@@ -657,7 +683,7 @@ export default function Workspace({ album }: { album: Album }) {
       setFrameId(null);
       history.seal();
       setSpreads((all) => all.map((s) => (
-        s.id === spreadId ? { ...s, optionIndex: index, design: carryOver(s.design, (made ?? option).design) } : s
+        s.id === spreadId ? { ...s, optionIndex: index, design: carry(s.design, (made ?? option).design) } : s
       )));
       history.seal();
     } catch (e) {
@@ -770,17 +796,17 @@ export default function Workspace({ album }: { album: Album }) {
     <div className="workspace">
       <header className="topbar">
         {designerOpen ? (
-          <button type="button" className="btn" onClick={() => setDesignerOpen(false)}><ChevronLeftIcon aria-hidden="true" />Back to album</button>
+          <button type="button" className="btn" onClick={() => setDesignerOpen(false)}><ChevronLeftIcon aria-hidden="true" />{cards ? 'Back to cards' : 'Back to album'}</button>
         ) : (
           <span className="brand-mark small" aria-hidden="true">E</span>
         )}
         <div className="title">
           <strong>{album.name}</strong>
           <span>
-            {album.sizeLabel} · {spec.binding === 'layflat' ? 'Lay-flat' : 'Magazine'} ·{' '}
+            {album.sizeLabel} · {cards ? 'Thank you cards' : spec.binding === 'layflat' ? 'Lay-flat' : 'Magazine'} ·{' '}
             {designerOpen && current
-              ? `designing spread ${currentIndex + 1} of ${spreads.length}`
-              : `${spreads.length} spread${spreads.length === 1 ? '' : 's'}`}
+              ? `designing ${noun} ${currentIndex + 1} of ${spreads.length}`
+              : `${spreads.length} ${noun}${spreads.length === 1 ? '' : 's'}`}
           </span>
         </div>
         <span className={`save-status ${saveStatus === 'failed' ? 'failed' : ''}`} role="status">
@@ -803,27 +829,34 @@ export default function Workspace({ album }: { album: Album }) {
         {!designerOpen && (
           <button type="button" className={`btn pane-btn ${showSide ? 'active' : ''}`} aria-pressed={showSide} onClick={() => setShowSide(!showSide)}><PanelRightIcon aria-hidden="true" />Panel</button>
         )}
-        {publishLink?.album_id && (
+        {cards && (
+          <button type="button" className="btn" title="The couple's names, date, venue and your studio line" onClick={() => setShowDetails(true)}><UsersIcon aria-hidden="true" />Details</button>
+        )}
+        {!cards && publishLink?.album_id && (
           <button type="button" className="btn" onClick={() => setShowComments(true)}><MessageSquareIcon aria-hidden="true" />
             Comments{openComments > 0 && <span className="count-badge">{openComments}</span>}
           </button>
         )}
-        <button type="button" className="btn" title="The digital album's cover and music" onClick={() => setShowCover(true)}><PaletteIcon aria-hidden="true" />Cover</button>
-        <button type="button" className="btn" disabled={!spreads.length} title="Leaf through the album as the client will" onClick={() => setShowPreview(true)}><BookOpenIcon aria-hidden="true" />Preview</button>
-        <button
-          type="button"
-          className="btn"
-          disabled={!spreads.length}
-          title="Publish as the client's digital album in Eventor"
-          onClick={() => setPublishProject(toProject(album, photos, spreads, ratings, publishLink, cover, music))}
-        ><SendIcon aria-hidden="true" />
-          Publish
-        </button>
+        {!cards && (
+          <>
+            <button type="button" className="btn" title="The digital album's cover and music" onClick={() => setShowCover(true)}><PaletteIcon aria-hidden="true" />Cover</button>
+            <button type="button" className="btn" disabled={!spreads.length} title="Leaf through the album as the client will" onClick={() => setShowPreview(true)}><BookOpenIcon aria-hidden="true" />Preview</button>
+            <button
+              type="button"
+              className="btn"
+              disabled={!spreads.length}
+              title="Publish as the client's digital album in Eventor"
+              onClick={() => setPublishProject(toProject(album, photos, spreads, ratings, publishLink, cover, music))}
+            ><SendIcon aria-hidden="true" />
+              Publish
+            </button>
+          </>
+        )}
         <button
           type="button"
           className="btn-primary"
           disabled={!spreads.length}
-          onClick={() => setExportProject(toProject(album, photos, spreads, ratings, publishLink, cover, music))}
+          onClick={() => setExportProject(toProject(album, photos, spreads, ratings, publishLink, cover, music, details))}
         ><DownloadIcon aria-hidden="true" />
           Export
         </button>
@@ -846,6 +879,19 @@ export default function Workspace({ album }: { album: Album }) {
 
       {exportProject && (
         <ExportDialog project={exportProject} onClose={() => setExportProject(null)} />
+      )}
+
+      {showDetails && details && (
+        <CardDetailsDialog
+          value={details}
+          onClose={() => setShowDetails(false)}
+          onSave={(next) => {
+            history.seal();
+            setSpreads((all) => refillCards(all, details, next));
+            setDetails(next);
+            setShowDetails(false);
+          }}
+        />
       )}
 
       {showPreview && (
@@ -936,6 +982,7 @@ export default function Workspace({ album }: { album: Album }) {
           onAddPhoto={dropPhotosOnDesigner}
           onReplacePhoto={replacePhotoInDesigner}
           onAutoDesign={() => void autoDesign()}
+          cards={cards}
         />
       ) : (
       <>
@@ -954,7 +1001,7 @@ export default function Workspace({ album }: { album: Album }) {
               <div className="cycler">
                 <button type="button" aria-label="Previous layout" title="Previous layout ( [ )" onClick={() => cycleLayout(-1)}><ChevronLeftIcon aria-hidden="true" /></button>
                 <div>
-                  <strong>{current.design.template_id ? option.name : 'Custom layout'}</strong>
+                  <strong>{current.design.template_id ? option.name : cards ? 'Custom design' : 'Custom layout'}</strong>
                   <span>
                     {current.optionIndex + 1} of {current.options.length} · {Math.round(cropShare(current.design, byId) * 100)}% cropped
                   </span>
@@ -963,22 +1010,26 @@ export default function Workspace({ album }: { album: Album }) {
               </div>
               <span className="tools-rule" />
               <button type="button" className="tool" onClick={() => { setFrameId(null); setDesignerOpen(true); }}><PenToolIcon aria-hidden="true" />Designer</button>
-              <button
-                type="button"
-                className="tool accent"
-                title="Try a different layout for these photos. Click again for another."
-                onClick={() => void autoDesign()}
-              ><SparklesIcon aria-hidden="true" />
-                Auto design
-              </button>
-              <button
-                type="button"
-                className="tool"
-                title="Swap the left and right sides"
-                onClick={() => { setFrameId(null); changeDesign(mirrored); }}
-              ><FlipHorizontal2Icon aria-hidden="true" />
-                Mirror
-              </button>
+              {!cards && (
+                <>
+                  <button
+                    type="button"
+                    className="tool accent"
+                    title="Try a different layout for these photos. Click again for another."
+                    onClick={() => void autoDesign()}
+                  ><SparklesIcon aria-hidden="true" />
+                    Auto design
+                  </button>
+                  <button
+                    type="button"
+                    className="tool"
+                    title="Swap the left and right sides"
+                    onClick={() => { setFrameId(null); changeDesign(mirrored); }}
+                  ><FlipHorizontal2Icon aria-hidden="true" />
+                    Mirror
+                  </button>
+                </>
+              )}
               <button
                 type="button"
                 className="tool danger"
@@ -993,7 +1044,7 @@ export default function Workspace({ album }: { album: Album }) {
           <section
             ref={rail.setRail}
             className={`canvas-area ${current ? 'rail' : ''} ${rail.sliding ? 'sliding' : ''}`}
-            aria-label="All spreads"
+            aria-label={cards ? 'All cards' : 'All spreads'}
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => {
               e.preventDefault();
@@ -1032,6 +1083,7 @@ export default function Workspace({ album }: { album: Album }) {
                         onSelectText={setTextId}
                         onChangeText={changeText}
                         onOverflow={noteOverflow}
+                        cards={cards}
                       />
                     ) : (
                       <SpreadPeek
@@ -1042,6 +1094,7 @@ export default function Workspace({ album }: { album: Album }) {
                         previewWidth={peekDetail(Math.abs(i - currentIndex))}
                         onPick={pickSpread}
                         onOpen={openSpreadInDesigner}
+                        cards={cards}
                       />
                     )}
                   </div>
@@ -1051,41 +1104,48 @@ export default function Workspace({ album }: { album: Album }) {
             ) : (
               <div className="empty-stage">
                 <span className="empty-book" aria-hidden="true"><i /><i /></span>
-                <h2>{photos.length ? 'Build the album, or drag photos here' : 'Start by importing photos'}</h2>
+                <h2>{!photos.length ? 'Start by importing photos' : cards ? 'Select photos, then make a card' : 'Build the album, or drag photos here'}</h2>
                 <p>
-                  {photos.length
-                    ? 'Auto Build lays out everything. Or select a few photos and drop them here.'
-                    : 'Your originals stay where they are and are never changed.'}
+                  {!photos.length
+                    ? 'Your originals stay where they are and are never changed.'
+                    : cards
+                      ? `Select ${listCounts(cardCounts)} photos below with Ctrl+click, then press New card or drop them here.`
+                      : 'Auto Build lays out everything. Or select a few photos and drop them here.'}
                 </p>
                 <div className="empty-actions">
                   <button type="button" className={photos.length ? 'btn' : 'btn-primary'} disabled={importing} onClick={() => void chooseFolder()}><ImagePlusIcon aria-hidden="true" />
                     {importing ? 'Reading photos…' : 'Import photos'}
                   </button>
-                  {photos.length > 0 && (
+                  {photos.length > 0 && !cards && (
                     <button type="button" className="btn-primary" onClick={() => setShowBuild(true)}><ZapIcon aria-hidden="true" />Auto Build</button>
+                  )}
+                  {photos.length > 0 && cards && (
+                    <button type="button" className="btn-primary" disabled={!selectedIds.length} onClick={() => void addPhotos(selectedIds, null)}><PlusIcon aria-hidden="true" />New card</button>
                   )}
                 </div>
               </div>
             )}
           </section>
           {current && currentIndex > 0 && (
-            <button type="button" className="rail-nav prev" aria-label="Previous spread" onClick={() => goToSpread(-1)}><ChevronLeftIcon aria-hidden="true" /></button>
+            <button type="button" className="rail-nav prev" aria-label={`Previous ${noun}`} onClick={() => goToSpread(-1)}><ChevronLeftIcon aria-hidden="true" /></button>
           )}
           {current && currentIndex < spreads.length - 1 && (
-            <button type="button" className="rail-nav next" aria-label="Next spread" onClick={() => goToSpread(1)}><ChevronRightIcon aria-hidden="true" /></button>
+            <button type="button" className="rail-nav next" aria-label={`Next ${noun}`} onClick={() => goToSpread(1)}><ChevronRightIcon aria-hidden="true" /></button>
           )}
           </div>
 
           {current && (
             <p className="spread-caption">
-              Spread {currentIndex + 1} of {spreads.length} · pages {currentIndex * 2 + 1}–{currentIndex * 2 + 2}
+              {cards
+                ? `Card ${currentIndex + 1} of ${spreads.length}`
+                : `Spread ${currentIndex + 1} of ${spreads.length} · pages ${currentIndex * 2 + 1}–${currentIndex * 2 + 2}`}
             </p>
           )}
         </div>
 
         {showSide && (
           <aside className="side">
-            {!current && <p className="muted">Select a spread to change its layout and effects.</p>}
+            {!current && <p className="muted">Select a {noun} to change its {cards ? 'design' : 'layout'} and effects.</p>}
 
             {textBlock && (
               <TextPanel
@@ -1125,7 +1185,7 @@ export default function Workspace({ album }: { album: Album }) {
                     Reset crop
                   </button>
                   <button type="button" className="btn" onClick={() => void removeFromSpread(current, framePhoto.id)}><ImageMinusIcon aria-hidden="true" />
-                    Remove from spread
+                    Remove from {noun}
                   </button>
                 </div>
               </section>
@@ -1133,8 +1193,8 @@ export default function Workspace({ album }: { album: Album }) {
 
             {current && (
               <EffectsPanel
-                title={frame ? 'Effects for this photo' : 'Effects for this spread'}
-                hint={frame ? 'Press Esc to adjust the whole spread.' : 'Every photo on the spread. Click a photo to change only that one.'}
+                title={frame ? 'Effects for this photo' : `Effects for this ${noun}`}
+                hint={frame ? `Press Esc to adjust the whole ${noun}.` : `Every photo on the ${noun}. Click a photo to change only that one.`}
                 value={effectsValue}
                 onChange={changeEffects}
                 onGestureStart={history.seal}
@@ -1147,13 +1207,14 @@ export default function Workspace({ album }: { album: Album }) {
 
             {current && current.options.length > 0 && (
               <section>
-                <h3>Layouts for {current.photoIds.length} photo{current.photoIds.length === 1 ? '' : 's'}</h3>
+                <h3>{cards ? 'Designs' : 'Layouts'} for {current.photoIds.length} photo{current.photoIds.length === 1 ? '' : 's'}</h3>
                 <div className="layout-grid">
                   {current.options.map((o, i) => (
                     <LayoutThumb
                       key={o.template_id}
                       option={o}
                       on={i === current.optionIndex}
+                      cards={cards}
                       onClick={() => chooseLayout(() => i)}
                     />
                   ))}
@@ -1163,7 +1224,7 @@ export default function Workspace({ album }: { album: Album }) {
 
             {current && paperColours.length > 0 && (
               <section>
-                <h3>Paper for this spread</h3>
+                <h3>Paper for this {noun}</h3>
                 <div className="swatches">
                   {paperColours.map((colour) => (
                     <button
@@ -1183,12 +1244,12 @@ export default function Workspace({ album }: { album: Album }) {
         )}
       </div>
 
-      <section ref={timeline} className="timeline" aria-label="Spreads">
+      <section ref={timeline} className={`timeline ${cards ? 'cards' : ''}`} aria-label={cards ? 'Cards' : 'Spreads'}>
         {spreads.map((s, i) => (
           <div key={s.id} className="spread-item">
             <button
               type="button"
-              aria-label={`Spread ${i + 1}`}
+              aria-label={`${Noun} ${i + 1}`}
               aria-current={s.id === currentId}
               className={`spread-thumb ${s.id === currentId ? 'on' : ''}`}
               style={{ aspectRatio: String(s.design.size_mm.w / s.design.size_mm.h), background: s.design.background.value }}
@@ -1202,6 +1263,7 @@ export default function Workspace({ album }: { album: Album }) {
                 if (ids.length) void addPhotos(ids, s.id);
               }}
             >
+              <Panels design={s.design} />
               {s.design.frames.map((f) => {
                 const photo = f.asset_id ? byId.get(f.asset_id) : undefined;
                 return (
@@ -1215,9 +1277,9 @@ export default function Workspace({ album }: { album: Album }) {
             </button>
             <div className="spread-actions">
               <span>{String(i + 1).padStart(2, '0')}</span>
-              <button type="button" aria-label={`Move spread ${i + 1} earlier`} disabled={i === 0} onClick={() => moveSpread(s.id, -1)}><ArrowLeftIcon aria-hidden="true" /></button>
-              <button type="button" aria-label={`Move spread ${i + 1} later`} disabled={i === spreads.length - 1} onClick={() => moveSpread(s.id, 1)}><ArrowRightIcon aria-hidden="true" /></button>
-              <button type="button" aria-label={`Delete spread ${i + 1}`} onClick={() => deleteSpread(s.id)}><XIcon aria-hidden="true" /></button>
+              <button type="button" aria-label={`Move ${noun} ${i + 1} earlier`} disabled={i === 0} onClick={() => moveSpread(s.id, -1)}><ArrowLeftIcon aria-hidden="true" /></button>
+              <button type="button" aria-label={`Move ${noun} ${i + 1} later`} disabled={i === spreads.length - 1} onClick={() => moveSpread(s.id, 1)}><ArrowRightIcon aria-hidden="true" /></button>
+              <button type="button" aria-label={`Delete ${noun} ${i + 1}`} onClick={() => deleteSpread(s.id)}><XIcon aria-hidden="true" /></button>
             </div>
           </div>
         ))}
@@ -1225,7 +1287,7 @@ export default function Workspace({ album }: { album: Album }) {
           type="button"
           className="add-spread"
           disabled={!selectedIds.length}
-          title={selectedIds.length ? 'Make a new spread from the selected photos' : 'Select photos first'}
+          title={selectedIds.length ? `Make a new ${noun} from the selected photos` : 'Select photos first'}
           onClick={() => void addPhotos(selectedIds, null)}
           onDragOver={(e) => e.preventDefault()}
           onDrop={(e) => {
@@ -1234,7 +1296,7 @@ export default function Workspace({ album }: { album: Album }) {
             const ids = droppedPhotos(e);
             if (ids.length) void addPhotos(ids, null);
           }}
-        ><PlusIcon aria-hidden="true" />New spread</button>
+        ><PlusIcon aria-hidden="true" />New {noun}</button>
       </section>
 
       </>
@@ -1246,7 +1308,7 @@ export default function Workspace({ album }: { album: Album }) {
             <button type="button" className="btn" disabled={importing} onClick={() => void chooseFolder()}><ImagePlusIcon aria-hidden="true" />
               {importing ? 'Reading photos…' : 'Import photos'}
             </button>
-            <button type="button" className="btn" disabled={!photos.length} onClick={() => setShowBuild(true)}><ZapIcon aria-hidden="true" />Auto Build</button>
+            {!cards && <button type="button" className="btn" disabled={!photos.length} onClick={() => setShowBuild(true)}><ZapIcon aria-hidden="true" />Auto Build</button>}
             <strong className="muted">{usedIds.size} of {photos.length} used</strong>
             <select className="input" aria-label="Show photos" value={filter} onChange={(e) => setFilter(e.target.value as PhotoFilter)}>
               <option value="all">All photos</option>
@@ -1274,7 +1336,7 @@ export default function Workspace({ album }: { album: Album }) {
             />
             {selectedIds.length > 0 && current && (
               <button type="button" className="btn" onClick={() => void addPhotos(selectedIds, current.id)}><PlusIcon aria-hidden="true" />
-                Add {selectedIds.length} to this spread
+                Add {selectedIds.length} to this {noun}
               </button>
             )}
             <span className="muted hint">Ctrl+click to select several</span>
@@ -1331,10 +1393,11 @@ export default function Workspace({ album }: { album: Album }) {
 }
 
 function LayoutThumb({
-  option, on, onClick,
+  option, on, cards, onClick,
 }: {
   option: LayoutOption;
   on: boolean;
+  cards?: boolean;
   onClick: () => void;
 }) {
   const { design } = option;
@@ -1344,11 +1407,28 @@ function LayoutThumb({
       aria-pressed={on}
       aria-label={option.name}
       title={`${option.name} · ${Math.round(option.crop_loss * 100)}% cropped`}
-      className={`layout-thumb ${on ? 'on' : ''}`}
-      style={{ aspectRatio: String(design.size_mm.w / design.size_mm.h) }}
+      className={`layout-thumb ${cards ? 'card' : ''} ${on ? 'on' : ''}`}
+      style={{
+        aspectRatio: String(design.size_mm.w / design.size_mm.h),
+        ...(cards ? { background: design.background.value } : {}),
+      }}
       onClick={onClick}
     >
+      {cards && <Panels design={design} />}
       {design.frames.map((f) => <i key={f.id} style={frameStyle(f, design)} />)}
+      {/* A card's words, as a line where each block sits. */}
+      {cards && design.texts.map((t) => (
+        <u
+          key={t.id}
+          style={{
+            left: percent(t.rect_mm.x, design.size_mm.w),
+            right: percent(design.size_mm.w - t.rect_mm.x - t.rect_mm.w, design.size_mm.w),
+            top: percent(t.rect_mm.y + t.rect_mm.h / 2, design.size_mm.h),
+            color: t.colour,
+            zIndex: 5,
+          }}
+        />
+      ))}
     </button>
   );
 }
@@ -1367,7 +1447,7 @@ function peekDetail(distance: number): number | null {
 
 /** A spread beside the current one. It can only be looked at, until it is clicked. */
 const SpreadPeek = memo(function SpreadPeek({
-  id, index, design, photos, previewWidth, onPick, onOpen,
+  id, index, design, photos, previewWidth, onPick, onOpen, cards,
 }: {
   id: string;
   index: number;
@@ -1376,17 +1456,19 @@ const SpreadPeek = memo(function SpreadPeek({
   previewWidth: number | null;
   onPick: (id: string) => void;
   onOpen: (id: string) => void;
+  cards?: boolean;
 }) {
   const { w, h } = design.size_mm;
   return (
     <button
       type="button"
-      className="spread-peek"
-      aria-label={`Go to spread ${index + 1}`}
+      className={`spread-peek ${cards ? 'card' : ''}`}
+      aria-label={`Go to ${cards ? 'card' : 'spread'} ${index + 1}`}
       style={{ width: spreadWidth(design), aspectRatio: String(w / h), background: design.background.value }}
       onClick={() => onPick(id)}
       onDoubleClick={() => onOpen(id)}
     >
+      {previewWidth !== null && <Panels design={design} />}
       {previewWidth !== null && design.frames.map((frame) => {
         const photo = frame.asset_id ? photos.get(frame.asset_id) : undefined;
         return (
@@ -1403,8 +1485,9 @@ const SpreadPeek = memo(function SpreadPeek({
 
 function SpreadCanvas({
   design, spec, photos, guides, thresholds, selectedId, onSelect, onFit, onSwap, onGestureStart,
-  showOriginal, onOpenDesigner, textId, onSelectText, onChangeText, onOverflow,
+  showOriginal, onOpenDesigner, textId, onSelectText, onChangeText, onOverflow, cards,
 }: {
+  cards?: boolean;
   design: SpreadDesign;
   spec: Album['spec'];
   photos: Map<string, PhotoInfo>;
@@ -1440,6 +1523,7 @@ function SpreadCanvas({
       onPointerDown={(e) => { if (e.target === e.currentTarget) onSelect(null); }}
       onDoubleClick={onOpenDesigner}
     >
+      <Panels design={design} />
       {design.frames.map((frame) => {
         const photo = frame.asset_id ? photos.get(frame.asset_id) : undefined;
         const selected = frame.id === selectedId;
@@ -1530,7 +1614,7 @@ function SpreadCanvas({
           <span className="guide safe" style={{ left: percent(safe, w), right: percent(safe, w), top: percent(safe, h), bottom: percent(safe, h) }} />
         </>
       )}
-      <span className="fold" style={foldStyle(spec.binding, w)} />
+      {!cards && <span className="fold" style={foldStyle(spec.binding, w)} />}
     </div>
   );
 }
