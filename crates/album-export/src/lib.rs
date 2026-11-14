@@ -9,11 +9,11 @@ use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 
 use album_core::document::{
-    dpi_status, effective_dpi, visible_area, Background, DpiStatus, Frame, ProjectSpec,
+    dpi_status, effective_dpi, visible_area, Background, DpiStatus, Frame, ProjectSpec, Shape,
     SpreadDesign,
 };
 use album_media::{colour_profile_is_srgb, decode_upright, PhotoInfo};
-use album_store::Project;
+use album_store::{Project, ProjectKind};
 use album_text::render_block;
 use fast_image_resize as fr;
 use image::codecs::jpeg::{JpegEncoder, PixelDensity};
@@ -28,6 +28,8 @@ const JPEG_QUALITY: u8 = 95;
 const FALLBACK_PAPER: [u8; 3] = [255, 255, 255];
 /// Line breaks do not depend on resolution, so a quick low one is enough for checking.
 const TEXT_CHECK_DPI: f64 = 30.0;
+/// What a card's message says until the studio writes its own.
+pub const MESSAGE_PLACEHOLDER: &str = "Write your message here";
 
 #[derive(Debug, Error)]
 pub enum ExportError {
@@ -74,16 +76,35 @@ pub fn check_album(project: &Project) -> Vec<Issue> {
     let mut seen: HashSet<&str> = HashSet::new();
     let mut profiles_checked: HashSet<&str> = HashSet::new();
 
+    let cards = project.kind == ProjectKind::Cards;
     if project.spreads.is_empty() {
         issues.push(Issue {
             severity: Severity::Blocker,
             spread: None,
-            message: "The album has no spreads yet.".to_string(),
+            message: if cards {
+                "There are no cards yet."
+            } else {
+                "The album has no spreads yet."
+            }
+            .to_string(),
         });
     }
 
     for (i, spread) in project.spreads.iter().enumerate() {
         let number = Some(i + 1);
+        // A card's message starts as a placeholder, which must not reach the printer.
+        let placeholder_left = spread
+            .design
+            .texts
+            .iter()
+            .any(|t| t.role.as_deref() == Some("message") && t.text == MESSAGE_PLACEHOLDER);
+        if placeholder_left {
+            issues.push(Issue {
+                severity: Severity::Warning,
+                spread: number,
+                message: "A message still says \"Write your message here\".".to_string(),
+            });
+        }
         for block in &spread.design.texts {
             if let Ok(drawn) = render_block(block, TEXT_CHECK_DPI) {
                 if drawn.overflowed {
@@ -106,7 +127,15 @@ pub fn check_album(project: &Project) -> Vec<Issue> {
 
         for frame in &spread.design.frames {
             let Some(id) = frame.asset_id.as_deref() else {
-                push(Severity::Warning, "This spread has an empty frame.".into());
+                push(
+                    Severity::Warning,
+                    if cards {
+                        "This card has an empty frame."
+                    } else {
+                        "This spread has an empty frame."
+                    }
+                    .into(),
+                );
                 continue;
             };
             let Some(photo) = photos.get(id) else {
@@ -214,10 +243,27 @@ pub fn render_spread(
     let scale_x = f64::from(width) / design.size_mm.w;
     let scale_y = f64::from(height) / design.size_mm.h;
 
-    let mut frames: Vec<_> = design.frames.iter().collect();
-    frames.sort_by_key(|f| f.z);
+    // Panels and photos share one order, and a panel goes under a photo at the same depth.
+    enum Layer<'a> {
+        Panel(&'a Shape),
+        Photo(&'a Frame),
+    }
+    let mut layers: Vec<(i32, u8, Layer)> = design
+        .shapes
+        .iter()
+        .map(|s| (s.z, 0, Layer::Panel(s)))
+        .chain(design.frames.iter().map(|f| (f.z, 1, Layer::Photo(f))))
+        .collect();
+    layers.sort_by_key(|(z, kind, _)| (*z, *kind));
 
-    for frame in frames {
+    for (_, _, layer) in layers {
+        let frame = match layer {
+            Layer::Photo(frame) => frame,
+            Layer::Panel(shape) => {
+                fill_panel(&mut canvas, shape, scale_x, scale_y);
+                continue;
+            }
+        };
         let Some(photo) = frame.asset_id.as_deref().and_then(|id| photos.get(id)) else {
             continue;
         };
@@ -260,6 +306,27 @@ pub fn render_spread(
         lay_over(&mut canvas, &drawn.image, left, top, block.opacity);
     }
     Ok(canvas)
+}
+
+/// Fills a flat panel of colour, clipped to the canvas.
+fn fill_panel(canvas: &mut RgbImage, shape: &Shape, scale_x: f64, scale_y: f64) {
+    let r = shape.rect_mm;
+    let (width, height) = (i64::from(canvas.width()), i64::from(canvas.height()));
+    let left = ((r.x * scale_x).round() as i64).clamp(0, width);
+    let right = (((r.x + r.w) * scale_x).round() as i64).clamp(0, width);
+    let top = ((r.y * scale_y).round() as i64).clamp(0, height);
+    let bottom = (((r.y + r.h) * scale_y).round() as i64).clamp(0, height);
+    let colour = parse_colour(&shape.colour);
+    let opacity = shape.opacity.clamp(0.0, 1.0);
+    for y in top..bottom {
+        for x in left..right {
+            let under = canvas.get_pixel_mut(x as u32, y as u32);
+            for (channel, level) in colour.iter().enumerate() {
+                let base = f64::from(under.0[channel]);
+                under.0[channel] = (base + (f64::from(*level) - base) * opacity).round() as u8;
+            }
+        }
+    }
 }
 
 /// Draws a frame with its rounded corners, border and opacity.
@@ -574,7 +641,12 @@ pub fn export_album(
     let mut pages = Vec::with_capacity(total);
     for (i, spread) in project.spreads.iter().enumerate() {
         let image = render_spread(&spread.design, &project.spec, &photos)?;
-        let jpeg = folder.join(format!("{safe_name}_spread_{:02}.jpg", i + 1));
+        let page = if project.kind == ProjectKind::Cards {
+            "card"
+        } else {
+            "spread"
+        };
+        let jpeg = folder.join(format!("{safe_name}_{page}_{:02}.jpg", i + 1));
         write_jpeg(&image, &jpeg, project.spec.target_dpi)?;
         pages.push(PdfPage {
             jpeg,
@@ -1352,6 +1424,110 @@ mod tests {
         assert!(check_album(&album)
             .iter()
             .any(|i| i.severity == Severity::Blocker));
+    }
+
+    #[test]
+    fn a_panel_is_drawn_under_a_photo_at_the_same_depth() {
+        let dir = TempDir::new();
+        let photo = split_photo(&dir.0, "a.png", 800, 400);
+        let photos = HashMap::from([("a.png", &photo)]);
+        let c = spec().canvas_mm();
+        let left_half = RectMm {
+            x: 0.0,
+            y: 0.0,
+            w: c.w / 2.0,
+            h: c.h,
+        };
+        let mut d = design(vec![frame(left_half, "a.png", Fit::default())], "#FFFFFF");
+        // A grey panel over the whole canvas: the photo covers it on the left.
+        d.shapes.push(Shape {
+            id: "p1".into(),
+            rect_mm: whole_canvas(),
+            colour: "#808080".into(),
+            opacity: 1.0,
+            z: 0,
+        });
+        let image = render_spread(&d, &spec(), &photos).unwrap();
+        let (w, h) = image.dimensions();
+        assert!(
+            close_to(image.get_pixel(2, h / 2), RED),
+            "the photo is on top"
+        );
+        assert_eq!(
+            image.get_pixel(w - 2, h / 2).0,
+            [0x80, 0x80, 0x80],
+            "the panel"
+        );
+
+        // Raised above the photo and half see-through, it tints the photo.
+        d.shapes[0].z = 1;
+        d.shapes[0].opacity = 0.5;
+        let image = render_spread(&d, &spec(), &photos).unwrap();
+        let tinted = image.get_pixel(2, h / 2);
+        assert!(!close_to(tinted, RED) && tinted.0[0] > tinted.0[2]);
+    }
+
+    #[test]
+    fn cards_are_named_as_cards_and_checked_as_cards() {
+        use album_core::document::{TextAlign, TextBlock};
+
+        let dir = TempDir::new();
+        let out = TempDir::new();
+        let photo = split_photo(&dir.0, "a.png", 3000, 1500);
+        let mut cards = project(
+            vec![photo],
+            vec![frame(whole_canvas(), "a.png", Fit::default())],
+        );
+        cards.kind = ProjectKind::Cards;
+        cards.spreads[0].design.texts.push(TextBlock {
+            id: "t1".into(),
+            rect_mm: RectMm {
+                x: 10.0,
+                y: 10.0,
+                w: 120.0,
+                h: 30.0,
+            },
+            text: MESSAGE_PLACEHOLDER.into(),
+            font: String::new(),
+            size_pt: 10.0,
+            colour: "#000000".into(),
+            align: TextAlign::Left,
+            bold: false,
+            italic: false,
+            line_height: 1.2,
+            opacity: 1.0,
+            role: Some("message".into()),
+            rot_deg: 0.0,
+        });
+
+        let issues = check_album(&cards);
+        assert!(issues
+            .iter()
+            .any(|i| i.severity == Severity::Warning && i.message.contains("Write your message")));
+
+        cards.spreads[0].design.texts[0].text = "With love and thanks".into();
+        assert_eq!(check_album(&cards), []);
+
+        let result = export_album(
+            &cards,
+            &out.0,
+            ExportFormats {
+                jpeg: true,
+                pdf: false,
+            },
+            "9.9.9",
+            |_, _| {},
+        )
+        .unwrap();
+        assert!(result.files.iter().any(|f| f.ends_with("_card_01.jpg")));
+
+        let none = Project {
+            spreads: Vec::new(),
+            ..cards
+        };
+        assert!(check_album(&none)
+            .iter()
+            .any(|i| i.message == "There are no cards yet."));
     }
 
     #[test]
