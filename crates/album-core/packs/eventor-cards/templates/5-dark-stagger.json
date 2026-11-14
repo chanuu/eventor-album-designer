@@ -1,0 +1,124 @@
+{
+  "id": "eventor-cards/5-dark-stagger",
+  "name": "Five staggered on black",
+  "frame_count": 5,
+  "spread_aspect": {
+    "min": 0.6,
+    "max": 0.85
+  },
+  "tags": [
+    "card"
+  ],
+  "frames": [
+    {
+      "rect_pct": {
+        "x": 0.109,
+        "y": 0.17,
+        "w": 0.34,
+        "h": 0.312
+      }
+    },
+    {
+      "rect_pct": {
+        "x": 0.455,
+        "y": 0.055,
+        "w": 0.304,
+        "h": 0.295
+      }
+    },
+    {
+      "rect_pct": {
+        "x": 0.455,
+        "y": 0.355,
+        "w": 0.436,
+        "h": 0.24
+      }
+    },
+    {
+      "rect_pct": {
+        "x": 0.184,
+        "y": 0.487,
+        "w": 0.265,
+        "h": 0.34
+      }
+    },
+    {
+      "rect_pct": {
+        "x": 0.455,
+        "y": 0.6,
+        "w": 0.304,
+        "h": 0.295
+      }
+    }
+  ],
+  "background": "#0B0B0B",
+  "texts": [
+    {
+      "rect_pct": {
+        "x": 0.12,
+        "y": 0.082,
+        "w": 0.32,
+        "h": 0.066
+      },
+      "text": "{FIRST}\n& {SECOND}",
+      "size": 0.024,
+      "font": "Cormorant Garamond",
+      "colour": "#FFFFFF",
+      "align": "center",
+      "line_height": 1.15
+    },
+    {
+      "rect_pct": {
+        "x": 0.184,
+        "y": 0.845,
+        "w": 0.265,
+        "h": 0.015
+      },
+      "text": "MEMORABLE DAY !",
+      "size": 0.006,
+      "font": "Jost",
+      "colour": "#FFFFFF",
+      "align": "center"
+    },
+    {
+      "rect_pct": {
+        "x": 0.184,
+        "y": 0.857,
+        "w": 0.265,
+        "h": 0.028
+      },
+      "text": "{date:dd MON yyyy}",
+      "size": 0.0165,
+      "font": "Jost",
+      "colour": "#FFFFFF",
+      "align": "center"
+    },
+    {
+      "rect_pct": {
+        "x": 0.775,
+        "y": 0.63,
+        "w": 0.1,
+        "h": 0.265
+      },
+      "text": "Much Love",
+      "size": 0.06,
+      "font": "Mrs Saint Delafield",
+      "colour": "#FFFFFF",
+      "align": "center",
+      "rot_deg": 270
+    },
+    {
+      "rect_pct": {
+        "x": 0.1,
+        "y": 0.922,
+        "w": 0.8,
+        "h": 0.046
+      },
+      "text": "{STUDIO}\nMUA | {MUA}",
+      "size": 0.0095,
+      "font": "Jost",
+      "colour": "#FFFFFF",
+      "align": "center"
+    }
+  ]
+}

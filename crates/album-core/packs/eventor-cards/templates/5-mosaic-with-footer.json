@@ -1,0 +1,112 @@
+{
+  "id": "eventor-cards/5-mosaic-with-footer",
+  "name": "Five in a mosaic with a footer",
+  "frame_count": 5,
+  "spread_aspect": {
+    "min": 1.2,
+    "max": 1.7
+  },
+  "tags": [
+    "card"
+  ],
+  "frames": [
+    {
+      "rect_pct": {
+        "x": 0,
+        "y": 0,
+        "w": 0.393,
+        "h": 0.442
+      },
+      "bleed": true
+    },
+    {
+      "rect_pct": {
+        "x": 0.396,
+        "y": 0,
+        "w": 0.213,
+        "h": 0.442
+      },
+      "bleed": true
+    },
+    {
+      "rect_pct": {
+        "x": 0.612,
+        "y": 0,
+        "w": 0.388,
+        "h": 0.896
+      },
+      "bleed": true
+    },
+    {
+      "rect_pct": {
+        "x": 0,
+        "y": 0.446,
+        "w": 0.169,
+        "h": 0.45
+      },
+      "bleed": true
+    },
+    {
+      "rect_pct": {
+        "x": 0.172,
+        "y": 0.446,
+        "w": 0.437,
+        "h": 0.45
+      }
+    }
+  ],
+  "texts": [
+    {
+      "rect_pct": {
+        "x": 0.016,
+        "y": 0.014,
+        "w": 0.284,
+        "h": 0.051
+      },
+      "text": "THANK YOU !",
+      "size": 0.032,
+      "font": "Cormorant Garamond",
+      "colour": "#FFFFFF",
+      "align": "left"
+    },
+    {
+      "rect_pct": {
+        "x": 0.058,
+        "y": 0.903,
+        "w": 0.392,
+        "h": 0.042
+      },
+      "text": "{FIRST} + {SECOND}",
+      "size": 0.023,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "left"
+    },
+    {
+      "rect_pct": {
+        "x": 0.6,
+        "y": 0.903,
+        "w": 0.348,
+        "h": 0.042
+      },
+      "text": "{date:dd . mm . yy}",
+      "size": 0.023,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "right"
+    },
+    {
+      "rect_pct": {
+        "x": 0.25,
+        "y": 0.938,
+        "w": 0.5,
+        "h": 0.057
+      },
+      "text": "{STUDIO}\nMUA | {MUA}",
+      "size": 0.0135,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "center"
+    }
+  ]
+}

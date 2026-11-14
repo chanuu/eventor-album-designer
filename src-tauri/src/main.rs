@@ -60,6 +60,8 @@ struct AppState {
     photos: Arc<Mutex<HashMap<String, PhotoInfo>>>,
     facts: Arc<Mutex<HashMap<String, PhotoFacts>>>,
     registry: TemplateRegistry,
+    /// Thank you card designs, kept apart so an album is never offered one.
+    cards: TemplateRegistry,
     preview_pool: Arc<rayon::ThreadPool>,
     cache_dir: PathBuf,
 }
@@ -208,6 +210,50 @@ fn suggest_layouts(
                 crop_loss: layout.crop_loss,
                 design: apply_layout(template, &photos, &layout, &spec),
             })
+        })
+        .collect()
+}
+
+/// Every card design for these photos and this card's shape, best first.
+#[tauri::command]
+fn suggest_card_layouts(
+    photos: Vec<PhotoInput>,
+    spec: ProjectSpec,
+    state: State<'_, AppState>,
+) -> Vec<LayoutOption> {
+    let photos: Vec<Photo> = photos
+        .into_iter()
+        .map(|p| Photo {
+            asset_id: p.asset_id,
+            aspect: p.aspect,
+        })
+        .collect();
+
+    rank_layouts(&state.cards, &photos, &spec)
+        .into_iter()
+        .filter_map(|layout| {
+            let template = state.cards.get(&layout.template_id)?;
+            Some(LayoutOption {
+                template_id: layout.template_id.clone(),
+                name: template.name.clone(),
+                tags: template.tags.clone(),
+                crop_loss: layout.crop_loss,
+                design: apply_layout(template, &photos, &layout, &spec),
+            })
+        })
+        .collect()
+}
+
+/// How many photos each card design takes, so the app can say what to select.
+#[tauri::command]
+fn card_photo_counts(spec: ProjectSpec, state: State<'_, AppState>) -> Vec<usize> {
+    let aspect = spec.spread_aspect();
+    (1..=album_core::pack::MAX_FRAMES_PER_TEMPLATE)
+        .filter(|&count| {
+            state
+                .cards
+                .with_frame_count(count)
+                .any(|t| t.spread_aspect.contains(aspect))
         })
         .collect()
 }
@@ -788,6 +834,7 @@ fn main() {
                 photos: Arc::new(Mutex::new(HashMap::new())),
                 facts: Arc::new(Mutex::new(HashMap::new())),
                 registry: load_registry(&packs_dir),
+                cards: TemplateRegistry::with_cards(),
                 preview_pool: Arc::new(
                     rayon::ThreadPoolBuilder::new()
                         .num_threads(workers)
@@ -802,6 +849,8 @@ fn main() {
             make_spec,
             import_folder,
             suggest_layouts,
+            suggest_card_layouts,
+            card_photo_counts,
             vary_spread_layout,
             save_album,
             open_album,

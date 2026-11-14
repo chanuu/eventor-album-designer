@@ -12,6 +12,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::builtin_list::BUILTIN_TEMPLATES;
+use crate::card_list::CARD_TEMPLATES;
+use crate::document::TextAlign;
 
 pub const MAX_FRAMES_PER_TEMPLATE: usize = 12;
 const MAX_TEMPLATE_FILE_BYTES: u64 = 256 * 1024;
@@ -20,6 +22,13 @@ const MAX_TEMPLATES_PER_PACK: usize = 2000;
 const MIN_FRAME_FRACTION: f64 = 0.01;
 
 const BUILTIN_MANIFEST: &str = include_str!("../packs/eventor-essentials/pack.toml");
+const CARDS_MANIFEST: &str = include_str!("../packs/eventor-cards/pack.toml");
+
+const MAX_PANELS_PER_TEMPLATE: usize = 12;
+const MAX_TEXTS_PER_TEMPLATE: usize = 16;
+const MAX_TEMPLATE_TEXT_BYTES: usize = 600;
+/// Text taller than this share of the card is a mistake, not a heading.
+const MAX_TEXT_SIZE: f64 = 0.3;
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -49,6 +58,58 @@ pub struct TemplateFrame {
     pub bleed: bool,
     #[serde(default)]
     pub z: i32,
+    /// A white line inside the photo's edge, as a share of the card's height.
+    #[serde(default)]
+    pub border: f64,
+}
+
+/// A flat panel of colour on a card.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TemplatePanel {
+    pub rect_pct: RectPct,
+    pub colour: String,
+    #[serde(default = "solid")]
+    pub opacity: f64,
+    #[serde(default)]
+    pub z: i32,
+}
+
+fn solid() -> f64 {
+    1.0
+}
+
+fn usual_line_height() -> f64 {
+    1.2
+}
+
+/// Text a card comes with.
+///
+/// `text` may hold places for the couple's details, such as `{FIRST} & {SECOND}` or
+/// `{date:dd | mm | yy}`, which the app fills in. Text with `message` set is a
+/// placeholder for the studio's own words.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TemplateText {
+    pub rect_pct: RectPct,
+    pub text: String,
+    #[serde(default)]
+    pub message: bool,
+    #[serde(default)]
+    pub font: String,
+    /// Letter height as a share of the card's height, so one template suits every size.
+    pub size: f64,
+    pub colour: String,
+    #[serde(default)]
+    pub align: TextAlign,
+    #[serde(default)]
+    pub bold: bool,
+    #[serde(default)]
+    pub italic: bool,
+    #[serde(default = "usual_line_height")]
+    pub line_height: f64,
+    #[serde(default)]
+    pub rot_deg: f64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -85,6 +146,37 @@ pub struct Template {
     pub tags: Vec<String>,
     /// Fractions of the trimmed spread, so one pack suits every album size.
     pub frames: Vec<TemplateFrame>,
+    /// The paper colour a card is designed on. Albums use the album's own paper.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub background: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub panels: Vec<TemplatePanel>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub texts: Vec<TemplateText>,
+}
+
+fn is_colour(value: &str) -> bool {
+    value.len() == 7 && value.starts_with('#') && value[1..].chars().all(|c| c.is_ascii_hexdigit())
+}
+
+/// Keeps a rectangle on the card, or says why it cannot be.
+fn kept_on_card(r: RectPct, what: &str) -> Result<RectPct, String> {
+    if ![r.x, r.y, r.w, r.h].iter().all(|v| v.is_finite()) {
+        return Err(format!("{what} has a value that is not a number"));
+    }
+    let left = r.x.clamp(0.0, 1.0);
+    let top = r.y.clamp(0.0, 1.0);
+    let right = (r.x + r.w).clamp(0.0, 1.0);
+    let bottom = (r.y + r.h).clamp(0.0, 1.0);
+    if right - left < MIN_FRAME_FRACTION || bottom - top < MIN_FRAME_FRACTION {
+        return Err(format!("{what} is empty once kept on the spread"));
+    }
+    Ok(RectPct {
+        x: left,
+        y: top,
+        w: right - left,
+        h: bottom - top,
+    })
 }
 
 #[derive(Debug, Error)]
@@ -151,23 +243,51 @@ pub fn validate_template(mut template: Template, pack_id: &str) -> Result<Templa
     }
 
     for frame in &mut template.frames {
-        let r = frame.rect_pct;
-        if ![r.x, r.y, r.w, r.h].iter().all(|v| v.is_finite()) {
-            return Err("a frame has a value that is not a number".to_string());
+        frame.rect_pct = kept_on_card(frame.rect_pct, "a frame")?;
+        if !(frame.border.is_finite() && (0.0..=0.05).contains(&frame.border)) {
+            return Err("a frame's border is out of range".to_string());
         }
-        let left = r.x.clamp(0.0, 1.0);
-        let top = r.y.clamp(0.0, 1.0);
-        let right = (r.x + r.w).clamp(0.0, 1.0);
-        let bottom = (r.y + r.h).clamp(0.0, 1.0);
-        if right - left < MIN_FRAME_FRACTION || bottom - top < MIN_FRAME_FRACTION {
-            return Err("a frame is empty once kept on the spread".to_string());
+    }
+
+    if let Some(colour) = &template.background {
+        if !is_colour(colour) {
+            return Err(format!(
+                "background {colour:?} is not a colour like #1A2B3C"
+            ));
         }
-        frame.rect_pct = RectPct {
-            x: left,
-            y: top,
-            w: right - left,
-            h: bottom - top,
-        };
+    }
+    if template.panels.len() > MAX_PANELS_PER_TEMPLATE {
+        return Err(format!("more than {MAX_PANELS_PER_TEMPLATE} panels"));
+    }
+    for panel in &mut template.panels {
+        panel.rect_pct = kept_on_card(panel.rect_pct, "a panel")?;
+        if !is_colour(&panel.colour) {
+            return Err(format!("panel colour {:?} is not a colour", panel.colour));
+        }
+        if !(panel.opacity.is_finite() && (0.0..=1.0).contains(&panel.opacity)) {
+            return Err("a panel's opacity is outside 0 to 1".to_string());
+        }
+    }
+    if template.texts.len() > MAX_TEXTS_PER_TEMPLATE {
+        return Err(format!("more than {MAX_TEXTS_PER_TEMPLATE} text blocks"));
+    }
+    for text in &mut template.texts {
+        text.rect_pct = kept_on_card(text.rect_pct, "a text block")?;
+        if !is_colour(&text.colour) {
+            return Err(format!("text colour {:?} is not a colour", text.colour));
+        }
+        if !(text.size.is_finite() && text.size > 0.0 && text.size <= MAX_TEXT_SIZE) {
+            return Err("a text block's size is out of range".to_string());
+        }
+        if !(text.line_height.is_finite() && (0.5..=4.0).contains(&text.line_height)) {
+            return Err("a text block's line height is out of range".to_string());
+        }
+        if ![0.0, 90.0, 270.0].contains(&text.rot_deg) {
+            return Err("text can only be turned by 90 or 270 degrees".to_string());
+        }
+        if text.text.is_empty() || text.text.len() > MAX_TEMPLATE_TEXT_BYTES {
+            return Err("a text block is empty or too long".to_string());
+        }
     }
     Ok(template)
 }
@@ -272,6 +392,24 @@ pub fn builtin_pack() -> LoadedPack {
     }
 }
 
+/// The thank you card designs that come with the app.
+pub fn cards_pack() -> LoadedPack {
+    let manifest: PackManifest =
+        toml::from_str(CARDS_MANIFEST).expect("the cards manifest is valid");
+    let templates = CARD_TEMPLATES
+        .iter()
+        .map(|(file, json)| {
+            parse_template(file, json, &manifest.id)
+                .unwrap_or_else(|bad| panic!("card template {}: {}", bad.file, bad.reason))
+        })
+        .collect();
+    LoadedPack {
+        manifest,
+        templates,
+        rejected: Vec::new(),
+    }
+}
+
 /// Every available template, indexed by frame count so auto-pick is a lookup.
 #[derive(Debug, Default, Clone)]
 pub struct TemplateRegistry {
@@ -283,6 +421,13 @@ impl TemplateRegistry {
     pub fn with_builtin() -> Self {
         let mut registry = Self::default();
         registry.add_pack(builtin_pack());
+        registry
+    }
+
+    /// Card designs are kept apart from album layouts, so neither is offered for the other.
+    pub fn with_cards() -> Self {
+        let mut registry = Self::default();
+        registry.add_pack(cards_pack());
         registry
     }
 

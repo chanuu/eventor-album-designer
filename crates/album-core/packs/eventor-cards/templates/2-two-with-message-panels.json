@@ -1,0 +1,149 @@
+{
+  "id": "eventor-cards/2-two-with-message-panels",
+  "name": "Two photos and two message panels",
+  "frame_count": 2,
+  "spread_aspect": {
+    "min": 0.6,
+    "max": 0.85
+  },
+  "tags": [
+    "card"
+  ],
+  "frames": [
+    {
+      "rect_pct": {
+        "x": 0.131,
+        "y": 0.106,
+        "w": 0.365,
+        "h": 0.391
+      }
+    },
+    {
+      "rect_pct": {
+        "x": 0.503,
+        "y": 0.503,
+        "w": 0.365,
+        "h": 0.39
+      }
+    }
+  ],
+  "panels": [
+    {
+      "rect_pct": {
+        "x": 0.503,
+        "y": 0.106,
+        "w": 0.365,
+        "h": 0.391
+      },
+      "colour": "#DEDDDE",
+      "z": -1
+    },
+    {
+      "rect_pct": {
+        "x": 0.131,
+        "y": 0.503,
+        "w": 0.365,
+        "h": 0.39
+      },
+      "colour": "#DEDDDE",
+      "z": -1
+    }
+  ],
+  "texts": [
+    {
+      "rect_pct": {
+        "x": 0.52,
+        "y": 0.235,
+        "w": 0.33,
+        "h": 0.09
+      },
+      "text": "Beyond\nThankful",
+      "size": 0.034,
+      "font": "Cormorant Garamond",
+      "colour": "#2A2A2A",
+      "align": "center",
+      "line_height": 1.05
+    },
+    {
+      "rect_pct": {
+        "x": 0.53,
+        "y": 0.333,
+        "w": 0.31,
+        "h": 0.027
+      },
+      "text": "Write your message here",
+      "size": 0.007,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "center",
+      "message": true
+    },
+    {
+      "rect_pct": {
+        "x": 0.15,
+        "y": 0.595,
+        "w": 0.327,
+        "h": 0.095
+      },
+      "text": "Write your message here",
+      "size": 0.008,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "center",
+      "message": true,
+      "line_height": 1.7
+    },
+    {
+      "rect_pct": {
+        "x": 0.15,
+        "y": 0.692,
+        "w": 0.327,
+        "h": 0.023
+      },
+      "text": "SINCERELY,",
+      "size": 0.0075,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "center"
+    },
+    {
+      "rect_pct": {
+        "x": 0.15,
+        "y": 0.736,
+        "w": 0.327,
+        "h": 0.029
+      },
+      "text": "{FIRST} + {SECOND}",
+      "size": 0.017,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "center"
+    },
+    {
+      "rect_pct": {
+        "x": 0.15,
+        "y": 0.763,
+        "w": 0.327,
+        "h": 0.022
+      },
+      "text": "{date:dd | mm | yy}",
+      "size": 0.0125,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "center"
+    },
+    {
+      "rect_pct": {
+        "x": 0.15,
+        "y": 0.93,
+        "w": 0.7,
+        "h": 0.045
+      },
+      "text": "{STUDIO}\nMUA | {MUA}",
+      "size": 0.011,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "center"
+    }
+  ]
+}

@@ -1,0 +1,113 @@
+{
+  "id": "eventor-cards/4-offset-grid",
+  "name": "Four in an offset grid",
+  "frame_count": 4,
+  "spread_aspect": {
+    "min": 0.6,
+    "max": 0.85
+  },
+  "tags": [
+    "card"
+  ],
+  "frames": [
+    {
+      "rect_pct": {
+        "x": 0.095,
+        "y": 0.108,
+        "w": 0.383,
+        "h": 0.354
+      }
+    },
+    {
+      "rect_pct": {
+        "x": 0.483,
+        "y": 0.108,
+        "w": 0.422,
+        "h": 0.389
+      }
+    },
+    {
+      "rect_pct": {
+        "x": 0.095,
+        "y": 0.467,
+        "w": 0.383,
+        "h": 0.428
+      }
+    },
+    {
+      "rect_pct": {
+        "x": 0.483,
+        "y": 0.502,
+        "w": 0.422,
+        "h": 0.393
+      }
+    }
+  ],
+  "texts": [
+    {
+      "rect_pct": {
+        "x": 0.09,
+        "y": 0.025,
+        "w": 0.36,
+        "h": 0.073
+      },
+      "text": "Thank you!",
+      "size": 0.05,
+      "font": "Mrs Saint Delafield",
+      "colour": "#2A2A2A",
+      "align": "left"
+    },
+    {
+      "rect_pct": {
+        "x": 0.55,
+        "y": 0.07,
+        "w": 0.355,
+        "h": 0.014
+      },
+      "text": "MEMORABLE DAY !",
+      "size": 0.0055,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "right"
+    },
+    {
+      "rect_pct": {
+        "x": 0.55,
+        "y": 0.08,
+        "w": 0.355,
+        "h": 0.024
+      },
+      "text": "{date:dd MON yyyy}",
+      "size": 0.0155,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "right"
+    },
+    {
+      "rect_pct": {
+        "x": 0.4,
+        "y": 0.9,
+        "w": 0.505,
+        "h": 0.028
+      },
+      "text": "{FIRST} & {SECOND}",
+      "size": 0.0165,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "right"
+    },
+    {
+      "rect_pct": {
+        "x": 0.05,
+        "y": 0.94,
+        "w": 0.9,
+        "h": 0.045
+      },
+      "text": "{STUDIO}\nMUA | {MUA}",
+      "size": 0.0105,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "center"
+    }
+  ]
+}
