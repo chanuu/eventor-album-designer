@@ -524,3 +524,25 @@ legend { padding: 0; margin-bottom: 7px; font-size: 12px; font-weight: 600; widt
 .music-line > svg { flex: none; width: 16px; height: 16px; color: var(--brand-text); }
 .cover-controls .modal-actions { margin-top: auto; padding-top: 8px; }
 .cover-remove { margin-right: auto; }
+
+/* The preview turns real paper, so the open book lies flat under the pointer. */
+.fb-book.fb-paper { transition: transform 0.6s cubic-bezier(0.3, 0.1, 0.2, 1); }
+.fb-book.fb-paper.open { transform: none; }
+.fb-paper .fb-edge, .fb-paper .fb-spine { transition-duration: 0.5s; }
+.pb-host { position: absolute; inset: 0; transition: transform 0.6s cubic-bezier(0.3, 0.1, 0.2, 1); }
+.fb-paper.at-front .pb-host, .fb-paper.at-back .pb-host { transform: translateZ(var(--deep)); }
+.pb-page { overflow: hidden; background: #fbfaf7; cursor: grab; user-select: none; }
+.pb-page img { -webkit-user-drag: none; pointer-events: none; }
+.pb-page::after { content: ""; position: absolute; inset: 0; z-index: 9; pointer-events: none; }
+.pb-page.--left::after { background: linear-gradient(to left, rgb(0 0 0 / 22%), rgb(0 0 0 / 5%) 4%, rgb(0 0 0 / 0%) 12%); }
+.pb-page.--right::after { background: linear-gradient(to right, rgb(0 0 0 / 22%), rgb(0 0 0 / 5%) 4%, rgb(0 0 0 / 0%) 12%); }
+.pb-page[data-density="hard"]::after { display: none; }
+/* StPageFlip's own layout rules, which its module build does not bring with it. */
+.pb-host .stf__parent { position: relative; display: block; box-sizing: border-box; transform: translateZ(0); touch-action: pan-y; }
+.pb-host .stf__wrapper { position: relative; width: 100%; box-sizing: border-box; }
+.pb-host .stf__block { position: absolute; width: 100%; height: 100%; box-sizing: border-box; perspective: 2000px; }
+.pb-host .stf__item { display: none; position: absolute; transform-style: preserve-3d; }
+.pb-host .stf__outerShadow, .pb-host .stf__innerShadow, .pb-host .stf__hardShadow, .pb-host .stf__hardInnerShadow { position: absolute; left: 0; top: 0; }
+/* A page here is as tall as the open book allows, so the closed book steps back a little to lean without touching the edges. */
+.fb-book.fb-paper.at-front { transform: translateX(-25%) scale(0.8) rotateX(calc(34deg - var(--my) * 5deg)) rotateY(calc(-20deg + var(--mx) * 7deg)) rotateZ(5deg); }
+.fb-book.fb-paper.at-back { transform: translateX(25%) scale(0.8) rotateX(calc(34deg - var(--my) * 5deg)) rotateY(calc(20deg + var(--mx) * 7deg)) rotateZ(-5deg); }

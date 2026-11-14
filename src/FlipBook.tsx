@@ -84,7 +84,7 @@ export function CoverFace({ cover, side }: { cover: Cover; side: CoverSide }) {
 }
 
 /** What the client sees when no cover has been designed: Eventor's own title page. */
-function TitlePage({ title, closing }: { title: string; closing?: boolean }) {
+export function TitlePage({ title, closing }: { title: string; closing?: boolean }) {
   return (
     <div className="title-page">
       {closing ? <em>With love</em> : <strong>{title}</strong>}
@@ -92,7 +92,7 @@ function TitlePage({ title, closing }: { title: string; closing?: boolean }) {
   );
 }
 
-function HalfSpread({ spread, half, byId }: { spread: Spread; half: 'left' | 'right'; byId: Map<string, PhotoInfo> }) {
+export function HalfSpread({ spread, half, byId }: { spread: Spread; half: 'left' | 'right'; byId: Map<string, PhotoInfo> }) {
   const { design } = spread;
   return (
     <div className={`fb-half fb-half-${half}`} style={{ background: design.background.value }}>

@@ -1,7 +1,7 @@
 import { ChevronLeftIcon, ChevronRightIcon, MusicIcon, PaletteIcon, PauseIcon, XIcon } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { readMusic, type Cover, type Music, type PhotoInfo, type ProjectSpec, type Spread } from './api';
-import FlipBook from './FlipBook';
+import PaperBook, { type PaperBookHandle } from './PaperBook';
 
 /** The album as the client will see it: a book to open and leaf through, with its music. */
 export default function AlbumPreview({
@@ -21,6 +21,7 @@ export default function AlbumPreview({
   const [playing, setPlaying] = useState(false);
   const [musicError, setMusicError] = useState('');
   const audio = useRef<HTMLAudioElement>(null);
+  const book = useRef<PaperBookHandle>(null);
   const last = spreads.length + 1;
 
   useEffect(() => {
@@ -31,11 +32,12 @@ export default function AlbumPreview({
       e.preventDefault();
       e.stopImmediatePropagation();
       if (e.key === 'Escape') onClose();
-      else setAt((was) => Math.max(0, Math.min(last, was + step)));
+      else if (step > 0) book.current?.next();
+      else book.current?.prev();
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [last, onClose]);
+  }, [onClose]);
 
   useEffect(() => {
     if (!music) return undefined;
@@ -97,12 +99,12 @@ export default function AlbumPreview({
         <button type="button" className="btn" onClick={onClose}><XIcon aria-hidden="true" />Close</button>
       </header>
 
-      <FlipBook spec={spec} spreads={spreads} photos={photos} cover={cover} title={title} at={at} onAt={setAt} />
+      <PaperBook ref={book} spec={spec} spreads={spreads} photos={photos} cover={cover} title={title} onAt={setAt} />
 
       <footer className="preview-foot">
-        <button type="button" className="btn icon-btn" aria-label="Previous page" disabled={at === 0} onClick={() => setAt(at - 1)}><ChevronLeftIcon aria-hidden="true" /></button>
+        <button type="button" className="btn icon-btn" aria-label="Previous page" disabled={at === 0} onClick={() => book.current?.prev()}><ChevronLeftIcon aria-hidden="true" /></button>
         <span className="preview-where" role="status">{where}</span>
-        <button type="button" className="btn icon-btn" aria-label="Next page" disabled={at === last} onClick={() => setAt(at + 1)}><ChevronRightIcon aria-hidden="true" /></button>
+        <button type="button" className="btn icon-btn" aria-label="Next page" disabled={at === last} onClick={() => book.current?.next()}><ChevronRightIcon aria-hidden="true" /></button>
       </footer>
 
       {track && (
