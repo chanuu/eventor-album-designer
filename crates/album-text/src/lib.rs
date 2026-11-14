@@ -435,12 +435,20 @@ mod tests {
     }
 
     #[test]
-    fn a_bundled_script_font_draws_differently_from_the_default() {
-        let plain = render_block(&block("Thank you"), 150.0).unwrap();
-        let mut script = block("Thank you");
-        script.font = "Great Vibes".into();
-        let script = render_block(&script, 150.0).unwrap();
-        assert_ne!(plain.image.as_raw(), script.image.as_raw());
+    fn every_bundled_font_is_really_used_when_asked_for() {
+        // A family that is listed but cannot be matched falls back to the default
+        // without a word, so each one is drawn and compared with the others.
+        let mut drawn = vec![render_block(&block("Thank you"), 150.0).unwrap().image];
+        for family in BUNDLED_FAMILIES {
+            let mut asked = block("Thank you");
+            asked.font = family.into();
+            let image = render_block(&asked, 150.0).unwrap().image;
+            assert!(
+                drawn.iter().all(|other| other.as_raw() != image.as_raw()),
+                "{family} drew the same as another font"
+            );
+            drawn.push(image);
+        }
     }
 
     #[test]
