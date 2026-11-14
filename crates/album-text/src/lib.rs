@@ -193,6 +193,8 @@ mod tests {
 
     fn block(text: &str) -> TextBlock {
         TextBlock {
+            role: None,
+            rot_deg: 0.0,
             id: "t1".to_string(),
             rect_mm: RectMm {
                 x: 0.0,
@@ -313,6 +315,8 @@ mod tests {
         let at = |align| {
             let drawn = render_block(
                 &TextBlock {
+                    role: None,
+                    rot_deg: 0.0,
                     align,
                     ..block("Hi")
                 },
@@ -334,6 +338,8 @@ mod tests {
         let normal = render_block(&block("Weight"), 300.0).unwrap();
         let bold = render_block(
             &TextBlock {
+                role: None,
+                rot_deg: 0.0,
                 bold: true,
                 ..block("Weight")
             },
@@ -357,6 +363,8 @@ mod tests {
     fn an_unknown_font_or_colour_does_not_fail() {
         let drawn = render_block(
             &TextBlock {
+                role: None,
+                rot_deg: 0.0,
                 font: "No Such Font".to_string(),
                 colour: "nonsense".to_string(),
                 ..block("Hi")

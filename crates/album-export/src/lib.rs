@@ -692,6 +692,7 @@ mod tests {
 
     fn design(frames: Vec<Frame>, paper: &str) -> SpreadDesign {
         SpreadDesign {
+            shapes: Vec::new(),
             v: 1,
             template_id: None,
             texts: Vec::new(),
@@ -728,6 +729,8 @@ mod tests {
 
     fn project(photos: Vec<PhotoInfo>, frames: Vec<Frame>) -> Project {
         Project {
+            kind: Default::default(),
+            details: None,
             version: PROJECT_VERSION,
             name: "Test / Album?".to_string(),
             size_label: "5×10 in".to_string(),
@@ -935,6 +938,8 @@ mod tests {
         let photo = split_photo(&dir.0, "a.png", 800, 400);
         let photos = HashMap::from([("a.png", &photo)]);
         let block = TextBlock {
+            role: None,
+            rot_deg: 0.0,
             id: "t".to_string(),
             rect_mm: RectMm {
                 x: 10.0,
@@ -1085,6 +1090,8 @@ mod tests {
         let photo = split_photo(&dir.0, "a.png", 400, 200);
         let photos = HashMap::from([("a.png", &photo)]);
         let block = |opacity| TextBlock {
+            role: None,
+            rot_deg: 0.0,
             id: "t".to_string(),
             rect_mm: RectMm {
                 x: 10.0,
@@ -1337,6 +1344,8 @@ mod tests {
     #[test]
     fn an_album_with_no_spreads_cannot_be_exported() {
         let album = Project {
+            kind: Default::default(),
+            details: None,
             spreads: Vec::new(),
             ..project(Vec::new(), Vec::new())
         };
@@ -1365,6 +1374,7 @@ mod tests {
     #[test]
     fn size_is_taken_from_the_design_itself() {
         let d = SpreadDesign {
+            shapes: Vec::new(),
             size_mm: SizeMm { w: 25.4, h: 25.4 },
             ..design(Vec::new(), "#FFFFFF")
         };

@@ -97,9 +97,40 @@ pub struct Music {
     pub name: String,
 }
 
+/// What a file holds. Albums saved before cards existed say nothing, and are albums.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ProjectKind {
+    #[default]
+    Album,
+    Cards,
+}
+
+impl ProjectKind {
+    fn is_album(&self) -> bool {
+        *self == Self::Album
+    }
+}
+
+/// Who and what a set of thank you cards is for. It fills the cards' text.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CardDetails {
+    pub first_name: String,
+    pub second_name: String,
+    pub date: String,
+    pub venue: String,
+    pub mua: String,
+    pub studio: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Project {
     pub version: u32,
+    #[serde(default, skip_serializing_if = "ProjectKind::is_album")]
+    pub kind: ProjectKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub details: Option<CardDetails>,
     pub name: String,
     pub size_label: String,
     pub spec: ProjectSpec,
@@ -172,6 +203,20 @@ impl Project {
             }
         }
 
+        if let Some(details) = &self.details {
+            let words = [
+                &details.first_name,
+                &details.second_name,
+                &details.date,
+                &details.venue,
+                &details.mua,
+                &details.studio,
+            ];
+            if words.iter().any(|w| w.len() > MAX_COVER_TEXT_BYTES) {
+                return Err(invalid("the card details have too much text"));
+            }
+        }
+
         for spread in &self.spreads {
             let size = spread.design.size_mm;
             if !(size.w.is_finite() && size.h.is_finite() && size.w > 0.0 && size.h > 0.0) {
@@ -215,6 +260,7 @@ impl Project {
                     text.size_pt,
                     text.line_height,
                     text.opacity,
+                    text.rot_deg,
                 ]
                 .iter()
                 .all(|v| v.is_finite());
@@ -223,6 +269,20 @@ impl Project {
                 }
                 if text.text.len() > MAX_TEXT_BYTES {
                     return Err(invalid("a text block is too long"));
+                }
+                if ![0.0, 90.0, 270.0].contains(&text.rot_deg) {
+                    return Err(invalid(
+                        "a text block is turned to an angle that cannot be drawn",
+                    ));
+                }
+            }
+            for shape in &spread.design.shapes {
+                let r = shape.rect_mm;
+                let finite = [r.x, r.y, r.w, r.h, shape.opacity]
+                    .iter()
+                    .all(|v| v.is_finite());
+                if !finite || r.w <= 0.0 || r.h <= 0.0 {
+                    return Err(invalid("a colour panel has an impossible size"));
                 }
             }
         }
@@ -320,6 +380,8 @@ mod tests {
 
     fn project(photo_path: &Path) -> Project {
         Project {
+            kind: Default::default(),
+            details: None,
             version: PROJECT_VERSION,
             name: "Nimal & Sachini".into(),
             size_label: "12×30 in".into(),
@@ -334,6 +396,7 @@ mod tests {
                 photo_ids: vec!["photo-1".into()],
                 option_index: 0,
                 design: SpreadDesign {
+                    shapes: Vec::new(),
                     v: 1,
                     template_id: Some("eventor-essentials/1-full-spread".into()),
                     texts: Vec::new(),
@@ -481,6 +544,112 @@ mod tests {
         let mut album = project(&dir.0.join("a.jpg"));
         album.photos[0].width = 0;
         assert!(album.validate().is_err());
+    }
+
+    #[test]
+    fn an_album_saved_before_cards_existed_is_still_an_album() {
+        let dir = TempDir::new();
+        let file = dir.0.join("wedding.evalbum");
+        let album = project(&dir.0.join("a.jpg"));
+        save_project(&file, &album).unwrap();
+
+        // An album writes none of the card fields, which is what an older file looks like.
+        let written = fs::read_to_string(&file).unwrap();
+        for word in [
+            "\"kind\"",
+            "\"details\"",
+            "\"shapes\"",
+            "\"role\"",
+            "\"rot_deg\": 9",
+        ] {
+            assert!(!written.contains(word), "{word}");
+        }
+        let opened = load_project(&file).unwrap();
+        assert_eq!(opened.kind, ProjectKind::Album);
+        assert_eq!(opened.details, None);
+    }
+
+    #[test]
+    fn thank_you_cards_survive_saving_and_opening_exactly() {
+        use album_core::document::{Shape, TextAlign, TextBlock};
+
+        let dir = TempDir::new();
+        let file = dir.0.join("cards.evalbum");
+        let mut cards = project(&dir.0.join("a.jpg"));
+        cards.kind = ProjectKind::Cards;
+        cards.details = Some(CardDetails {
+            first_name: "Nimal".into(),
+            second_name: "Sachini".into(),
+            date: "2026-10-24".into(),
+            venue: "Galle Face Hotel".into(),
+            mua: "Salon Nilani".into(),
+            studio: "Eventor Weddings | 071 000 0000".into(),
+        });
+        let design = &mut cards.spreads[0].design;
+        design.shapes.push(Shape {
+            id: "p1".into(),
+            rect_mm: RectMm {
+                x: 10.0,
+                y: 10.0,
+                w: 60.0,
+                h: 80.0,
+            },
+            colour: "#DEDDDD".into(),
+            opacity: 1.0,
+            z: -1,
+        });
+        design.texts.push(TextBlock {
+            id: "t1".into(),
+            rect_mm: RectMm {
+                x: 10.0,
+                y: 10.0,
+                w: 60.0,
+                h: 20.0,
+            },
+            text: "Nimal & Sachini".into(),
+            font: "Jost".into(),
+            size_pt: 14.0,
+            colour: "#222222".into(),
+            align: TextAlign::Center,
+            bold: false,
+            italic: false,
+            line_height: 1.2,
+            opacity: 1.0,
+            role: Some("names".into()),
+            rot_deg: 270.0,
+        });
+
+        save_project(&file, &cards).unwrap();
+        assert_eq!(load_project(&file).unwrap(), cards);
+    }
+
+    #[test]
+    fn text_can_only_be_turned_by_quarter_turns() {
+        use album_core::document::{TextAlign, TextBlock};
+
+        let dir = TempDir::new();
+        let mut cards = project(&dir.0.join("a.jpg"));
+        cards.spreads[0].design.texts.push(TextBlock {
+            id: "t1".into(),
+            rect_mm: RectMm {
+                x: 0.0,
+                y: 0.0,
+                w: 60.0,
+                h: 20.0,
+            },
+            text: "Thank you".into(),
+            font: String::new(),
+            size_pt: 14.0,
+            colour: "#000000".into(),
+            align: TextAlign::Left,
+            bold: false,
+            italic: false,
+            line_height: 1.2,
+            opacity: 1.0,
+            role: None,
+            rot_deg: 33.0,
+        });
+        assert!(cards.validate().is_err());
     }
 
     #[test]

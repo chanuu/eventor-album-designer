@@ -226,6 +226,7 @@ pub fn apply_layout(
         v: DOCUMENT_VERSION,
         template_id: Some(template.id.clone()),
         texts: Vec::new(),
+        shapes: Vec::new(),
         size_mm: spec.canvas_mm(),
         background: Background::Color {
             value: spec.paper.clone(),
