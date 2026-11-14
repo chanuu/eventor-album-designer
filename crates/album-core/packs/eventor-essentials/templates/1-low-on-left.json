@@ -1,0 +1,10 @@
+{
+  "id": "eventor-essentials/1-low-on-left",
+  "name": "Low and wide on the left",
+  "frame_count": 1,
+  "spread_aspect": "any",
+  "tags": ["airy"],
+  "frames": [
+    {"rect_pct":{"x":0.06,"y":0.46,"w":0.38,"h":0.42}}
+  ]
+}

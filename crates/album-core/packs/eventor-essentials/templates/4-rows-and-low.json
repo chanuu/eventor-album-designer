@@ -1,0 +1,13 @@
+{
+  "id": "eventor-essentials/4-rows-and-low",
+  "name": "Three rows + low and wide",
+  "frame_count": 4,
+  "spread_aspect": "any",
+  "tags": ["airy"],
+  "frames": [
+    {"rect_pct":{"x":0,"y":0,"w":0.5,"h":0.3333}},
+    {"rect_pct":{"x":0,"y":0.3333,"w":0.5,"h":0.3334}},
+    {"rect_pct":{"x":0,"y":0.6667,"w":0.5,"h":0.3333}},
+    {"rect_pct":{"x":0.56,"y":0.46,"w":0.38,"h":0.42}}
+  ]
+}

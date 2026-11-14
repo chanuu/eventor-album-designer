@@ -1,0 +1,13 @@
+{
+  "id": "eventor-essentials/4-lead-base-and-corner",
+  "name": "Lead base + upper corner",
+  "frame_count": 4,
+  "spread_aspect": "any",
+  "tags": ["airy"],
+  "frames": [
+    {"rect_pct":{"x":0,"y":0,"w":0.25,"h":0.4}},
+    {"rect_pct":{"x":0.25,"y":0,"w":0.25,"h":0.4}},
+    {"rect_pct":{"x":0,"y":0.4,"w":0.5,"h":0.6}},
+    {"rect_pct":{"x":0.55,"y":0.1,"w":0.29,"h":0.52}}
+  ]
+}

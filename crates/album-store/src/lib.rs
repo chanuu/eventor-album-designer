@@ -19,6 +19,22 @@ pub const PROJECT_EXTENSION: &str = "evalbum";
 const MAX_PROJECT_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_TEXT_BYTES: usize = 64 * 1024;
 const MAX_FRAME_SHARE_OF_SPREAD: f64 = 4.0;
+const MAX_COVER_TEXT_BYTES: usize = 200;
+
+/// The kinds of music file a digital album can play, with the type each is served as.
+const MUSIC_TYPES: [(&str, &str); 5] = [
+    ("mp3", "audio/mpeg"),
+    ("m4a", "audio/mp4"),
+    ("aac", "audio/aac"),
+    ("ogg", "audio/ogg"),
+    ("wav", "audio/wav"),
+];
+
+/// The extension and served type of a music file, or None if it is not one.
+pub fn music_type(path: &str) -> Option<(&'static str, &'static str)> {
+    let ext = Path::new(path).extension()?.to_str()?.to_ascii_lowercase();
+    MUSIC_TYPES.iter().copied().find(|(known, _)| *known == ext)
+}
 
 #[derive(Debug, Error)]
 pub enum StoreError {
@@ -46,6 +62,39 @@ pub struct PublishLink {
     pub job_id: String,
     pub job_title: String,
     pub album_id: String,
+    /// The music sent with it, so the same file is not uploaded again each time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub music: Option<PublishedMusic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PublishedMusic {
+    /// Tells one version of the file from another.
+    pub stamp: String,
+    pub url: String,
+}
+
+/// The album's cover: its material, the foil, and the words pressed into it. The names
+/// of materials and designs belong to the app's cover designer, which falls back to its
+/// own defaults for any it does not know.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Cover {
+    pub material: String,
+    pub colour: String,
+    pub foil: String,
+    pub design: String,
+    pub first_name: String,
+    pub second_name: String,
+    pub date: String,
+    pub venue: String,
+}
+
+/// Music for the digital album: a file on this computer, sent when the album is published.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Music {
+    pub path: String,
+    pub name: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -61,6 +110,10 @@ pub struct Project {
     pub ratings: HashMap<String, Rating>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub publish: Option<PublishLink>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cover: Option<Cover>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub music: Option<Music>,
 }
 
 fn invalid(reason: impl Into<String>) -> StoreError {
@@ -95,6 +148,28 @@ impl Project {
         }
         if self.photos.iter().any(|p| p.width == 0 || p.height == 0) {
             return Err(invalid("a photo has no size"));
+        }
+
+        // The same goes for music: the path is read and uploaded when publishing.
+        if let Some(music) = &self.music {
+            if music_type(&music.path).is_none() {
+                return Err(invalid(format!("{} is not a music file", music.name)));
+            }
+        }
+        if let Some(cover) = &self.cover {
+            let words = [
+                &cover.material,
+                &cover.colour,
+                &cover.foil,
+                &cover.design,
+                &cover.first_name,
+                &cover.second_name,
+                &cover.date,
+                &cover.venue,
+            ];
+            if words.iter().any(|w| w.len() > MAX_COVER_TEXT_BYTES) {
+                return Err(invalid("the cover has too much text"));
+            }
         }
 
         for spread in &self.spreads {
@@ -250,6 +325,8 @@ mod tests {
             size_label: "12×30 in".into(),
             ratings: Default::default(),
             publish: None,
+            cover: None,
+            music: None,
             spec: ProjectSpec::from_open_inches(30.0, 12.0),
             photos: vec![photo(photo_path)],
             spreads: vec![SavedSpread {
@@ -297,6 +374,38 @@ mod tests {
 
         save_project(&file, &original).unwrap();
         assert_eq!(load_project(&file).unwrap(), original);
+    }
+
+    #[test]
+    fn the_cover_and_music_are_saved_with_the_album() {
+        let dir = TempDir::new();
+        let file = dir.0.join("wedding.evalbum");
+        let mut album = project(&dir.0.join("a.jpg"));
+        album.cover = Some(Cover {
+            material: "linen".into(),
+            foil: "gold".into(),
+            first_name: "Nimal".into(),
+            second_name: "Sachini".into(),
+            ..Cover::default()
+        });
+        album.music = Some(Music {
+            path: "C:/music/first dance.MP3".into(),
+            name: "first dance.MP3".into(),
+        });
+
+        save_project(&file, &album).unwrap();
+        assert_eq!(load_project(&file).unwrap(), album);
+    }
+
+    #[test]
+    fn music_can_only_be_a_music_file() {
+        let dir = TempDir::new();
+        let mut album = project(&dir.0.join("a.jpg"));
+        album.music = Some(Music {
+            path: "C:/Users/someone/passwords.txt".into(),
+            name: "passwords.txt".into(),
+        });
+        assert!(matches!(album.validate(), Err(StoreError::Invalid(_))));
     }
 
     #[test]

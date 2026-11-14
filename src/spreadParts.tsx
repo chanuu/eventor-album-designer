@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { previewText, previewUrl, type Frame, type PhotoInfo, type SpreadDesign, type TextBlock } from './api';
 import type { Album } from './App';
 import { visibleArea } from './crop';
@@ -17,6 +17,14 @@ const TEXT_SETTLE_MS = 120;
 const SNAP_MM = 2;
 
 const MIN_TEXT_BOX_MM = 8;
+
+/** How far each side of the fold the binding takes. A magazine fold hides much more. */
+const GUTTER_MM: Record<string, number> = { layflat: 3, magazine: 10 };
+
+/** The fold, and the band beside it that the binding may hide. */
+export function foldStyle(binding: string, spreadWidthMm: number): CSSProperties {
+  return { width: percent((GUTTER_MM[binding] ?? 6) * 2, spreadWidthMm) };
+}
 
 export function percent(part: number, whole: number): string {
   return `${(part / whole) * 100}%`;

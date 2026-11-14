@@ -1,3 +1,4 @@
+import { ImageOffIcon, ImagesIcon, LightbulbIcon, SparklesIcon, XIcon } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import {
@@ -13,7 +14,16 @@ import {
   type Spread,
 } from './api';
 
-type Style = { tag: string; name: string; hint: string; art: string[] };
+type Style = {
+  tag: string;
+  name: string;
+  hint: string;
+  art: string[];
+  /** The most photos its layouts hold on one spread, when that is fewer than usual. */
+  most?: number;
+  /** How many layouts back it avoids repeating. The usual is only the last one. */
+  memory?: number;
+};
 
 /** `art` is a tiny drawing of the style: each entry is left, top, width, height in %. */
 const STYLES: Style[] = [
@@ -21,13 +31,26 @@ const STYLES: Style[] = [
   { tag: 'hero', name: 'Hero', hint: 'One full page beside smaller photos', art: ['0,0,50,100', '54,8,42,40', '54,52,42,40'] },
   { tag: 'panorama', name: 'Panorama', hint: 'One big photo across the fold', art: ['0,0,100,62', '4,68,44,26', '52,68,44,26'] },
   { tag: 'grid', name: 'Grid', hint: 'Columns and rows, more photos', art: ['2,6,22,88', '26,6,22,88', '52,6,22,88', '76,6,22,88'] },
+  { tag: 'fineart', name: 'Fine art', hint: 'Few photos, open paper, full pages', art: ['7,14,17,72', '26,14,17,72', '50,0,50,100'], most: 6, memory: 4 },
 ];
 
-/** Prefers the chosen style, and avoids using the same layout twice in a row. */
-function chooseLayout(options: LayoutOption[], tag: string, previous: string | null) {
+/** A layout and its mirrored copy look alike, so they count as one when avoiding repeats. */
+const family = (templateId: string) => templateId.replace(/-mirrored$/, '');
+
+/** Prefers the chosen style, and avoids the layouts used on the spreads just before. */
+function chooseLayout(options: LayoutOption[], tag: string, recent: string[]) {
   const inStyle = options.filter((o) => o.tags.includes(tag));
   const pool = inStyle.length ? inStyle : options;
-  const pick = pool.find((o) => o.template_id !== previous) ?? pool[0];
+  const families = recent.map(family);
+  // How many spreads ago a layout like this one was used. Never is best.
+  const age = (o: LayoutOption) => {
+    const at = families.indexOf(family(o.template_id));
+    return at < 0 ? Infinity : at;
+  };
+  let pick = pool[0];
+  for (const o of pool) if (age(o) > age(pick)) pick = o;
+  // With nothing else to turn to, at least the mirrored copy is a change.
+  if (pick.template_id === recent[0]) pick = pool.find((o) => o.template_id !== recent[0]) ?? pick;
   return options.indexOf(pick);
 }
 
@@ -71,10 +94,13 @@ export default function AutoBuild({
   const [unreadable, setUnreadable] = useState(0);
 
   const [tag, setTag] = useState('clean');
+  const chosenStyle = STYLES.find((s) => s.tag === tag);
+  const most = chosenStyle?.most ?? null;
   const [wanted, setWanted] = useState<number | null>(null);
   const [splitByTime, setSplitByTime] = useState(true);
   const [syncClocks, setSyncClocks] = useState(true);
   const [keepMono, setKeepMono] = useState(true);
+  const [story, setStory] = useState(true);
   const [useEvery, setUseEvery] = useState(false);
   const [leaveBlurry, setLeaveBlurry] = useState(true);
   const [leaveSimilar, setLeaveSimilar] = useState(true);
@@ -116,11 +142,13 @@ export default function AutoBuild({
       leave_out_blurry: !useEvery && leaveBlurry,
       leave_out_similar: !useEvery && leaveSimilar,
       keep: [...keep, ...alwaysKeep],
+      tell_story: story,
+      max_per_spread: most,
     })
       .then((next) => { if (current) setPlan(next); })
       .catch((e) => { if (current) setError(String(e)); });
     return () => { current = false; };
-  }, [analysed, chosenIds, wanted, splitByTime, syncClocks, keepMono, useEvery, leaveBlurry, leaveSimilar, keep, alwaysKeep]);
+  }, [analysed, chosenIds, wanted, splitByTime, syncClocks, keepMono, useEvery, leaveBlurry, leaveSimilar, keep, alwaysKeep, story, most]);
 
   async function build() {
     if (!plan) return;
@@ -129,12 +157,16 @@ export default function AutoBuild({
     try {
       const groups = plan.spreads.map((ids) => ids.flatMap((id) => byId.get(id) ?? []));
       const allOptions = await Promise.all(groups.map((group) => suggestLayouts(group, spec)));
-      let previous: string | null = null;
+      const recent: string[] = [];
+      let singles = 0;
       const spreads: Spread[] = groups.map((group, i) => {
         const options = allOptions[i];
-        const optionIndex = chooseLayout(options, tag, previous);
+        // A feature photo takes turns: filling the spread, then sitting in open space.
+        // Fine art has its own single-photo pages.
+        const look = group.length === 1 && tag !== 'fineart' ? (singles++ % 2 === 0 ? 'hero' : 'airy') : tag;
+        const optionIndex = chooseLayout(options, look, recent.slice(0, chosenStyle?.memory ?? 1));
         const design = options[optionIndex].design;
-        previous = design.template_id;
+        if (design.template_id) recent.unshift(design.template_id);
         return {
           id: crypto.randomUUID(),
           photoIds: group.map((p) => p.id),
@@ -205,10 +237,10 @@ export default function AutoBuild({
             <fieldset>
               <legend>Photos</legend>
               <div className="segment">
-                <button type="button" aria-pressed={source === 'all'} className={source === 'all' ? 'on' : ''} onClick={() => setSource('all')}>
+                <button type="button" aria-pressed={source === 'all'} className={source === 'all' ? 'on' : ''} onClick={() => setSource('all')}><ImagesIcon aria-hidden="true" />
                   All ({photos.length})
                 </button>
-                <button type="button" aria-pressed={source === 'unused'} className={source === 'unused' ? 'on' : ''} disabled={!unused.length} onClick={() => setSource('unused')}>
+                <button type="button" aria-pressed={source === 'unused'} className={source === 'unused' ? 'on' : ''} disabled={!unused.length} onClick={() => setSource('unused')}><ImageOffIcon aria-hidden="true" />
                   Unused ({unused.length})
                 </button>
               </div>
@@ -217,7 +249,7 @@ export default function AutoBuild({
             <fieldset>
               <legend className="legend-row">
                 <span>Spreads</span>
-                <button type="button" className="link" onClick={() => setWanted(null)}>Suggest</button>
+                <button type="button" className="link" onClick={() => setWanted(null)}><LightbulbIcon aria-hidden="true" />Suggest</button>
               </legend>
               <div className="spread-count">
                 <input
@@ -236,6 +268,10 @@ export default function AutoBuild({
 
             <fieldset className="smart-choices">
               <legend>Smart choices</legend>
+              <label className="toggle" title="Opens and closes on a single photo, and gives each long part of the day a feature spread">
+                <input type="checkbox" checked={story} onChange={(e) => setStory(e.target.checked)} />
+                Tell a story with single-photo feature spreads
+              </label>
               <label className="toggle">
                 <input type="checkbox" checked={useEvery} onChange={(e) => setUseEvery(e.target.checked)} />
                 Use every photo
@@ -325,7 +361,7 @@ export default function AutoBuild({
             )}
 
             {keep.length > 0 && (
-              <button type="button" className="link" onClick={() => setKeep([])}>
+              <button type="button" className="link" onClick={() => setKeep([])}><XIcon aria-hidden="true" />
                 Clear {keep.length} photo{keep.length === 1 ? '' : 's'} put back by hand
               </button>
             )}
@@ -338,8 +374,8 @@ export default function AutoBuild({
         {error && <p className="error">{error}</p>}
 
         <div className="modal-actions">
-          <button type="button" className="btn" disabled={busy} onClick={onClose}>Cancel</button>
-          <button type="button" className="btn-primary" disabled={busy || !plan || !count} onClick={() => void build()}>
+          <button type="button" className="btn" disabled={busy} onClick={onClose}><XIcon aria-hidden="true" />Cancel</button>
+          <button type="button" className="btn-primary" disabled={busy || !plan || !count} onClick={() => void build()}><SparklesIcon aria-hidden="true" />
             {busy ? 'Building…' : 'Build album'}
           </button>
         </div>

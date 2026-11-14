@@ -1,0 +1,14 @@
+{
+  "id": "eventor-essentials/5-floating-row-and-steps",
+  "name": "Floating row + stepped",
+  "frame_count": 5,
+  "spread_aspect": "any",
+  "tags": ["airy"],
+  "frames": [
+    {"rect_pct":{"x":0.03,"y":0.3,"w":0.14,"h":0.4}},
+    {"rect_pct":{"x":0.18,"y":0.3,"w":0.14,"h":0.4}},
+    {"rect_pct":{"x":0.33,"y":0.3,"w":0.14,"h":0.4}},
+    {"rect_pct":{"x":0.53,"y":0.08,"w":0.27,"h":0.48}},
+    {"rect_pct":{"x":0.7,"y":0.56,"w":0.27,"h":0.36}}
+  ]
+}

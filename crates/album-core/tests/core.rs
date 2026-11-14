@@ -2,6 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use album_core::autobuild::{gallery_left_out, PhotoFacts};
 use album_core::autolayout::{
     apply_layout, crop_loss, cycle_index, rank_layouts, rect_to_mm, Photo,
 };
@@ -523,6 +524,69 @@ fn aspect_limits_filter_out_templates_for_other_album_shapes() {
     );
 }
 
+fn gallery_fact(id: &str, sharpness: f64, blown: f64, crushed: f64) -> PhotoFacts {
+    PhotoFacts {
+        id: id.to_string(),
+        taken_at: None,
+        camera: None,
+        sharpness: Some(sharpness),
+        hash: None,
+        mono: false,
+        blown,
+        crushed,
+    }
+}
+
+fn gallery_reasons(facts: &[PhotoFacts], edges: &[(String, u32)], id: &str) -> Vec<String> {
+    gallery_left_out(facts, edges, &[])
+        .into_iter()
+        .find(|item| item.id == id)
+        .map_or_else(Vec::new, |item| item.reasons)
+}
+
+fn normal_gallery() -> Vec<PhotoFacts> {
+    (0..6)
+        .map(|i| gallery_fact(&format!("p{i}"), 100.0, 0.02, 0.02))
+        .collect()
+}
+
+#[test]
+fn a_gallery_keeps_ordinary_photos() {
+    assert!(gallery_left_out(&normal_gallery(), &[], &[]).is_empty());
+}
+
+#[test]
+fn a_gallery_leaves_out_overexposed_photos_but_not_a_white_dress() {
+    let mut facts = normal_gallery();
+    facts.push(gallery_fact("burnt", 100.0, 0.5, 0.0));
+    facts.push(gallery_fact("dress", 100.0, 0.15, 0.0));
+    assert_eq!(gallery_reasons(&facts, &[], "burnt"), ["Overexposed"]);
+    assert!(gallery_reasons(&facts, &[], "dress").is_empty());
+}
+
+#[test]
+fn a_gallery_leaves_out_blurry_dark_and_small_photos() {
+    let mut facts = normal_gallery();
+    facts.push(gallery_fact("soft", 5.0, 0.02, 0.02));
+    facts.push(gallery_fact("night", 100.0, 0.0, 0.8));
+    facts.push(gallery_fact("tiny", 100.0, 0.02, 0.02));
+    let edges = vec![("tiny".to_string(), 640), ("p0".to_string(), 6000)];
+    assert_eq!(gallery_reasons(&facts, &edges, "soft"), ["Blurry"]);
+    assert_eq!(gallery_reasons(&facts, &edges, "night"), ["Too dark"]);
+    assert_eq!(gallery_reasons(&facts, &edges, "tiny"), ["Low resolution"]);
+    assert!(gallery_reasons(&facts, &edges, "p0").is_empty());
+}
+
+#[test]
+fn a_gallery_photo_can_have_more_than_one_problem() {
+    let mut facts = normal_gallery();
+    facts.push(gallery_fact("both", 5.0, 0.6, 0.0));
+    assert_eq!(
+        gallery_reasons(&facts, &[], "both"),
+        ["Overexposed", "Blurry"]
+    );
+}
+
 fn every_builtin_layout() -> Vec<album_core::pack::Template> {
     let registry = TemplateRegistry::with_builtin();
     (1..=12)
@@ -700,4 +764,13 @@ fn varying_refuses_the_wrong_number_of_photos() {
     let wrong = photos(&vec![LANDSCAPE; template.frames.len() + 1]);
     assert!(vary_layout(&template, &wrong, &spec, &[], 1).is_none());
     assert!(vary_layout(&template, &[], &spec, &[], 1).is_none());
+}
+
+#[test]
+fn a_gallery_leaves_out_photos_where_someone_blinked() {
+    let facts = normal_gallery();
+    let left = gallery_left_out(&facts, &[], &["p2".to_string()]);
+    assert_eq!(left.len(), 1);
+    assert_eq!(left[0].id, "p2");
+    assert_eq!(left[0].reasons, ["Eyes closed"]);
 }

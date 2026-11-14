@@ -1,0 +1,10 @@
+{
+  "id": "eventor-essentials/1-fine-art-single-large-mirrored",
+  "name": "Single large photo (mirrored)",
+  "frame_count": 1,
+  "spread_aspect": "any",
+  "tags": ["fineart"],
+  "frames": [
+    {"rect_pct":{"x":0.06,"y":0.13,"w":0.38,"h":0.74}}
+  ]
+}

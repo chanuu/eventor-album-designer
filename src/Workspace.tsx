@@ -1,3 +1,4 @@
+import { ArrowLeftIcon, ArrowRightIcon, BookOpenIcon, ChevronLeftIcon, ChevronRightIcon, DownloadIcon, FlipHorizontal2Icon, ImageMinusIcon, ImagePlusIcon, ImagesIcon, LayoutGridIcon, MessageSquareIcon, PaletteIcon, PanelRightIcon, PenToolIcon, PlusIcon, Redo2Icon, RotateCcwIcon, SaveIcon, SearchIcon, SendIcon, SparklesIcon, Trash2Icon, Undo2Icon, XIcon, ZapIcon } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ask, open, save } from '@tauri-apps/plugin-dialog';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -16,9 +17,11 @@ import {
   suggestRatings,
   analyzePhotos,
   type Adjustments,
+  type Cover,
   type Frame,
   type FrameStyle,
   type LayoutOption,
+  type Music,
   type Project,
   type PublishLink,
   type PhotoInfo,
@@ -28,8 +31,10 @@ import {
   type SpreadDesign,
   type TextBlock,
 } from './api';
+import AlbumPreview from './AlbumPreview';
 import type { Album } from './App';
 import AutoBuild from './AutoBuild';
+import CoverDesigner from './CoverDesigner';
 import { effectiveDpi, visibleArea, cropShare } from './crop';
 import EffectsPanel, { NO_ADJUSTMENTS } from './EffectsPanel';
 import CommentsDialog from './CommentsDialog';
@@ -39,7 +44,7 @@ import ExportDialog from './ExportDialog';
 import PublishDialog from './PublishDialog';
 import { useHistory } from './history';
 import { ALBUM_EXTENSION, ALBUM_FILTERS, rememberAlbum, toProject } from './project';
-import { DRAG_PHOTOS, FrameBorder, FramedPhoto, frameStyle, percent, TextOnSpread, ThumbText } from './spreadParts';
+import { DRAG_PHOTOS, foldStyle, FrameBorder, FramedPhoto, frameStyle, percent, TextOnSpread, ThumbText } from './spreadParts';
 import { useSpreadRail } from './spreadRail';
 import TextPanel from './TextPanel';
 
@@ -50,6 +55,12 @@ const MAX_ZOOM = 3;
 
 /** How long after the last change an already-saved album saves itself. */
 const AUTOSAVE_DELAY_MS = 1500;
+
+/** Auto design chooses among this many of the layouts that suit the photos best. */
+const AUTO_DESIGN_CHOICES = 12;
+/** How many recent layouts it avoids repeating on the same spread. */
+const AUTO_DESIGN_MEMORY = 4;
+const FINE_ART = 'fineart';
 
 type SaveStatus = 'saved' | 'unsaved' | 'saving' | 'failed';
 type PhotoFilter = 'all' | 'unused' | 'used' | 'missing' | Rating;
@@ -118,9 +129,14 @@ export default function Workspace({ album }: { album: Album }) {
   const [designerOpen, setDesignerOpen] = useState(false);
   const [publishLink, setPublishLink] = useState<PublishLink | null>(album.publish);
   const [publishProject, setPublishProject] = useState<Project | null>(null);
+  const [cover, setCover] = useState<Cover | null>(album.cover ?? null);
+  const [music, setMusic] = useState<Music | null>(album.music ?? null);
+  const [showCover, setShowCover] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
   const [showComments, setShowComments] = useState(false);
   const [openComments, setOpenComments] = useState(0);
   const autoDesignTicket = useRef(0);
+  const recentLayouts = useRef(new Map<string, string[]>());
   const [ratings, setRatings] = useState<Record<string, Rating>>(album.ratings);
   const [suggested, setSuggested] = useState<Map<string, PhotoRating>>(new Map());
   const [reading, setReading] = useState(false);
@@ -161,14 +177,17 @@ export default function Workspace({ album }: { album: Album }) {
     if (!spreads.some((s) => s.id === currentId)) setCurrentId(spreads[0]?.id ?? null);
   }, [spreads, currentId]);
 
-  const latest = useRef({ photos, spreads, ratings, publishLink, path, dirty: false });
+  const latest = useRef({ photos, spreads, ratings, publishLink, cover, music, path, dirty: false });
   latest.current.path = path;
   useEffect(() => {
     const was = latest.current;
-    if (was.photos === photos && was.spreads === spreads && was.ratings === ratings && was.publishLink === publishLink) return;
-    latest.current = { ...was, photos, spreads, ratings, publishLink, dirty: true };
+    if (
+      was.photos === photos && was.spreads === spreads && was.ratings === ratings
+      && was.publishLink === publishLink && was.cover === cover && was.music === music
+    ) return;
+    latest.current = { ...was, photos, spreads, ratings, publishLink, cover, music, dirty: true };
     setSaveStatus('unsaved');
-  }, [photos, spreads, ratings, publishLink]);
+  }, [photos, spreads, ratings, publishLink, cover, music]);
 
   // Shows how many comments are waiting, once this album is linked to a job.
   useEffect(() => {
@@ -214,7 +233,7 @@ export default function Workspace({ album }: { album: Album }) {
       const snapshot = latest.current;
       setSaveStatus('saving');
       try {
-        await saveAlbum(target, toProject(album, snapshot.photos, snapshot.spreads, snapshot.ratings, snapshot.publishLink));
+        await saveAlbum(target, toProject(album, snapshot.photos, snapshot.spreads, snapshot.ratings, snapshot.publishLink, snapshot.cover, snapshot.music));
         if (latest.current === snapshot) {
           latest.current.dirty = false;
           setSaveStatus('saved');
@@ -597,27 +616,49 @@ export default function Workspace({ album }: { album: Album }) {
     );
   }, [changeFrames, frameId]);
 
-  /** Each click makes another arrangement in the selected style, without end. */
+  /**
+   * Each click gives the spread a different layout: another of the layouts that suit these
+   * photos, chosen from the best, and then rearranged so that no two clicks look alike.
+   */
   async function autoDesign() {
-    if (!current) return;
-    const style = current.options[current.optionIndex];
-    if (!style) return;
+    if (!current || !current.options.length) return;
     const spreadId = current.id;
     const ticket = ++autoDesignTicket.current;
+    const recent = recentLayouts.current.get(spreadId) ?? [];
+    const ranked = current.options.map((option, index) => ({ option, index }));
+    // A fine art spread stays fine art: its layouts sit low in the ranking, behind fuller ones.
+    const fineArt = current.options[current.optionIndex]?.tags.includes(FINE_ART)
+      ? ranked.filter(({ option }) => option.tags.includes(FINE_ART))
+      : [];
+    const staysFineArt = fineArt.length > 1;
+    // Every fine art layout takes its turn, since there are few and none is rearranged.
+    const best = staysFineArt ? fineArt : ranked.slice(0, AUTO_DESIGN_CHOICES);
+    // Never the one on screen, and not one of the last few, while there are others to use.
+    const fresh = best.filter(({ option, index }) => index !== current.optionIndex && !recent.includes(option.template_id));
+    const others = best.filter(({ index }) => index !== current.optionIndex);
+    const pool = fresh.length ? fresh : others.length ? others : best;
+    const [roll, seed] = crypto.getRandomValues(new Uint32Array(2));
+    const { option, index } = pool[roll % pool.length];
     const list = current.photoIds.flatMap((id) => byId.get(id) ?? []);
-    const [seed] = crypto.getRandomValues(new Uint32Array(1));
     try {
-      const made = await varyLayout(style.template_id, list, spec, current.design.frames.map((f) => f.rect_mm), seed);
+      // A fine art layout is used as drawn. Moving its lines would undo its margins.
+      const made = staysFineArt
+        ? null
+        : await varyLayout(option.template_id, list, spec, option.design.frames.map((f) => f.rect_mm), seed);
       // Only the latest click counts, when they come quicker than the answers.
       if (ticket !== autoDesignTicket.current) return;
-      if (!made) {
-        setNotice(`“${style.name}” has only one arrangement. Choose another style with ‹ › to design more.`);
-        return;
-      }
+      // Fine art layouts come round only after all the others have been shown.
+      const remembered = staysFineArt ? best.length - 1 : AUTO_DESIGN_MEMORY;
+      // The layout being left counts as shown, even if Auto design did not choose it.
+      const shown = [option.template_id, current.options[current.optionIndex]?.template_id, ...recent]
+        .filter((id): id is string => !!id);
+      recentLayouts.current.set(spreadId, [...new Set(shown)].slice(0, remembered));
       setNotice('');
       setFrameId(null);
       history.seal();
-      setSpreads((all) => all.map((s) => (s.id === spreadId ? { ...s, design: carryOver(s.design, made.design) } : s)));
+      setSpreads((all) => all.map((s) => (
+        s.id === spreadId ? { ...s, optionIndex: index, design: carryOver(s.design, (made ?? option).design) } : s
+      )));
       history.seal();
     } catch (e) {
       setNotice(`Could not design a new layout: ${String(e)}`);
@@ -729,7 +770,7 @@ export default function Workspace({ album }: { album: Album }) {
     <div className="workspace">
       <header className="topbar">
         {designerOpen ? (
-          <button type="button" className="btn" onClick={() => setDesignerOpen(false)}>‹ Back to album</button>
+          <button type="button" className="btn" onClick={() => setDesignerOpen(false)}><ChevronLeftIcon aria-hidden="true" />Back to album</button>
         ) : (
           <span className="brand-mark small" aria-hidden="true">E</span>
         )}
@@ -750,38 +791,40 @@ export default function Workspace({ album }: { album: Album }) {
             failed: 'Could not save',
           }[saveStatus]}
         </span>
-        <button type="button" className="btn" onClick={() => void saveNow()}>Save</button>
-        <button type="button" className="btn icon-btn" aria-label="Undo" title="Undo (Ctrl+Z)" disabled={!history.canUndo} onClick={() => { setFrameId(null); undo(); }}>↶</button>
-        <button type="button" className="btn icon-btn" aria-label="Redo" title="Redo (Ctrl+Y)" disabled={!history.canRedo} onClick={() => { setFrameId(null); redo(); }}>↷</button>
+        <button type="button" className="btn" onClick={() => void saveNow()}><SaveIcon aria-hidden="true" />Save</button>
+        <button type="button" className="btn icon-btn" aria-label="Undo" title="Undo (Ctrl+Z)" disabled={!history.canUndo} onClick={() => { setFrameId(null); undo(); }}><Undo2Icon aria-hidden="true" /></button>
+        <button type="button" className="btn icon-btn" aria-label="Redo" title="Redo (Ctrl+Y)" disabled={!history.canRedo} onClick={() => { setFrameId(null); redo(); }}><Redo2Icon aria-hidden="true" /></button>
         <span className="topbar-gap" />
         <label className="toggle">
           <input type="checkbox" checked={guides} onChange={(e) => setGuides(e.target.checked)} />
           Print guides
         </label>
-        <button type="button" className={`btn pane-btn ${showBrowser ? 'active' : ''}`} aria-pressed={showBrowser} onClick={() => setShowBrowser(!showBrowser)}>Photos</button>
+        <button type="button" className={`btn pane-btn ${showBrowser ? 'active' : ''}`} aria-pressed={showBrowser} onClick={() => setShowBrowser(!showBrowser)}><ImagesIcon aria-hidden="true" />Photos</button>
         {!designerOpen && (
-          <button type="button" className={`btn pane-btn ${showSide ? 'active' : ''}`} aria-pressed={showSide} onClick={() => setShowSide(!showSide)}>Panel</button>
+          <button type="button" className={`btn pane-btn ${showSide ? 'active' : ''}`} aria-pressed={showSide} onClick={() => setShowSide(!showSide)}><PanelRightIcon aria-hidden="true" />Panel</button>
         )}
         {publishLink?.album_id && (
-          <button type="button" className="btn" onClick={() => setShowComments(true)}>
+          <button type="button" className="btn" onClick={() => setShowComments(true)}><MessageSquareIcon aria-hidden="true" />
             Comments{openComments > 0 && <span className="count-badge">{openComments}</span>}
           </button>
         )}
+        <button type="button" className="btn" title="The digital album's cover and music" onClick={() => setShowCover(true)}><PaletteIcon aria-hidden="true" />Cover</button>
+        <button type="button" className="btn" disabled={!spreads.length} title="Leaf through the album as the client will" onClick={() => setShowPreview(true)}><BookOpenIcon aria-hidden="true" />Preview</button>
         <button
           type="button"
           className="btn"
           disabled={!spreads.length}
           title="Publish as the client's digital album in Eventor"
-          onClick={() => setPublishProject(toProject(album, photos, spreads, ratings, publishLink))}
-        >
+          onClick={() => setPublishProject(toProject(album, photos, spreads, ratings, publishLink, cover, music))}
+        ><SendIcon aria-hidden="true" />
           Publish
         </button>
         <button
           type="button"
           className="btn-primary"
           disabled={!spreads.length}
-          onClick={() => setExportProject(toProject(album, photos, spreads, ratings, publishLink))}
-        >
+          onClick={() => setExportProject(toProject(album, photos, spreads, ratings, publishLink, cover, music))}
+        ><DownloadIcon aria-hidden="true" />
           Export
         </button>
       </header>
@@ -790,19 +833,47 @@ export default function Workspace({ album }: { album: Album }) {
         <p className="notice missing" role="alert">
           {missing.size} original photo{missing.size === 1 ? '' : 's'} could not be found. You can
           keep designing, but they are needed before export.
-          <button type="button" onClick={() => void findMissing()}>Find them…</button>
+          <button type="button" onClick={() => void findMissing()}><SearchIcon aria-hidden="true" />Find them…</button>
         </p>
       )}
 
       {notice && (
         <p className="notice" role="status">
           {notice}
-          <button type="button" aria-label="Dismiss" onClick={() => setNotice('')}>×</button>
+          <button type="button" aria-label="Dismiss" onClick={() => setNotice('')}><XIcon aria-hidden="true" /></button>
         </p>
       )}
 
       {exportProject && (
         <ExportDialog project={exportProject} onClose={() => setExportProject(null)} />
+      )}
+
+      {showPreview && (
+        <AlbumPreview
+          title={album.name}
+          spec={spec}
+          spreads={spreads}
+          photos={photos}
+          cover={cover}
+          music={music}
+          onDesignCover={() => setShowCover(true)}
+          onClose={() => setShowPreview(false)}
+        />
+      )}
+
+      {showCover && (
+        <CoverDesigner
+          albumName={album.name}
+          spec={spec}
+          cover={cover}
+          music={music}
+          onSave={(nextCover, nextMusic) => {
+            setCover(nextCover);
+            setMusic(nextMusic);
+            setShowCover(false);
+          }}
+          onClose={() => setShowCover(false)}
+        />
       )}
 
       {publishProject && (
@@ -864,6 +935,7 @@ export default function Workspace({ album }: { album: Album }) {
           onShowOriginal={setShowOriginal}
           onAddPhoto={dropPhotosOnDesigner}
           onReplacePhoto={replacePhotoInDesigner}
+          onAutoDesign={() => void autoDesign()}
         />
       ) : (
       <>
@@ -872,31 +944,31 @@ export default function Workspace({ album }: { album: Album }) {
           {current && (!option || option.design.frames.length !== current.design.frames.length) && (
             <div className="spread-tools" role="toolbar" aria-label="Spread">
               <span className="muted">Custom layout</span>
-              <button type="button" className="tool" onClick={() => void relayout(current)}>Choose a layout</button>
-              <button type="button" className="tool" onClick={() => setDesignerOpen(true)}>Designer</button>
-              <button type="button" className="tool danger" onClick={() => deleteSpread(current.id)}>Delete</button>
+              <button type="button" className="tool" onClick={() => void relayout(current)}><LayoutGridIcon aria-hidden="true" />Choose a layout</button>
+              <button type="button" className="tool" onClick={() => setDesignerOpen(true)}><PenToolIcon aria-hidden="true" />Designer</button>
+              <button type="button" className="tool danger" onClick={() => deleteSpread(current.id)}><Trash2Icon aria-hidden="true" />Delete</button>
             </div>
           )}
           {current && option && option.design.frames.length === current.design.frames.length && (
             <div className="spread-tools" role="toolbar" aria-label="Spread">
               <div className="cycler">
-                <button type="button" aria-label="Previous layout" title="Previous layout ( [ )" onClick={() => cycleLayout(-1)}>‹</button>
+                <button type="button" aria-label="Previous layout" title="Previous layout ( [ )" onClick={() => cycleLayout(-1)}><ChevronLeftIcon aria-hidden="true" /></button>
                 <div>
                   <strong>{current.design.template_id ? option.name : 'Custom layout'}</strong>
                   <span>
                     {current.optionIndex + 1} of {current.options.length} · {Math.round(cropShare(current.design, byId) * 100)}% cropped
                   </span>
                 </div>
-                <button type="button" aria-label="Next layout" title="Next layout ( ] )" onClick={() => cycleLayout(1)}>›</button>
+                <button type="button" aria-label="Next layout" title="Next layout ( ] )" onClick={() => cycleLayout(1)}><ChevronRightIcon aria-hidden="true" /></button>
               </div>
               <span className="tools-rule" />
-              <button type="button" className="tool" onClick={() => { setFrameId(null); setDesignerOpen(true); }}>Designer</button>
+              <button type="button" className="tool" onClick={() => { setFrameId(null); setDesignerOpen(true); }}><PenToolIcon aria-hidden="true" />Designer</button>
               <button
                 type="button"
                 className="tool accent"
-                title="Design a new arrangement in this style. Click again for another."
+                title="Try a different layout for these photos. Click again for another."
                 onClick={() => void autoDesign()}
-              >
+              ><SparklesIcon aria-hidden="true" />
                 Auto design
               </button>
               <button
@@ -904,14 +976,14 @@ export default function Workspace({ album }: { album: Album }) {
                 className="tool"
                 title="Swap the left and right sides"
                 onClick={() => { setFrameId(null); changeDesign(mirrored); }}
-              >
+              ><FlipHorizontal2Icon aria-hidden="true" />
                 Mirror
               </button>
               <button
                 type="button"
                 className="tool danger"
                 onClick={() => deleteSpread(current.id)}
-              >
+              ><Trash2Icon aria-hidden="true" />
                 Delete
               </button>
             </div>
@@ -986,21 +1058,21 @@ export default function Workspace({ album }: { album: Album }) {
                     : 'Your originals stay where they are and are never changed.'}
                 </p>
                 <div className="empty-actions">
-                  <button type="button" className={photos.length ? 'btn' : 'btn-primary'} disabled={importing} onClick={() => void chooseFolder()}>
+                  <button type="button" className={photos.length ? 'btn' : 'btn-primary'} disabled={importing} onClick={() => void chooseFolder()}><ImagePlusIcon aria-hidden="true" />
                     {importing ? 'Reading photos…' : 'Import photos'}
                   </button>
                   {photos.length > 0 && (
-                    <button type="button" className="btn-primary" onClick={() => setShowBuild(true)}>Auto Build</button>
+                    <button type="button" className="btn-primary" onClick={() => setShowBuild(true)}><ZapIcon aria-hidden="true" />Auto Build</button>
                   )}
                 </div>
               </div>
             )}
           </section>
           {current && currentIndex > 0 && (
-            <button type="button" className="rail-nav prev" aria-label="Previous spread" onClick={() => goToSpread(-1)}>‹</button>
+            <button type="button" className="rail-nav prev" aria-label="Previous spread" onClick={() => goToSpread(-1)}><ChevronLeftIcon aria-hidden="true" /></button>
           )}
           {current && currentIndex < spreads.length - 1 && (
-            <button type="button" className="rail-nav next" aria-label="Next spread" onClick={() => goToSpread(1)}>›</button>
+            <button type="button" className="rail-nav next" aria-label="Next spread" onClick={() => goToSpread(1)}><ChevronRightIcon aria-hidden="true" /></button>
           )}
           </div>
 
@@ -1049,10 +1121,10 @@ export default function Workspace({ album }: { album: Album }) {
                 </label>
                 <p className="muted">Drag the photo to reposition it. Drag another photo to swap them.</p>
                 <div className="button-row">
-                  <button type="button" className="btn" onClick={() => changeFit(frame.id, { scale: 1, cx: 0.5, cy: 0.5 })}>
+                  <button type="button" className="btn" onClick={() => changeFit(frame.id, { scale: 1, cx: 0.5, cy: 0.5 })}><RotateCcwIcon aria-hidden="true" />
                     Reset crop
                   </button>
-                  <button type="button" className="btn" onClick={() => void removeFromSpread(current, framePhoto.id)}>
+                  <button type="button" className="btn" onClick={() => void removeFromSpread(current, framePhoto.id)}><ImageMinusIcon aria-hidden="true" />
                     Remove from spread
                   </button>
                 </div>
@@ -1143,9 +1215,9 @@ export default function Workspace({ album }: { album: Album }) {
             </button>
             <div className="spread-actions">
               <span>{String(i + 1).padStart(2, '0')}</span>
-              <button type="button" aria-label={`Move spread ${i + 1} earlier`} disabled={i === 0} onClick={() => moveSpread(s.id, -1)}>←</button>
-              <button type="button" aria-label={`Move spread ${i + 1} later`} disabled={i === spreads.length - 1} onClick={() => moveSpread(s.id, 1)}>→</button>
-              <button type="button" aria-label={`Delete spread ${i + 1}`} onClick={() => deleteSpread(s.id)}>×</button>
+              <button type="button" aria-label={`Move spread ${i + 1} earlier`} disabled={i === 0} onClick={() => moveSpread(s.id, -1)}><ArrowLeftIcon aria-hidden="true" /></button>
+              <button type="button" aria-label={`Move spread ${i + 1} later`} disabled={i === spreads.length - 1} onClick={() => moveSpread(s.id, 1)}><ArrowRightIcon aria-hidden="true" /></button>
+              <button type="button" aria-label={`Delete spread ${i + 1}`} onClick={() => deleteSpread(s.id)}><XIcon aria-hidden="true" /></button>
             </div>
           </div>
         ))}
@@ -1162,9 +1234,7 @@ export default function Workspace({ album }: { album: Album }) {
             const ids = droppedPhotos(e);
             if (ids.length) void addPhotos(ids, null);
           }}
-        >
-          + New spread
-        </button>
+        ><PlusIcon aria-hidden="true" />New spread</button>
       </section>
 
       </>
@@ -1173,10 +1243,10 @@ export default function Workspace({ album }: { album: Album }) {
       {showBrowser && (
         <section className="browser" aria-label="Photos">
           <div className="browser-bar">
-            <button type="button" className="btn" disabled={importing} onClick={() => void chooseFolder()}>
+            <button type="button" className="btn" disabled={importing} onClick={() => void chooseFolder()}><ImagePlusIcon aria-hidden="true" />
               {importing ? 'Reading photos…' : 'Import photos'}
             </button>
-            <button type="button" className="btn" disabled={!photos.length} onClick={() => setShowBuild(true)}>Auto Build</button>
+            <button type="button" className="btn" disabled={!photos.length} onClick={() => setShowBuild(true)}><ZapIcon aria-hidden="true" />Auto Build</button>
             <strong className="muted">{usedIds.size} of {photos.length} used</strong>
             <select className="input" aria-label="Show photos" value={filter} onChange={(e) => setFilter(e.target.value as PhotoFilter)}>
               <option value="all">All photos</option>
@@ -1203,7 +1273,7 @@ export default function Workspace({ album }: { album: Album }) {
               onChange={(e) => setThumbSize(Number(e.target.value))}
             />
             {selectedIds.length > 0 && current && (
-              <button type="button" className="btn" onClick={() => void addPhotos(selectedIds, current.id)}>
+              <button type="button" className="btn" onClick={() => void addPhotos(selectedIds, current.id)}><PlusIcon aria-hidden="true" />
                 Add {selectedIds.length} to this spread
               </button>
             )}
@@ -1460,7 +1530,7 @@ function SpreadCanvas({
           <span className="guide safe" style={{ left: percent(safe, w), right: percent(safe, w), top: percent(safe, h), bottom: percent(safe, h) }} />
         </>
       )}
-      <span className="fold" />
+      <span className="fold" style={foldStyle(spec.binding, w)} />
     </div>
   );
 }

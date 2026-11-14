@@ -1,3 +1,4 @@
+import { LogInIcon } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { signIn, type Staff } from './eventor';
 
@@ -33,7 +34,7 @@ export default function EventorSignIn({ onSignedIn }: { onSignedIn: (staff: Staf
       </label>
       {error && <p className="error" role="alert">{error}</p>}
       <div className="modal-actions">
-        <button type="submit" className="btn-primary" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
+        <button type="submit" className="btn-primary" disabled={busy}><LogInIcon aria-hidden="true" />{busy ? 'Signing in…' : 'Sign in'}</button>
       </div>
     </form>
   );

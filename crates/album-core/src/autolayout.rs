@@ -26,6 +26,9 @@ const UNKNOWN_ASPECT: f64 = 1.5;
 /// because a small frame can take any photo's shape, and the photos end up tiny.
 const EMPTY_PAPER_WEIGHT: f64 = 0.35;
 
+/// Layouts with deliberate open space still come up, through a style or Auto design.
+const AIRY_PENALTY: f64 = 0.15;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Photo {
     pub asset_id: String,
@@ -104,7 +107,13 @@ pub(crate) fn layout_score(crop_loss: f64, template: &Template) -> f64 {
         .iter()
         .map(|f| f.rect_pct.w * f.rect_pct.h)
         .sum();
-    crop_loss + EMPTY_PAPER_WEIGHT * (1.0 - covered.min(1.0))
+    // Open space is a choice to make on purpose, not the layout offered first.
+    let airy = if template.tags.iter().any(|t| t == "airy") {
+        AIRY_PENALTY
+    } else {
+        0.0
+    };
+    crop_loss + EMPTY_PAPER_WEIGHT * (1.0 - covered.min(1.0)) + airy
 }
 
 /// Every layout that fits these photos and this album, best first.

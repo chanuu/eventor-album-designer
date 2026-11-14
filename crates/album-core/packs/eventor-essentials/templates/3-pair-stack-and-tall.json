@@ -1,0 +1,12 @@
+{
+  "id": "eventor-essentials/3-pair-stack-and-tall",
+  "name": "Floating stack + tall",
+  "frame_count": 3,
+  "spread_aspect": "any",
+  "tags": ["airy"],
+  "frames": [
+    {"rect_pct":{"x":0.09,"y":0.08,"w":0.32,"h":0.4}},
+    {"rect_pct":{"x":0.09,"y":0.52,"w":0.32,"h":0.4}},
+    {"rect_pct":{"x":0.6,"y":0.08,"w":0.3,"h":0.84}}
+  ]
+}

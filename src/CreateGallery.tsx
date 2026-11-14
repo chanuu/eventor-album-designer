@@ -1,6 +1,11 @@
+import { CheckIcon, ChevronLeftIcon, EyeIcon, FolderOpenIcon, RefreshCwIcon, SquareIcon, UploadIcon } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
-import { importFolder, uploadGalleryPhoto, type PhotoInfo } from './api';
+import { rememberGalleryFolder } from './galleryFolders';
+import Loader from './Loader';
+import {
+  analyzePhotos, checkForGallery, GRID_PREVIEW, importFolder, previewUrl, uploadGalleryPhoto, type PhotoInfo,
+} from './api';
 import {
   galleryUploadAddresses, listJobNames, openGalleryForSelection, recordGalleryPhotos, startGallery,
   type GalleryPhotoRow, type JobName, type Staff,
@@ -27,6 +32,9 @@ export default function CreateGallery({ staff, onDone }: { staff: Staff; onDone:
   const [folder, setFolder] = useState('');
   const [skipped, setSkipped] = useState(0);
   const [reading, setReading] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [leftOut, setLeftOut] = useState<Map<string, string[]>>(new Map());
+  const [putBack, setPutBack] = useState<Set<string>>(new Set());
   const [error, setError] = useState('');
   const gallery = useRef<string | null>(null);
   const nextOrder = useRef(0);
@@ -50,12 +58,26 @@ export default function CreateGallery({ staff, onDone }: { staff: Staff; onDone:
       setFolder(chosen);
       setPhotos(scan.photos);
       setSkipped(scan.skipped.length);
+      setLeftOut(new Map());
+      setPutBack(new Set());
+      setReading(false);
+      setChecking(true);
+      const ids = scan.photos.map((p) => p.id);
+      await analyzePhotos(ids);
+      const found = await checkForGallery(ids);
+      setLeftOut(new Map(found.map((item) => [item.id, item.reasons])));
     } catch (e) {
-      setError(`Could not read that folder: ${String(e)}`);
+      setError(`The photos could not all be checked, so none were left out: ${String(e)}`);
     } finally {
       setReading(false);
+      setChecking(false);
     }
   }
+
+  /** What goes to the customer. Anything left out stays on disk, and can be put back. */
+  const chosen = photos.filter((p) => !leftOut.has(p.id) || putBack.has(p.id));
+  const leftOutPhotos = photos.filter((p) => leftOut.has(p.id));
+  const stillOut = leftOutPhotos.filter((p) => !putBack.has(p.id));
 
   /** Sends these photos in batches. Only what is recorded counts as done. */
   async function send(job: JobName, list: PhotoInfo[]) {
@@ -108,6 +130,8 @@ export default function CreateGallery({ staff, onDone }: { staff: Staff; onDone:
     try {
       if (!gallery.current) {
         gallery.current = await startGallery(job.id, title.trim() || 'Photo selection', deadline);
+        // So that Customer selection can find the originals again without asking.
+        rememberGalleryFolder(gallery.current, folder);
       }
       await send(job, list);
       if (stopping.current) setError('Stopped. Your customer cannot see this gallery until it is finished.');
@@ -144,9 +168,7 @@ export default function CreateGallery({ staff, onDone }: { staff: Staff; onDone:
             type="button"
             className="btn"
             onClick={() => (stage.name === 'details' ? setStage({ name: 'job' }) : onDone())}
-          >
-            ‹ Back
-          </button>
+          ><ChevronLeftIcon aria-hidden="true" />Back</button>
         )}
         <div className="title"><strong>Create gallery</strong><span>For your customer to select album photos</span></div>
       </header>
@@ -157,7 +179,7 @@ export default function CreateGallery({ staff, onDone }: { staff: Staff; onDone:
         {stage.name === 'job' && (
           <>
             <h1>Which job is this for?</h1>
-            {jobs === null && <p className="muted">Loading your jobs…</p>}
+            {jobs === null && <Loader label="Loading your jobs…" />}
             {jobs !== null && (
               <>
                 <input
@@ -194,7 +216,7 @@ export default function CreateGallery({ staff, onDone }: { staff: Staff; onDone:
               <input className="input" type="date" aria-label="Selection deadline" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
             </label>
             <div className="flow-row">
-              <button type="button" className="btn" disabled={reading} onClick={() => void chooseFolder()}>
+              <button type="button" className="btn" disabled={reading} onClick={() => void chooseFolder()}><FolderOpenIcon aria-hidden="true" />
                 {reading ? 'Reading photos…' : folder ? 'Choose another folder' : 'Choose photo folder'}
               </button>
               {folder && (
@@ -204,10 +226,44 @@ export default function CreateGallery({ staff, onDone }: { staff: Staff; onDone:
                 </span>
               )}
             </div>
+            {checking && <Loader label="Checking photo quality…" />}
+            {!checking && folder && leftOutPhotos.length > 0 && (
+              <section className="quality-review" aria-label="Photos left out">
+                <h2>{stillOut.length} left out of the gallery</h2>
+                <p className="muted">
+                  These look overexposed, blurry, too dark or too small, or someone has their eyes closed. Check them, and click any good photo to put it back.
+                  Nothing is deleted from your computer.
+                </p>
+                <div className="left-out quality-grid">
+                  {leftOutPhotos.map((photo) => {
+                    const back = putBack.has(photo.id);
+                    return (
+                      <button
+                        key={photo.id}
+                        type="button"
+                        aria-pressed={back}
+                        className={`left-out-item ${back ? 'put-back' : ''}`}
+                        title={photo.file_name}
+                        onClick={() => {
+                          const next = new Set(putBack);
+                          if (back) next.delete(photo.id);
+                          else next.add(photo.id);
+                          setPutBack(next);
+                        }}
+                      >
+                        <img src={previewUrl(photo.id, GRID_PREVIEW)} alt={photo.file_name} loading="lazy" draggable={false} />
+                        <span className="why">{leftOut.get(photo.id)!.join(', ')}</span>
+                        <span className="restore">{back ? 'Will be included' : 'Put back'}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
             <p className="muted">Smaller copies are uploaded. Your originals stay on this computer and are not changed.</p>
             <div className="flow-actions">
-              <button type="button" className="btn-primary" disabled={!photos.length || reading} onClick={() => void run(stage.job, photos)}>
-                Upload and open for selection
+              <button type="button" className="btn-primary" disabled={!chosen.length || reading || checking} onClick={() => void run(stage.job, chosen)}>
+                <UploadIcon aria-hidden="true" />Upload {chosen.length || ''} photo{chosen.length === 1 ? '' : 's'} and open for selection
               </button>
             </div>
           </>
@@ -219,7 +275,7 @@ export default function CreateGallery({ staff, onDone }: { staff: Staff; onDone:
             <progress value={stage.done} max={stage.total} aria-label="Upload progress" />
             <p className="muted">Your customer will see the gallery once every photo is up.</p>
             <div className="flow-actions">
-              <button type="button" className="btn" onClick={() => { stopping.current = true; }}>Stop</button>
+              <button type="button" className="btn" onClick={() => { stopping.current = true; }}><SquareIcon aria-hidden="true" />Stop</button>
             </div>
           </>
         )}
@@ -234,11 +290,11 @@ export default function CreateGallery({ staff, onDone }: { staff: Staff; onDone:
             </ul>
             <div className="flow-actions">
               {stage.done > 0 && (
-                <button type="button" className="btn" onClick={() => void finishWithout(stage.job, stage.done)}>
+                <button type="button" className="btn" onClick={() => void finishWithout(stage.job, stage.done)}><EyeIcon aria-hidden="true" />
                   Open without them
                 </button>
               )}
-              <button type="button" className="btn-primary" onClick={() => void run(stage.job, stage.failed)}>
+              <button type="button" className="btn-primary" onClick={() => void run(stage.job, stage.failed)}><RefreshCwIcon aria-hidden="true" />
                 Try again
               </button>
             </div>
@@ -253,7 +309,7 @@ export default function CreateGallery({ staff, onDone }: { staff: Staff; onDone:
               their photos in the portal. When they have, choose Create album and then Customer selection.
             </p>
             <div className="flow-actions">
-              <button type="button" className="btn-primary" onClick={onDone}>Done</button>
+              <button type="button" className="btn-primary" onClick={onDone}><CheckIcon aria-hidden="true" />Done</button>
             </div>
           </>
         )}

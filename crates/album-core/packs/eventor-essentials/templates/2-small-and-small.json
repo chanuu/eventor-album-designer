@@ -1,0 +1,11 @@
+{
+  "id": "eventor-essentials/2-small-and-small",
+  "name": "Small centred + small centred",
+  "frame_count": 2,
+  "spread_aspect": "any",
+  "tags": ["airy"],
+  "frames": [
+    {"rect_pct":{"x":0.12,"y":0.27,"w":0.26,"h":0.46}},
+    {"rect_pct":{"x":0.62,"y":0.27,"w":0.26,"h":0.46}}
+  ]
+}

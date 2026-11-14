@@ -1,8 +1,11 @@
+import { ArrowRightIcon, BookPlusIcon, ChevronLeftIcon, FolderOpenIcon, ListChecksIcon } from 'lucide-react';
+import { Home as HomeIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import { makeSpec, printOptions, type Binding, type PrintOptions } from './api';
 import type { Album } from './App';
 import CustomerSelection from './CustomerSelection';
+import { LoaderScreen } from './Loader';
 import type { Staff } from './eventor';
 
 const CM_PER_INCH = 2.54;
@@ -79,7 +82,7 @@ export default function NewAlbum({
   }
 
   if (!options) {
-    return <p className="center-note">{error || 'Loading…'}</p>;
+    return error ? <p className="center-note error">{error}</p> : <LoaderScreen label="Getting album sizes…" />;
   }
 
   const moreSizes = options.sizes_in.filter(
@@ -101,7 +104,7 @@ export default function NewAlbum({
             <span>Album Designer</span>
           </div>
         </div>
-        <button type="button" className="btn wide-left" onClick={onBack}>‹ Back</button>
+        <button type="button" className="btn wide-left" onClick={onBack}><HomeIcon aria-hidden="true" />Home</button>
       </aside>
 
       <section className="welcome-main">
@@ -138,7 +141,7 @@ export default function NewAlbum({
                   className="home-card"
                   data-source="folder"
                   onClick={() => { if (pending) onCreate({ ...pending, importOnOpen: true }); }}
-                >
+                ><FolderOpenIcon aria-hidden="true" />
                   <strong>Import from folder</strong>
                   <span>Choose a folder of photos on this computer.</span>
                 </button>
@@ -148,7 +151,7 @@ export default function NewAlbum({
                   data-source="selection"
                   disabled={!staff}
                   onClick={() => setFromSelection(true)}
-                >
+                ><ListChecksIcon aria-hidden="true" />
                   <strong>Customer selection</strong>
                   <span>
                     {staff
@@ -296,18 +299,18 @@ export default function NewAlbum({
         <footer className="welcome-foot">
           {error && <p className="error">{error}</p>}
           {step === 2 && (
-            <button type="button" className="btn" onClick={() => setStep(1)}>Back</button>
+            <button type="button" className="btn" onClick={() => setStep(1)}><ChevronLeftIcon aria-hidden="true" />Back</button>
           )}
           {step === 3 && !fromSelection && (
-            <button type="button" className="btn" onClick={() => setStep(2)}>Back</button>
+            <button type="button" className="btn" onClick={() => setStep(2)}><ChevronLeftIcon aria-hidden="true" />Back</button>
           )}
           {step === 1 && (
-            <button type="button" className="btn-primary" disabled={!shapeKnown} onClick={() => setStep(2)}>
+            <button type="button" className="btn-primary" disabled={!shapeKnown} onClick={() => setStep(2)}><ArrowRightIcon aria-hidden="true" />
               Next
             </button>
           )}
           {step === 2 && (
-            <button type="button" className="btn-primary" onClick={() => void create()}>
+            <button type="button" className="btn-primary" onClick={() => void create()}><BookPlusIcon aria-hidden="true" />
               Create album
             </button>
           )}

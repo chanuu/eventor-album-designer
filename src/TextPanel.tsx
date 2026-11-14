@@ -1,3 +1,5 @@
+import { AlignCenterIcon, AlignLeftIcon, AlignRightIcon } from 'lucide-react';
+import { Trash2Icon } from 'lucide-react';
 import type { TextBlock } from './api';
 
 const MIN_SIZE_PT = 6;
@@ -91,7 +93,7 @@ export default function TextPanel({
                 onChange({ align });
               }}
             >
-              {{ left: 'Left', center: 'Centre', right: 'Right' }[align]}
+              {(() => { const Icon = { left: AlignLeftIcon, center: AlignCenterIcon, right: AlignRightIcon }[align]; return <Icon aria-hidden="true" />; })()}{{ left: 'Left', center: 'Centre', right: 'Right' }[align]}
             </button>
           ))}
         </div>
@@ -146,7 +148,7 @@ export default function TextPanel({
         />
       </div>
 
-      <button type="button" className="btn" onClick={onDelete}>Delete text</button>
+      <button type="button" className="btn" onClick={onDelete}><Trash2Icon aria-hidden="true" />Delete text</button>
     </section>
   );
 }
