@@ -459,6 +459,21 @@ export default function Workspace({ album }: { album: Album }) {
           ? { ...s, photoIds, options, optionIndex: 0, design: carry(s.design, options[0].design) }
           : s
       )));
+    } else if (cards) {
+      // Every design that takes these photos becomes its own card, best first,
+      // so the studio sees them all at once and deletes the ones it does not want.
+      const made = options.map((option, i) => ({
+        id: crypto.randomUUID(),
+        photoIds,
+        options,
+        optionIndex: i,
+        design: option.design,
+      }));
+      setSpreads((all) => [...all, ...made]);
+      setCurrentId(made[0].id);
+      if (made.length > 1) {
+        setNotice(`Made ${made.length} cards, one in each design that takes ${photoIds.length} photo${photoIds.length === 1 ? '' : 's'}. Delete the ones you do not want.`);
+      }
     } else {
       const id = crypto.randomUUID();
       setSpreads((all) => [...all, { id, photoIds, options, optionIndex: 0, design: options[0].design }]);
@@ -1109,7 +1124,7 @@ export default function Workspace({ album }: { album: Album }) {
                   {!photos.length
                     ? 'Your originals stay where they are and are never changed.'
                     : cards
-                      ? `Select ${listCounts(cardCounts)} photos below with Ctrl+click, then press New card or drop them here.`
+                      ? `Select ${listCounts(cardCounts)} photos below with Ctrl+click, then press New card or drop them here. You get one card in every design that takes them.`
                       : 'Auto Build lays out everything. Or select a few photos and drop them here.'}
                 </p>
                 <div className="empty-actions">
