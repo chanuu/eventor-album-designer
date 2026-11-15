@@ -1,0 +1,128 @@
+{
+  "id": "eventor-cards/5-overlap-with-inset",
+  "name": "Five photos with an inset and a names box",
+  "frame_count": 5,
+  "spread_aspect": {
+    "min": 0.6,
+    "max": 0.85
+  },
+  "tags": [
+    "card"
+  ],
+  "frames": [
+    {
+      "rect_pct": {
+        "x": 0,
+        "y": 0,
+        "w": 0.585,
+        "h": 0.668
+      },
+      "bleed": true
+    },
+    {
+      "rect_pct": {
+        "x": 0.04,
+        "y": 0.335,
+        "w": 0.295,
+        "h": 0.301
+      },
+      "z": 1,
+      "border": 0.003
+    },
+    {
+      "rect_pct": {
+        "x": 0.587,
+        "y": 0,
+        "w": 0.413,
+        "h": 0.463
+      },
+      "bleed": true
+    },
+    {
+      "rect_pct": {
+        "x": 0.587,
+        "y": 0.465,
+        "w": 0.413,
+        "h": 0.467
+      },
+      "bleed": true
+    },
+    {
+      "rect_pct": {
+        "x": 0,
+        "y": 0.67,
+        "w": 0.585,
+        "h": 0.262
+      },
+      "bleed": true
+    }
+  ],
+  "panels": [
+    {
+      "rect_pct": {
+        "x": 0.335,
+        "y": 0.45,
+        "w": 0.25,
+        "h": 0.218
+      },
+      "colour": "#000000",
+      "z": 1,
+      "opacity": 0.55
+    }
+  ],
+  "texts": [
+    {
+      "rect_pct": {
+        "x": 0.36,
+        "y": 0,
+        "w": 0.22,
+        "h": 0.0831
+      },
+      "text": "thank you",
+      "size": 0.035,
+      "font": "Mrs Saint Delafield",
+      "colour": "#FFFFFF",
+      "align": "center"
+    },
+    {
+      "rect_pct": {
+        "x": 0.38,
+        "y": 0.49,
+        "w": 0.15,
+        "h": 0.07
+      },
+      "text": "{FIRST}\n&\n{SECOND}",
+      "size": 0.011,
+      "font": "Jost",
+      "colour": "#FFFFFF",
+      "align": "center",
+      "line_height": 1.3
+    },
+    {
+      "rect_pct": {
+        "x": 0.38,
+        "y": 0.5789,
+        "w": 0.15,
+        "h": 0.0622
+      },
+      "text": "{date:dd/mm}\n{date:yyyy}",
+      "size": 0.016,
+      "font": "Jost",
+      "colour": "#FFFFFF",
+      "align": "center"
+    },
+    {
+      "rect_pct": {
+        "x": 0.15,
+        "y": 0.939,
+        "w": 0.7,
+        "h": 0.047
+      },
+      "text": "{STUDIO}\nMUA | {MUA}",
+      "size": 0.0105,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "center"
+    }
+  ]
+}

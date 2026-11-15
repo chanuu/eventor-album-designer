@@ -1,0 +1,148 @@
+{
+  "id": "eventor-cards/5-stepped-with-date-box",
+  "name": "Five photos stepped, with a date box",
+  "frame_count": 5,
+  "spread_aspect": {
+    "min": 0.6,
+    "max": 0.85
+  },
+  "tags": [
+    "card"
+  ],
+  "frames": [
+    {
+      "rect_pct": {
+        "x": 0,
+        "y": 0,
+        "w": 0.366,
+        "h": 0.448
+      },
+      "bleed": true
+    },
+    {
+      "rect_pct": {
+        "x": 0.366,
+        "y": 0.168,
+        "w": 0.553,
+        "h": 0.193
+      }
+    },
+    {
+      "rect_pct": {
+        "x": 0.087,
+        "y": 0.502,
+        "w": 0.453,
+        "h": 0.212
+      }
+    },
+    {
+      "rect_pct": {
+        "x": 0.087,
+        "y": 0.716,
+        "w": 0.453,
+        "h": 0.216
+      }
+    },
+    {
+      "rect_pct": {
+        "x": 0.544,
+        "y": 0.502,
+        "w": 0.375,
+        "h": 0.43
+      }
+    }
+  ],
+  "panels": [
+    {
+      "rect_pct": {
+        "x": 0.086,
+        "y": 0.168,
+        "w": 0.28,
+        "h": 0.193
+      },
+      "colour": "#FFFFFF",
+      "z": 1
+    }
+  ],
+  "texts": [
+    {
+      "rect_pct": {
+        "x": 0.46,
+        "y": 0.0173,
+        "w": 0.44,
+        "h": 0.1203
+      },
+      "text": "Thank You",
+      "size": 0.055,
+      "font": "Mrs Saint Delafield",
+      "colour": "#2A2A2A",
+      "align": "center"
+    },
+    {
+      "rect_pct": {
+        "x": 0.5,
+        "y": 0.0945,
+        "w": 0.3,
+        "h": 0.029
+      },
+      "text": "For being with us",
+      "size": 0.008,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "center"
+    },
+    {
+      "rect_pct": {
+        "x": 0.1,
+        "y": 0.2281,
+        "w": 0.25,
+        "h": 0.0688
+      },
+      "text": "{date:dd | mm}\n{date:yyyy}",
+      "size": 0.017,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "center",
+      "line_height": 1.3
+    },
+    {
+      "rect_pct": {
+        "x": 0.56,
+        "y": 0.3787,
+        "w": 0.23,
+        "h": 0.0346
+      },
+      "text": "{FIRST} | {SECOND}",
+      "size": 0.012,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "center"
+    },
+    {
+      "rect_pct": {
+        "x": 0.5,
+        "y": 0.4154,
+        "w": 0.36,
+        "h": 0.0263
+      },
+      "text": "WELCOME TO OUR DAY",
+      "size": 0.006,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "center"
+    },
+    {
+      "rect_pct": {
+        "x": 0.15,
+        "y": 0.9429,
+        "w": 0.7,
+        "h": 0.0442
+      },
+      "text": "{STUDIO}\nMUA | {MUA}",
+      "size": 0.0095,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "center"
+    }
+  ]
+}

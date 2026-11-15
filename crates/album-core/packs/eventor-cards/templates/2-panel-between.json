@@ -1,0 +1,99 @@
+{
+  "id": "eventor-cards/2-panel-between",
+  "name": "Two photos with a coloured column",
+  "frame_count": 2,
+  "spread_aspect": {
+    "min": 1.2,
+    "max": 1.7
+  },
+  "tags": [
+    "card"
+  ],
+  "frames": [
+    {
+      "rect_pct": {
+        "x": 0.057,
+        "y": 0.155,
+        "w": 0.357,
+        "h": 0.688
+      },
+      "border": 0.002
+    },
+    {
+      "rect_pct": {
+        "x": 0.502,
+        "y": 0,
+        "w": 0.498,
+        "h": 1
+      },
+      "bleed": true
+    }
+  ],
+  "panels": [
+    {
+      "rect_pct": {
+        "x": 0.235,
+        "y": 0,
+        "w": 0.265,
+        "h": 1
+      },
+      "colour": "#4A4148",
+      "z": -1
+    }
+  ],
+  "texts": [
+    {
+      "rect_pct": {
+        "x": 0.245,
+        "y": 0.08,
+        "w": 0.245,
+        "h": 0.07
+      },
+      "text": "THANK YOU..!",
+      "size": 0.035,
+      "font": "Cormorant Garamond",
+      "colour": "#FFFFFF",
+      "align": "left"
+    },
+    {
+      "rect_pct": {
+        "x": 0.425,
+        "y": 0.2,
+        "w": 0.055,
+        "h": 0.6
+      },
+      "text": "{STUDIO}\nMUA | {MUA}",
+      "size": 0.016,
+      "font": "Jost",
+      "colour": "#FFFFFF",
+      "align": "center",
+      "rot_deg": 270
+    },
+    {
+      "rect_pct": {
+        "x": 0.245,
+        "y": 0.85,
+        "w": 0.245,
+        "h": 0.07
+      },
+      "text": "{First} & {Second}",
+      "size": 0.032,
+      "font": "Cormorant Garamond",
+      "colour": "#FFFFFF",
+      "align": "center"
+    },
+    {
+      "rect_pct": {
+        "x": 0.057,
+        "y": 0.8475,
+        "w": 0.173,
+        "h": 0.0401
+      },
+      "text": "{date:MON | dd | yyyy}",
+      "size": 0.016,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "left"
+    }
+  ]
+}

@@ -1,0 +1,124 @@
+{
+  "id": "eventor-cards/5-brown-panel-pair",
+  "name": "Five photos with a panel of two",
+  "frame_count": 5,
+  "spread_aspect": {
+    "min": 0.6,
+    "max": 0.85
+  },
+  "tags": [
+    "card"
+  ],
+  "frames": [
+    {
+      "rect_pct": {
+        "x": 0,
+        "y": 0,
+        "w": 0.63,
+        "h": 0.326
+      },
+      "bleed": true
+    },
+    {
+      "rect_pct": {
+        "x": 0.631,
+        "y": 0,
+        "w": 0.339,
+        "h": 0.377
+      }
+    },
+    {
+      "rect_pct": {
+        "x": 0.11,
+        "y": 0.326,
+        "w": 0.416,
+        "h": 0.58
+      }
+    },
+    {
+      "rect_pct": {
+        "x": 0.578,
+        "y": 0.386,
+        "w": 0.26,
+        "h": 0.223
+      },
+      "border": 0.0015
+    },
+    {
+      "rect_pct": {
+        "x": 0.578,
+        "y": 0.61,
+        "w": 0.26,
+        "h": 0.26
+      },
+      "border": 0.0015
+    }
+  ],
+  "panels": [
+    {
+      "rect_pct": {
+        "x": 0.527,
+        "y": 0.326,
+        "w": 0.367,
+        "h": 0.58
+      },
+      "colour": "#7A6F69",
+      "z": -1
+    }
+  ],
+  "texts": [
+    {
+      "rect_pct": {
+        "x": 0.1,
+        "y": 0.1759,
+        "w": 0.23,
+        "h": 0.1482
+      },
+      "text": "Thankful\nfor You",
+      "size": 0.035,
+      "font": "Mrs Saint Delafield",
+      "colour": "#FFFFFF",
+      "align": "center",
+      "line_height": 1.2
+    },
+    {
+      "rect_pct": {
+        "x": 0.54,
+        "y": 0.3395,
+        "w": 0.34,
+        "h": 0.0359
+      },
+      "text": "{FIRST} & {SECOND}",
+      "size": 0.013,
+      "font": "Jost",
+      "colour": "#FFFFFF",
+      "align": "center"
+    },
+    {
+      "rect_pct": {
+        "x": 0.54,
+        "y": 0.8708,
+        "w": 0.34,
+        "h": 0.0304
+      },
+      "text": "{date:dd Month yyyy}",
+      "size": 0.009,
+      "font": "Jost",
+      "colour": "#FFFFFF",
+      "align": "center"
+    },
+    {
+      "rect_pct": {
+        "x": 0.11,
+        "y": 0.9323,
+        "w": 0.49,
+        "h": 0.0304
+      },
+      "text": "{STUDIO}  -  MUA | {MUA}",
+      "size": 0.009,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "left"
+    }
+  ]
+}

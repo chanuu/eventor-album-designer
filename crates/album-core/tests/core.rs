@@ -789,7 +789,8 @@ fn every_card_design_is_valid_and_fits_a_card_shape() {
     let pack = album_core::pack::cards_pack();
     assert!(pack.templates.len() >= 6);
     for template in &pack.templates {
-        let portrait = template.spread_aspect.contains(6.0 / 8.0);
+        let portrait = template.spread_aspect.contains(6.0 / 8.0)
+            || template.spread_aspect.contains(5.0 / 8.0);
         let landscape = template.spread_aspect.contains(8.0 / 6.0);
         assert!(portrait != landscape, "{} suits one way up", template.id);
         assert!(!template.texts.is_empty(), "{} has words", template.id);

@@ -1,0 +1,130 @@
+{
+  "id": "eventor-cards/4-dark-wide-and-three",
+  "name": "Four photos on black",
+  "frame_count": 4,
+  "spread_aspect": {
+    "min": 0.6,
+    "max": 0.85
+  },
+  "tags": [
+    "card"
+  ],
+  "frames": [
+    {
+      "rect_pct": {
+        "x": 0,
+        "y": 0,
+        "w": 1,
+        "h": 0.33
+      },
+      "bleed": true
+    },
+    {
+      "rect_pct": {
+        "x": 0.045,
+        "y": 0.368,
+        "w": 0.345,
+        "h": 0.292
+      }
+    },
+    {
+      "rect_pct": {
+        "x": 0.045,
+        "y": 0.663,
+        "w": 0.345,
+        "h": 0.257
+      }
+    },
+    {
+      "rect_pct": {
+        "x": 0.444,
+        "y": 0.33,
+        "w": 0.556,
+        "h": 0.608
+      },
+      "bleed": true
+    }
+  ],
+  "background": "#000000",
+  "texts": [
+    {
+      "rect_pct": {
+        "x": 0.38,
+        "y": 0.1218,
+        "w": 0.24,
+        "h": 0.0663
+      },
+      "text": "DREAMS",
+      "size": 0.035,
+      "font": "Cormorant Garamond",
+      "colour": "#FFFFFF",
+      "align": "center"
+    },
+    {
+      "rect_pct": {
+        "x": 0.38,
+        "y": 0.1737,
+        "w": 0.24,
+        "h": 0.0277
+      },
+      "text": "COME TRUE",
+      "size": 0.007,
+      "font": "Jost",
+      "colour": "#FFFFFF",
+      "align": "center"
+    },
+    {
+      "rect_pct": {
+        "x": 0.38,
+        "y": 0.2187,
+        "w": 0.24,
+        "h": 0.0277
+      },
+      "text": "{date:dd MON yyyy}",
+      "size": 0.007,
+      "font": "Jost",
+      "colour": "#FFFFFF",
+      "align": "center"
+    },
+    {
+      "rect_pct": {
+        "x": 0.06,
+        "y": 0.5728,
+        "w": 0.32,
+        "h": 0.0645
+      },
+      "text": "{First} & {Second}",
+      "size": 0.025,
+      "font": "Great Vibes",
+      "colour": "#F3E3A0",
+      "align": "center"
+    },
+    {
+      "rect_pct": {
+        "x": 0.46,
+        "y": 0.5475,
+        "w": 0.16,
+        "h": 0.235
+      },
+      "text": "Thank\nYou",
+      "size": 0.05,
+      "font": "Mrs Saint Delafield",
+      "colour": "#FFFFFF",
+      "align": "center",
+      "line_height": 1.4
+    },
+    {
+      "rect_pct": {
+        "x": 0.45,
+        "y": 0.945,
+        "w": 0.54,
+        "h": 0.0401
+      },
+      "text": "{STUDIO}\nMUA | {MUA}",
+      "size": 0.008,
+      "font": "Jost",
+      "colour": "#FFFFFF",
+      "align": "center"
+    }
+  ]
+}

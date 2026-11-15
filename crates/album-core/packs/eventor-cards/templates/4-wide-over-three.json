@@ -1,0 +1,114 @@
+{
+  "id": "eventor-cards/4-wide-over-three",
+  "name": "A wide photo over three",
+  "frame_count": 4,
+  "spread_aspect": {
+    "min": 0.6,
+    "max": 0.85
+  },
+  "tags": [
+    "card"
+  ],
+  "frames": [
+    {
+      "rect_pct": {
+        "x": 0,
+        "y": 0,
+        "w": 0.947,
+        "h": 0.326
+      },
+      "bleed": true
+    },
+    {
+      "rect_pct": {
+        "x": 0.072,
+        "y": 0.392,
+        "w": 0.401,
+        "h": 0.538
+      }
+    },
+    {
+      "rect_pct": {
+        "x": 0.478,
+        "y": 0.392,
+        "w": 0.449,
+        "h": 0.326
+      }
+    },
+    {
+      "rect_pct": {
+        "x": 0.478,
+        "y": 0.722,
+        "w": 0.449,
+        "h": 0.208
+      }
+    }
+  ],
+  "texts": [
+    {
+      "rect_pct": {
+        "x": 0.06,
+        "y": 0.3402,
+        "w": 0.26,
+        "h": 0.0346
+      },
+      "text": "{FIRST} & {SECOND}",
+      "size": 0.012,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "left"
+    },
+    {
+      "rect_pct": {
+        "x": 0.36,
+        "y": 0.3229,
+        "w": 0.28,
+        "h": 0.0511
+      },
+      "text": "THANK YOU",
+      "size": 0.024,
+      "font": "Cormorant Garamond",
+      "colour": "#2A2A2A",
+      "align": "center"
+    },
+    {
+      "rect_pct": {
+        "x": 0.36,
+        "y": 0.3554,
+        "w": 0.28,
+        "h": 0.0263
+      },
+      "text": "FOR BEING WITH US",
+      "size": 0.006,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "center"
+    },
+    {
+      "rect_pct": {
+        "x": 0.68,
+        "y": 0.3402,
+        "w": 0.26,
+        "h": 0.0346
+      },
+      "text": "{date:dd . mm . yyyy}",
+      "size": 0.012,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "right"
+    },
+    {
+      "rect_pct": {
+        "x": 0.15,
+        "y": 0.9383,
+        "w": 0.7,
+        "h": 0.0484
+      },
+      "text": "{STUDIO}\nMUA | {MUA}",
+      "size": 0.011,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "center"
+    }
+  ]
+}

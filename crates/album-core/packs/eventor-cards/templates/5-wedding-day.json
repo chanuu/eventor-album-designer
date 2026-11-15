@@ -1,0 +1,168 @@
+{
+  "id": "eventor-cards/5-wedding-day",
+  "name": "Five photos with a wedding day panel",
+  "frame_count": 5,
+  "spread_aspect": {
+    "min": 0.6,
+    "max": 0.85
+  },
+  "tags": [
+    "card"
+  ],
+  "frames": [
+    {
+      "rect_pct": {
+        "x": 0.051,
+        "y": 0.048,
+        "w": 0.191,
+        "h": 0.435
+      }
+    },
+    {
+      "rect_pct": {
+        "x": 0.242,
+        "y": 0.048,
+        "w": 0.328,
+        "h": 0.337
+      }
+    },
+    {
+      "rect_pct": {
+        "x": 0.051,
+        "y": 0.573,
+        "w": 0.519,
+        "h": 0.28
+      }
+    },
+    {
+      "rect_pct": {
+        "x": 0.618,
+        "y": 0,
+        "w": 0.382,
+        "h": 0.461
+      },
+      "bleed": true
+    },
+    {
+      "rect_pct": {
+        "x": 0.618,
+        "y": 0.462,
+        "w": 0.382,
+        "h": 0.468
+      },
+      "bleed": true
+    }
+  ],
+  "background": "#EDECEB",
+  "panels": [
+    {
+      "rect_pct": {
+        "x": 0.242,
+        "y": 0.385,
+        "w": 0.328,
+        "h": 0.098
+      },
+      "colour": "#1E1E1E"
+    },
+    {
+      "rect_pct": {
+        "x": 0.051,
+        "y": 0.536,
+        "w": 0.519,
+        "h": 0.354
+      },
+      "colour": "#FFFFFF",
+      "z": -1
+    },
+    {
+      "rect_pct": {
+        "x": 0,
+        "y": 0.93,
+        "w": 1,
+        "h": 0.07
+      },
+      "colour": "#FFFFFF"
+    }
+  ],
+  "texts": [
+    {
+      "rect_pct": {
+        "x": 0.06,
+        "y": 0.3647,
+        "w": 0.17,
+        "h": 0.1157
+      },
+      "text": "thank\nyou",
+      "size": 0.035,
+      "font": "Mrs Saint Delafield",
+      "colour": "#2A2A2A",
+      "align": "center",
+      "line_height": 0.9
+    },
+    {
+      "rect_pct": {
+        "x": 0.26,
+        "y": 0.4148,
+        "w": 0.29,
+        "h": 0.0304
+      },
+      "text": "WEDDING DAY",
+      "size": 0.009,
+      "font": "Jost",
+      "colour": "#FFFFFF",
+      "align": "center"
+    },
+    {
+      "rect_pct": {
+        "x": 0.051,
+        "y": 0.4948,
+        "w": 0.199,
+        "h": 0.0304
+      },
+      "text": "{date:dd MON yyyy}",
+      "size": 0.009,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "center"
+    },
+    {
+      "rect_pct": {
+        "x": 0.07,
+        "y": 0.5405,
+        "w": 0.48,
+        "h": 0.029
+      },
+      "text": "WELCOME TO OUR MEMORABLE DAY !",
+      "size": 0.008,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "center"
+    },
+    {
+      "rect_pct": {
+        "x": 0.07,
+        "y": 0.8545,
+        "w": 0.48,
+        "h": 0.0359
+      },
+      "text": "{FIRST} & {SECOND}",
+      "size": 0.013,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "center"
+    },
+    {
+      "rect_pct": {
+        "x": 0.15,
+        "y": 0.94,
+        "w": 0.7,
+        "h": 0.05
+      },
+      "text": "{STUDIO}\nMUA | {MUA}",
+      "size": 0.0095,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "center"
+    }
+  ]
+}
