@@ -1,4 +1,4 @@
-import { openAlbum, suggestCardLayouts, suggestLayouts, type CardDetails, type Cover, type Music, type PhotoInfo, type Project, type PublishLink, type Rating, type Spread } from './api';
+import { openAlbum, suggestCardLayouts, suggestLayouts, type CardDetails, type Cover, type Music, type PhotoInfo, type Project, type PublishLink, type Rating, type RetouchEdits, type Spread } from './api';
 import { fillOptions, NO_DETAILS } from './cards';
 import type { Album } from './App';
 
@@ -39,8 +39,15 @@ export function toProject(
   cover: Cover | null,
   music: Music | null,
   details: CardDetails | null = null,
+  retouch: Record<string, RetouchEdits> = {},
 ): Project {
+  // Only photos still in the album, and only ones with something done to them.
+  const kept = new Set(photos.map((p) => p.id));
+  const edits = Object.fromEntries(
+    Object.entries(retouch).filter(([id, e]) => kept.has(id) && e.strokes.length > 0),
+  );
   return {
+    ...(Object.keys(edits).length ? { retouch: edits } : {}),
     // An album writes neither, so its file is what it always was.
     ...(album.kind === 'cards' ? { kind: 'cards' as const, details: details ?? NO_DETAILS } : {}),
     ratings,
@@ -101,5 +108,6 @@ export async function loadAlbum(path: string): Promise<Album> {
     publish: project.publish ?? null,
     cover: project.cover ?? null,
     music: project.music ?? null,
+    retouch: project.retouch ?? {},
   };
 }

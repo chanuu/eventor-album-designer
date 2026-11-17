@@ -1,6 +1,6 @@
 import { LogOutIcon, RefreshCwIcon } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
-import type { CardDetails, Cover, Music, PhotoInfo, ProjectSpec, Rating, Spread, PublishLink } from './api';
+import type { CardDetails, Cover, Music, PhotoInfo, ProjectSpec, Rating, RetouchEdits, Spread, PublishLink } from './api';
 import CreateGallery from './CreateGallery';
 import DeviceLimit from './DeviceLimit';
 import { checkAccess, OFFLINE_DAYS, signOut, type Access } from './eventor';
@@ -10,6 +10,7 @@ import { LoaderScreen } from './Loader';
 import { hideSplash } from './splash';
 import NewAlbum from './NewAlbum';
 import NewCards from './NewCards';
+import RetouchFiles from './RetouchFiles';
 import Workspace from './Workspace';
 
 export type Album = {
@@ -33,6 +34,8 @@ export type Album = {
   /** The digital album's cover and music, if they have been chosen. */
   cover?: Cover | null;
   music?: Music | null;
+  /** Retouch edits by photo id. */
+  retouch?: Record<string, RetouchEdits>;
   /** Ask for a folder of photos as soon as the album opens. */
   importOnOpen?: boolean;
 };
@@ -40,7 +43,7 @@ export type Album = {
 export default function App() {
   const [access, setAccess] = useState<Access | null>(null);
   const [album, setAlbum] = useState<Album | null>(null);
-  const [screen, setScreen] = useState<'home' | 'album' | 'gallery' | 'cards'>('home');
+  const [screen, setScreen] = useState<'home' | 'album' | 'gallery' | 'cards' | 'retouch'>('home');
 
   const check = useCallback(() => {
     setAccess(null);
@@ -111,6 +114,9 @@ export default function App() {
   if (screen === 'gallery' && access.staff) {
     return <CreateGallery staff={access.staff} onDone={() => setScreen('home')} />;
   }
+  if (screen === 'retouch') {
+    return <RetouchFiles onBack={() => setScreen('home')} />;
+  }
   if (screen === 'cards') {
     return <NewCards onCreate={setAlbum} onBack={() => setScreen('home')} />;
   }
@@ -125,6 +131,7 @@ export default function App() {
       onCreateGallery={() => setScreen('gallery')}
       onCreateAlbum={() => setScreen('album')}
       onCreateCards={() => setScreen('cards')}
+      onRetouch={() => setScreen('retouch')}
       onOpen={setAlbum}
       onSignOut={() => void signOut().then(check)}
     />

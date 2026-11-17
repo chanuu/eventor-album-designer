@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { previewText, previewUrl, type Frame, type PhotoInfo, type SpreadDesign, type TextBlock } from './api';
+import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
+import { previewText, previewUrl, retouchesVersion, subscribeRetouches, type Frame, type PhotoInfo, type SpreadDesign, type TextBlock } from './api';
 import type { Album } from './App';
 import { visibleArea } from './crop';
 
@@ -117,6 +117,8 @@ export function FramedPhoto({
   original?: boolean;
 }) {
   const area = visibleArea(photo.width / photo.height, frame.rect_mm.w / frame.rect_mm.h, frame.fit);
+  // Redraws when this photo is retouched, even inside a spread that skips redraws.
+  useSyncExternalStore(subscribeRetouches, retouchesVersion);
   const src = useSettledImage(previewUrl(photo.id, width, original ? undefined : frame.adjust));
   return (
     <img

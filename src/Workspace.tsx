@@ -1,5 +1,5 @@
-import { ArrowLeftIcon, ArrowRightIcon, BookOpenIcon, ChevronLeftIcon, ChevronRightIcon, DownloadIcon, FlipHorizontal2Icon, ImageMinusIcon, ImagePlusIcon, ImagesIcon, LayoutGridIcon, MessageSquareIcon, PaletteIcon, PanelRightIcon, PenToolIcon, PlusIcon, Redo2Icon, RotateCcwIcon, SaveIcon, SearchIcon, SendIcon, SparklesIcon, Trash2Icon, Undo2Icon, UsersIcon, XIcon, ZapIcon } from 'lucide-react';
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowLeftIcon, ArrowRightIcon, BookOpenIcon, ChevronLeftIcon, ChevronRightIcon, DownloadIcon, FlipHorizontal2Icon, ImageMinusIcon, ImagePlusIcon, ImagesIcon, LayoutGridIcon, WandSparklesIcon, MessageSquareIcon, PaletteIcon, PanelRightIcon, PenToolIcon, PlusIcon, Redo2Icon, RotateCcwIcon, SaveIcon, SearchIcon, SendIcon, SparklesIcon, Trash2Icon, Undo2Icon, UsersIcon, XIcon, ZapIcon } from 'lucide-react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { ask, open, save } from '@tauri-apps/plugin-dialog';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
@@ -12,6 +12,10 @@ import {
   printOptions,
   relinkPhotos,
   saveAlbum,
+  setRetouches,
+  subscribeRetouches,
+  retouchesVersion,
+  NO_RETOUCH,
   suggestCardLayouts,
   suggestColour,
   suggestLayouts,
@@ -30,6 +34,7 @@ import {
   type PhotoInfo,
   type PhotoRating,
   type Rating,
+  type RetouchEdits,
   type Spread,
   type SpreadDesign,
   type TextBlock,
@@ -43,7 +48,9 @@ import CoverDesigner from './CoverDesigner';
 import { effectiveDpi, visibleArea, cropShare } from './crop';
 import EffectsPanel, { NO_ADJUSTMENTS } from './EffectsPanel';
 import CommentsDialog from './CommentsDialog';
+import ContextMenu, { type MenuAt } from './ContextMenu';
 import Designer from './Designer';
+import Retoucher, { type RetouchItem } from './Retoucher';
 import { currentStaff, listComments } from './eventor';
 import ExportDialog from './ExportDialog';
 import PublishDialog from './PublishDialog';
@@ -157,6 +164,11 @@ export default function Workspace({ album }: { album: Album }) {
   const [autoBusy, setAutoBusy] = useState(false);
   const [thresholds, setThresholds] = useState<Thresholds>({ warn: 0, tooLow: 0 });
   const [paperColours, setPaperColours] = useState<string[]>([]);
+  const [retouch, setRetouch] = useState<Record<string, RetouchEdits>>(album.retouch ?? {});
+  const [retouching, setRetouching] = useState<{ item: RetouchItem; startAdjust: string } | null>(null);
+  const [menu, setMenu] = useState<MenuAt | null>(null);
+  // The photo list's thumbnails redraw when a photo is retouched.
+  useSyncExternalStore(subscribeRetouches, retouchesVersion);
 
   /** Selecting text and selecting a photo rule each other out. */
   const setTextId = useCallback((id: string | null) => {
@@ -194,18 +206,49 @@ export default function Workspace({ album }: { album: Album }) {
     if (!spreads.some((s) => s.id === currentId)) setCurrentId(spreads[0]?.id ?? null);
   }, [spreads, currentId]);
 
-  const latest = useRef({ photos, spreads, ratings, publishLink, cover, music, details, path, dirty: false });
+  const latest = useRef({ photos, spreads, ratings, publishLink, cover, music, details, retouch, path, dirty: false });
   latest.current.path = path;
   useEffect(() => {
     const was = latest.current;
     if (
       was.photos === photos && was.spreads === spreads && was.ratings === ratings
       && was.publishLink === publishLink && was.cover === cover && was.music === music
-      && was.details === details
+      && was.details === details && was.retouch === retouch
     ) return;
-    latest.current = { ...was, photos, spreads, ratings, publishLink, cover, music, details, dirty: true };
+    latest.current = { ...was, photos, spreads, ratings, publishLink, cover, music, details, retouch, dirty: true };
     setSaveStatus('unsaved');
-  }, [photos, spreads, ratings, publishLink, cover, music, details]);
+  }, [photos, spreads, ratings, publishLink, cover, music, details, retouch]);
+
+  // Every preview of a retouched photo shows its retouching.
+  useEffect(() => {
+    setRetouches(retouch).catch((e) => setNotice(`Could not show the retouching: ${String(e)}`));
+  }, [retouch]);
+
+  /** Opens a photo in Magic Retouch, with the colour of the frame it was picked from. */
+  const openRetouch = useCallback((photoId: string, frameId?: string) => {
+    const photo = byId.get(photoId);
+    if (!photo) return;
+    if (missing.has(photoId)) {
+      setNotice(`${photo.file_name} cannot be found, so it cannot be retouched. Find the photos first.`);
+      return;
+    }
+    const frames = spreads.flatMap((s) => s.design.frames);
+    const from = frames.find((f) => f.id === frameId) ?? frames.find((f) => f.asset_id === photoId);
+    const adjust = { ...NO_ADJUSTMENTS, ...(from?.adjust ?? {}) };
+    setRetouching({
+      item: { photo, edits: retouch[photoId] ?? NO_RETOUCH, adjust },
+      startAdjust: JSON.stringify(adjust),
+    });
+  }, [byId, missing, spreads, retouch]);
+
+  const photoMenu = useCallback((e: React.MouseEvent, photoId: string, frameId?: string) => {
+    e.preventDefault();
+    setMenu({
+      x: e.clientX,
+      y: e.clientY,
+      items: [{ label: 'Open in Magic Retouch', icon: <WandSparklesIcon aria-hidden="true" />, onSelect: () => openRetouch(photoId, frameId) }],
+    });
+  }, [openRetouch]);
 
   // Shows how many comments are waiting, once this album is linked to a job.
   useEffect(() => {
@@ -251,7 +294,7 @@ export default function Workspace({ album }: { album: Album }) {
       const snapshot = latest.current;
       setSaveStatus('saving');
       try {
-        await saveAlbum(target, toProject(album, snapshot.photos, snapshot.spreads, snapshot.ratings, snapshot.publishLink, snapshot.cover, snapshot.music, snapshot.details));
+        await saveAlbum(target, toProject(album, snapshot.photos, snapshot.spreads, snapshot.ratings, snapshot.publishLink, snapshot.cover, snapshot.music, snapshot.details, snapshot.retouch));
         if (latest.current === snapshot) {
           latest.current.dirty = false;
           setSaveStatus('saved');
@@ -861,7 +904,7 @@ export default function Workspace({ album }: { album: Album }) {
               className="btn"
               disabled={!spreads.length}
               title="Publish as the client's digital album in Eventor"
-              onClick={() => setPublishProject(toProject(album, photos, spreads, ratings, publishLink, cover, music))}
+              onClick={() => setPublishProject(toProject(album, photos, spreads, ratings, publishLink, cover, music, null, retouch))}
             ><SendIcon aria-hidden="true" />
               Publish
             </button>
@@ -871,7 +914,7 @@ export default function Workspace({ album }: { album: Album }) {
           type="button"
           className="btn-primary"
           disabled={!spreads.length}
-          onClick={() => setExportProject(toProject(album, photos, spreads, ratings, publishLink, cover, music, details))}
+          onClick={() => setExportProject(toProject(album, photos, spreads, ratings, publishLink, cover, music, details, retouch))}
         ><DownloadIcon aria-hidden="true" />
           Export
         </button>
@@ -890,6 +933,35 @@ export default function Workspace({ album }: { album: Album }) {
           {notice}
           <button type="button" aria-label="Dismiss" onClick={() => setNotice('')}><XIcon aria-hidden="true" /></button>
         </p>
+      )}
+
+      {menu && <ContextMenu at={menu} onClose={() => setMenu(null)} />}
+
+      {retouching && (
+        <Retoucher
+          mode="album"
+          items={[retouching.item]}
+          onClose={() => setRetouching(null)}
+          onSave={async ({ photo, edits, adjust }) => {
+            setRetouch((all) => {
+              const next = { ...all };
+              if (edits.strokes.length) next[photo.id] = edits;
+              else delete next[photo.id];
+              return next;
+            });
+            // Colour belongs to frames. Only when it was changed here is it given to every
+            // frame showing this photo, so colour set frame by frame is otherwise kept.
+            if (JSON.stringify(adjust) !== retouching.startAdjust) {
+              history.seal();
+              setSpreads((all) => all.map((s) => (
+                s.design.frames.some((f) => f.asset_id === photo.id)
+                  ? { ...s, design: { ...s.design, frames: s.design.frames.map((f) => (f.asset_id === photo.id ? { ...f, adjust } : f)) } }
+                  : s
+              )));
+            }
+            return `Retouched ${photo.file_name}.`;
+          }}
+        />
       )}
 
       {exportProject && (
@@ -997,6 +1069,7 @@ export default function Workspace({ album }: { album: Album }) {
           onAddPhoto={dropPhotosOnDesigner}
           onReplacePhoto={replacePhotoInDesigner}
           onAutoDesign={() => void autoDesign()}
+          onPhotoMenu={(e, frameId, photoId) => photoMenu(e, photoId, frameId)}
           cards={cards}
         />
       ) : (
@@ -1098,6 +1171,7 @@ export default function Workspace({ album }: { album: Album }) {
                         onSelectText={setTextId}
                         onChangeText={changeText}
                         onOverflow={noteOverflow}
+                        onPhotoMenu={photoMenu}
                         cards={cards}
                       />
                     ) : (
@@ -1366,6 +1440,7 @@ export default function Workspace({ album }: { album: Album }) {
                 aria-pressed={selected.has(photo.id)}
                 className={`photo ${selected.has(photo.id) ? 'on' : ''} ${usedIds.has(photo.id) ? 'used' : ''}`}
                 onClick={(e) => clickPhoto(e, photo.id)}
+                onContextMenu={(e) => photoMenu(e, photo.id)}
                 onDragStart={(e) => {
                   const ids = selected.has(photo.id) ? selectedIds : [photo.id];
                   e.dataTransfer.setData(DRAG_PHOTOS, JSON.stringify(ids));
@@ -1500,9 +1575,10 @@ const SpreadPeek = memo(function SpreadPeek({
 
 function SpreadCanvas({
   design, spec, photos, guides, thresholds, selectedId, onSelect, onFit, onSwap, onGestureStart,
-  showOriginal, onOpenDesigner, textId, onSelectText, onChangeText, onOverflow, cards,
+  showOriginal, onOpenDesigner, textId, onSelectText, onChangeText, onOverflow, cards, onPhotoMenu,
 }: {
   cards?: boolean;
+  onPhotoMenu?: (e: React.MouseEvent, photoId: string, frameId?: string) => void;
   design: SpreadDesign;
   spec: Album['spec'];
   photos: Map<string, PhotoInfo>;
@@ -1559,6 +1635,7 @@ function SpreadCanvas({
             onClick={() => onSelect(frame.id)}
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(frame.id); } }}
             onDragStart={(e) => e.dataTransfer.setData(DRAG_FRAME, frame.id)}
+            onContextMenu={(e) => { if (photo && onPhotoMenu) onPhotoMenu(e, photo.id, frame.id); }}
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => {
               const source = e.dataTransfer.getData(DRAG_FRAME);

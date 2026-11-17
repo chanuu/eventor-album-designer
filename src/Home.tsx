@@ -1,4 +1,4 @@
-import { BookOpenIcon, FolderOpenIcon, HeartIcon, ImagesIcon, LogOutIcon } from 'lucide-react';
+import { BookOpenIcon, FolderOpenIcon, HeartIcon, ImagesIcon, LogOutIcon, WandSparklesIcon } from 'lucide-react';
 import { useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import type { Album } from './App';
@@ -8,7 +8,7 @@ import { ALBUM_FILTERS, loadAlbum, recentAlbums, type RecentAlbum } from './proj
 
 /** The first screen: what the studio has come here to do. */
 export default function Home({
-  staff, canCreateGallery, offline, onCreateGallery, onCreateAlbum, onCreateCards, onOpen, onSignOut,
+  staff, canCreateGallery, offline, onCreateGallery, onCreateAlbum, onCreateCards, onRetouch, onOpen, onSignOut,
 }: {
   staff: Staff | null;
   canCreateGallery: boolean;
@@ -16,6 +16,7 @@ export default function Home({
   onCreateGallery: () => void;
   onCreateAlbum: () => void;
   onCreateCards: () => void;
+  onRetouch: () => void;
   onOpen: (album: Album) => void;
   onSignOut: () => void;
 }) {
@@ -83,6 +84,10 @@ export default function Home({
           <button type="button" className="home-card" data-go="cards" onClick={onCreateCards}><HeartIcon aria-hidden="true" />
             <strong>Create thank you card</strong>
             <span>Lay a few photos into a ready-made card with the couple&apos;s names and date, and export it for print.</span>
+          </button>
+          <button type="button" className="home-card" data-go="retouch" onClick={onRetouch}><WandSparklesIcon aria-hidden="true" />
+            <strong>Magic Retouch</strong>
+            <span>Heal spots, smooth skin, fix red eyes and set the colour of any photos. Your originals are never changed.</span>
           </button>
         </div>
 

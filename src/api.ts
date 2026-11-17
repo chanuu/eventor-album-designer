@@ -178,7 +178,31 @@ export type Project = {
   publish?: PublishLink | null;
   cover?: Cover | null;
   music?: Music | null;
+  /** Retouch edits by photo id. Absent when nothing has been retouched. */
+  retouch?: Record<string, RetouchEdits>;
 };
+
+export type RetouchTool = 'heal' | 'clone' | 'smooth' | 'brighten' | 'darken' | 'whiten' | 'red_eye';
+
+/** One brush stroke. Positions are shares of the photo; the radius is a share of its long edge. */
+export type Stroke = {
+  tool: RetouchTool;
+  points: [number, number][];
+  radius: number;
+  softness: number;
+  strength: number;
+  /** Clone stamp only: where to copy from, as an offset from the stroke. */
+  source?: [number, number];
+};
+
+export type RetouchEdits = { strokes: Stroke[] };
+
+export const NO_RETOUCH: RetouchEdits = { strokes: [] };
+
+/** What the retoucher keeps for one photo outside an album. */
+export type SavedRetouch = { edits: RetouchEdits; adjust: Adjustments };
+
+export type RetouchPhoto = { photo: PhotoInfo; saved: SavedRetouch | null };
 
 export type ScanResult = {
   photos: PhotoInfo[];
@@ -213,6 +237,61 @@ export const makeSpec = (settings: NewAlbumSettings) =>
   invoke<ProjectSpec>('make_spec', { settings });
 
 export const importFolder = (path: string) => invoke<ScanResult>('import_folder', { path });
+
+/**
+ * A stamp of each photo's retouch edits, added to its preview address so a retouched
+ * photo is fetched afresh and an unchanged one comes from the browser's cache.
+ */
+let retouchStamps: Record<string, string> = {};
+let retouchVersion = 0;
+const retouchListeners = new Set<() => void>();
+
+/** For useSyncExternalStore: redraw when retouching changes what previews show. */
+export function subscribeRetouches(listener: () => void): () => void {
+  retouchListeners.add(listener);
+  return () => { retouchListeners.delete(listener); };
+}
+
+/** Changes whenever any photo's retouching does. */
+export const retouchesVersion = () => retouchVersion;
+
+function stampOf(edits: RetouchEdits): string {
+  // A short hash of the edits; any change gives a new address.
+  const text = JSON.stringify(edits);
+  let hash = 2166136261;
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+/** Tells the preview server the open album's retouch edits, which every preview then shows. */
+export async function setRetouches(edits: Record<string, RetouchEdits>): Promise<void> {
+  await invoke('set_retouches', { edits });
+  // Only now that the preview server has the edits do previews ask for them, so a
+  // stale picture is never fetched under a new address and kept.
+  retouchStamps = Object.fromEntries(
+    Object.entries(edits)
+      .filter(([, e]) => e.strokes.length > 0)
+      .map(([id, e]) => [id, stampOf(e)]),
+  );
+  retouchVersion += 1;
+  retouchListeners.forEach((listener) => listener());
+}
+
+export const openToRetouch = (paths: string[]) =>
+  invoke<{ photos: RetouchPhoto[]; skipped: string[] }>('open_to_retouch', { paths });
+
+/** The retoucher's picture, drawn by the same code that prints. */
+export async function retouchPreview(photoId: string, edits: RetouchEdits, adjust: Adjustments): Promise<Blob> {
+  const buffer = await invoke<ArrayBuffer>('retouch_preview', { photoId, edits, adjust });
+  return new Blob([new Uint8Array(buffer)], { type: 'image/jpeg' });
+}
+
+/** Writes a full-size retouched copy beside the original. Resolves to where it went. */
+export const saveRetouchedPhoto = (photoId: string, saved: SavedRetouch) =>
+  invoke<string>('save_retouched_photo', { photoId, saved });
 
 export const suggestLayouts = (photos: PhotoInfo[], spec: ProjectSpec) =>
   invoke<LayoutOption[]>('suggest_layouts', {
@@ -373,7 +452,8 @@ const PREVIEW_ORIGIN = navigator.userAgent.includes('Windows')
   : 'album://localhost';
 
 export function previewUrl(photoId: string, width: number, adjust?: Adjustments): string {
-  const base = `${PREVIEW_ORIGIN}/preview/${photoId}?w=${width}`;
+  const stamp = retouchStamps[photoId];
+  const base = `${PREVIEW_ORIGIN}/preview/${photoId}?w=${width}${stamp ? `&rt=${stamp}` : ''}`;
   if (!adjust) return base;
   // An album saved before the newer controls has none of them, which means no change.
   const eight = (values: number[] | undefined) => Array.from({ length: 8 }, (_, i) => values?.[i] ?? 0);

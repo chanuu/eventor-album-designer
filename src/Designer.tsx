@@ -61,7 +61,7 @@ function inches(mm: number): string {
 
 export default function Designer({
   design, spec, photos, thresholds, paperColours, fonts, showOriginal, autoBusy, onChange, onSeal, onAuto,
-  onShowOriginal, onAddPhoto, onReplacePhoto, onAutoDesign, cards,
+  onShowOriginal, onAddPhoto, onReplacePhoto, onAutoDesign, cards, onPhotoMenu,
 }: {
   design: SpreadDesign;
   spec: ProjectSpec;
@@ -80,6 +80,8 @@ export default function Designer({
   onAutoDesign: () => void;
   /** A card is one sheet, with no fold down the middle. */
   cards?: boolean;
+  /** A right-click on a photo, for its menu. */
+  onPhotoMenu?: (e: React.MouseEvent, frameId: string, photoId: string) => void;
 }) {
   const { w, h } = design.size_mm;
   const canvas = useRef<HTMLDivElement>(null);
@@ -510,6 +512,7 @@ export default function Designer({
                     setSelected(new Set([frame.id]));
                   }}
                   onWheel={(e) => wheel(e, frame)}
+                  onContextMenu={(e) => { if (photo && onPhotoMenu) onPhotoMenu(e, frame.id, photo.id); }}
                   onDragOver={(e) => e.preventDefault()}
                   onDrop={(e) => drop(e, frame.id)}
                 >
