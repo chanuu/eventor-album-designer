@@ -52,6 +52,9 @@ fn luma(c: [f32; 3]) -> f32 {
     0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]
 }
 
+/// The most a healed pixel's colour is shifted to meet its surroundings, of 1.
+const MAX_CORRECTION: f32 = 0.2;
+
 /// Log brightness, so a change means the same on dark skin as on fair.
 const LOG_FLOOR: f32 = 0.03;
 
@@ -308,7 +311,9 @@ fn heal(image: &mut Image, brush: &Brush, area: Area, strength: f32) {
                     sum[c] += diff[c] * k;
                 }
             }
-            let correction = sum.map(|v| v / total);
+            // A large correction means no patch really matched; limiting it keeps a poor
+            // match from painting a glaring smear.
+            let correction = sum.map(|v| (v / total).clamp(-MAX_CORRECTION, MAX_CORRECTION));
             let s = source_at(image, x, y);
             let healed = [
                 s[0] + correction[0],
@@ -333,6 +338,14 @@ fn best_offset(
     inside: &[(usize, usize)],
 ) -> Option<(i64, i64)> {
     let r = brush.radius;
+    // What the healed spot should end up looking like: its surroundings.
+    let mut ring_mean = [0.0f32; 3];
+    for &(x, y) in ring {
+        let c = image.get(x, y);
+        for k in 0..3 {
+            ring_mean[k] += c[k] / ring.len() as f32;
+        }
+    }
     let mut best: Option<((i64, i64), f32)> = None;
     for distance in [1.6f32, 2.2, 3.0, 4.0] {
         let d = (r * distance).max(3.0);
@@ -364,8 +377,25 @@ fn best_offset(
                 );
                 cost += (t[0] - s[0]).powi(2) + (t[1] - s[1]).powi(2) + (t[2] - s[2]).powi(2);
             }
+            let mut cost = cost / ring.len() as f32;
+            // The patch itself must look like the spot's surroundings too. Without this,
+            // healing beside an edge (a dark finger on a fair cheek) can match the edge
+            // well and still copy in the wrong tone.
+            if !inside.is_empty() {
+                let mut fill = 0.0f32;
+                for &(x, y) in inside {
+                    let s = image.get(
+                        (x as i64 + offset.0) as usize,
+                        (y as i64 + offset.1) as usize,
+                    );
+                    fill += (s[0] - ring_mean[0]).powi(2)
+                        + (s[1] - ring_mean[1]).powi(2)
+                        + (s[2] - ring_mean[2]).powi(2);
+                }
+                cost += fill / inside.len() as f32;
+            }
             // A slight preference for the nearest patch, where light and grain match best.
-            let cost = cost / ring.len() as f32 * (1.0 + 0.05 * distance);
+            let cost = cost * (1.0 + 0.05 * distance);
             if best.is_none_or(|(_, c)| cost < c) {
                 best = Some((offset, cost));
             }
