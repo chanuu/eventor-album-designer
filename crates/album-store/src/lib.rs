@@ -9,6 +9,7 @@ use std::path::Path;
 
 use album_core::autobuild::Rating;
 use album_core::document::{ProjectSpec, SpreadDesign};
+use album_core::retouch::RetouchEdits;
 use album_media::{is_photo, PhotoInfo};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -145,6 +146,9 @@ pub struct Project {
     pub cover: Option<Cover>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub music: Option<Music>,
+    /// Each retouched photo's edits, by photo id. The photo files are never changed.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub retouch: HashMap<String, RetouchEdits>,
 }
 
 fn invalid(reason: impl Into<String>) -> StoreError {
@@ -179,6 +183,15 @@ impl Project {
         }
         if self.photos.iter().any(|p| p.width == 0 || p.height == 0) {
             return Err(invalid("a photo has no size"));
+        }
+        if self
+            .retouch
+            .keys()
+            .any(|id| !self.photos.iter().any(|p| &p.id == id))
+        {
+            return Err(invalid(
+                "there are retouch edits for a photo not in the album",
+            ));
         }
 
         // The same goes for music: the path is read and uploaded when publishing.
@@ -389,6 +402,7 @@ mod tests {
             publish: None,
             cover: None,
             music: None,
+            retouch: Default::default(),
             spec: ProjectSpec::from_open_inches(30.0, 12.0),
             photos: vec![photo(photo_path)],
             spreads: vec![SavedSpread {

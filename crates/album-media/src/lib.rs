@@ -9,8 +9,10 @@ use std::path::{Path, PathBuf};
 
 pub mod analyze;
 pub mod eyes;
+pub mod retouched;
 
 use album_core::adjust::Adjustments;
+use album_core::retouch::{apply_edits, RetouchEdits};
 use image::metadata::Orientation;
 use image::{DynamicImage, ImageReader};
 use rayon::prelude::*;
@@ -107,6 +109,20 @@ fn read_orientation(path: &Path) -> u8 {
         .and_then(|value| u8::try_from(value).ok())
         .filter(|value| (1..=8).contains(value))
         .unwrap_or(1)
+}
+
+/// One photo file, as a scan would find it: for opening single photos to retouch.
+pub fn read_photo_file(path: &Path) -> Result<PhotoInfo, MediaError> {
+    if !is_photo(path) {
+        return Err(MediaError::Read {
+            path: path.display().to_string(),
+            reason: "not a photo the app can open".to_string(),
+        });
+    }
+    read_photo(path).map_err(|reason| MediaError::Read {
+        path: path.display().to_string(),
+        reason,
+    })
 }
 
 /// Reads only the file header, which keeps a large folder quick.
@@ -277,17 +293,26 @@ pub fn ensure_preview(
     result.map(|()| target)
 }
 
-/// A preview with adjustments applied, as JPEG bytes.
+/// A preview with retouching and adjustments applied, as JPEG bytes.
 ///
 /// Not cached, because it changes with every slider movement and starts from a preview
-/// that already is. This runs the same function as the exporter, so it shows what prints.
-pub fn adjusted_preview(preview: &Path, adjust: &Adjustments) -> Result<Vec<u8>, MediaError> {
+/// that already is. This runs the same functions as the exporter, in the same order, so
+/// it shows what prints.
+pub fn adjusted_preview(
+    preview: &Path,
+    adjust: &Adjustments,
+    retouch: Option<&RetouchEdits>,
+) -> Result<Vec<u8>, MediaError> {
     let mut image = image::open(preview)
         .map_err(|e| MediaError::Read {
             path: preview.display().to_string(),
             reason: e.to_string(),
         })?
         .into_rgb8();
+    if let Some(edits) = retouch {
+        let (w, h) = (image.width() as usize, image.height() as usize);
+        apply_edits(&mut image, w, h, edits);
+    }
     adjust.apply_rgb(&mut image);
 
     let mut bytes = Vec::new();

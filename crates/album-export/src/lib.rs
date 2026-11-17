@@ -12,6 +12,7 @@ use album_core::document::{
     dpi_status, effective_dpi, visible_area, Background, DpiStatus, Frame, ProjectSpec, Shape,
     SpreadDesign,
 };
+use album_core::retouch::{apply_edits, RetouchEdits};
 use album_media::{colour_profile_is_srgb, decode_upright, PhotoInfo};
 use album_store::{Project, ProjectKind};
 use album_text::render_block;
@@ -236,6 +237,16 @@ pub fn render_spread(
     spec: &ProjectSpec,
     photos: &HashMap<&str, &PhotoInfo>,
 ) -> Result<RgbImage, ExportError> {
+    render_spread_retouched(design, spec, photos, &HashMap::new())
+}
+
+/// The same, drawing each photo's retouch edits on the original before it is cropped.
+pub fn render_spread_retouched(
+    design: &SpreadDesign,
+    spec: &ProjectSpec,
+    photos: &HashMap<&str, &PhotoInfo>,
+    retouch: &HashMap<String, RetouchEdits>,
+) -> Result<RgbImage, ExportError> {
     let (width, height) = canvas_pixels(design, spec);
     let Background::Color { value } = &design.background;
     let mut canvas = RgbImage::from_pixel(width, height, Rgb(parse_colour(value)));
@@ -278,9 +289,13 @@ pub fn render_spread(
             continue;
         }
 
-        let original = decode_upright(photo)
+        let mut original = decode_upright(photo)
             .map_err(|e| ExportError::Render(e.to_string()))?
             .into_rgb8();
+        if let Some(edits) = retouch.get(&photo.id).filter(|e| !e.is_empty()) {
+            let (w, h) = (original.width() as usize, original.height() as usize);
+            apply_edits(&mut original, w, h, edits);
+        }
         let (photo_w, photo_h) = original.dimensions();
         let area = visible_area(
             f64::from(photo_w) / f64::from(photo_h),
@@ -442,7 +457,12 @@ pub fn render_web_spread(project: &Project, spread_id: &str) -> Result<Vec<u8>, 
         target_dpi: dpi,
         ..project.spec.clone()
     };
-    let canvas = render_spread(&spread.design, &spec, &photos_by_id(project))?;
+    let canvas = render_spread_retouched(
+        &spread.design,
+        &spec,
+        &photos_by_id(project),
+        &project.retouch,
+    )?;
 
     // Measured from the middle, so that rounding cannot shift the picture off its trim.
     let width = (WEB_WIDTH_PX as u32).min(canvas.width());
@@ -640,7 +660,8 @@ pub fn export_album(
 
     let mut pages = Vec::with_capacity(total);
     for (i, spread) in project.spreads.iter().enumerate() {
-        let image = render_spread(&spread.design, &project.spec, &photos)?;
+        let image =
+            render_spread_retouched(&spread.design, &project.spec, &photos, &project.retouch)?;
         let page = if project.kind == ProjectKind::Cards {
             "card"
         } else {
@@ -810,6 +831,7 @@ mod tests {
             publish: None,
             cover: None,
             music: None,
+            retouch: Default::default(),
             spec: spec(),
             photos,
             spreads: vec![SavedSpread {
@@ -884,6 +906,51 @@ mod tests {
         );
         let bytes = render_web_spread(&p, "s1").unwrap();
         assert!(bytes.len() <= MAX_WEB_BYTES, "{} bytes", bytes.len());
+    }
+
+    #[test]
+    fn a_photos_retouch_edits_are_drawn_in_the_export_and_nowhere_else() {
+        use album_core::retouch::{RetouchEdits, Stroke, Tool};
+        let dir = TempDir::new();
+        let path = dir.0.join("flat.png");
+        RgbImage::from_pixel(600, 300, Rgb([100, 100, 100]))
+            .save(&path)
+            .unwrap();
+        let photo = PhotoInfo {
+            id: "flat.png".to_string(),
+            path,
+            file_name: "flat.png".to_string(),
+            width: 600,
+            height: 300,
+            orientation: 1,
+        };
+        let plain = project(
+            vec![photo],
+            vec![frame(whole_canvas(), "flat.png", Fit::default())],
+        );
+        let mut retouched = plain.clone();
+        retouched.retouch.insert(
+            "flat.png".to_string(),
+            RetouchEdits {
+                strokes: vec![Stroke {
+                    tool: Tool::Brighten,
+                    points: vec![[0.5, 0.5]],
+                    radius: 0.1,
+                    softness: 0.2,
+                    strength: 1.0,
+                    source: None,
+                }],
+            },
+        );
+        let decode = |p: &Project| {
+            image::load_from_memory(&render_web_spread(p, "s1").unwrap())
+                .unwrap()
+                .to_rgb8()
+        };
+        let (before, after) = (decode(&plain), decode(&retouched));
+        let (cx, cy) = (before.width() / 2, before.height() / 2);
+        assert!(after.get_pixel(cx, cy)[0] > before.get_pixel(cx, cy)[0] + 30);
+        assert_eq!(after.get_pixel(5, 5), before.get_pixel(5, 5));
     }
 
     #[test]

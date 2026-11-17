@@ -19,15 +19,18 @@ use album_core::document::{
 };
 use album_core::layoutvary::vary_layout;
 use album_core::pack::{load_pack_dir, TemplateRegistry};
+use album_core::retouch::RetouchEdits;
 use album_export::{
     check_album, export_album, is_upload_address, render_web_spread, ExportFormats, ExportResult,
     Issue,
 };
 use album_media::analyze::{analyze_photo, auto_adjust};
 use album_media::eyes::photo_has_closed_eyes;
+use album_media::retouched::{read_saved, save_retouched, SavedRetouch, RETOUCHED_FOLDER};
 use album_media::selection::{make_gallery_copies, match_selection, SelectionMatch, WantedPhoto};
 use album_media::{
-    adjusted_preview, ensure_preview, scan_folder, PhotoInfo, PreviewTier, ScanResult,
+    adjusted_preview, ensure_preview, read_photo_file, scan_folder, PhotoInfo, PreviewTier,
+    ScanResult,
 };
 use album_store::{load_project, music_type, save_project, Project, StoreError};
 use rayon::prelude::*;
@@ -59,6 +62,8 @@ struct AppState {
     /// used to read any other file on the computer.
     photos: Arc<Mutex<HashMap<String, PhotoInfo>>>,
     facts: Arc<Mutex<HashMap<String, PhotoFacts>>>,
+    /// The open album's retouch edits, by photo id, so every preview shows them.
+    retouches: Arc<Mutex<HashMap<String, RetouchEdits>>>,
     registry: TemplateRegistry,
     /// Thank you card designs, kept apart so an album is never offered one.
     cards: TemplateRegistry,
@@ -139,6 +144,141 @@ async fn import_folder(path: String, state: State<'_, AppState>) -> Result<ScanR
         photos.insert(photo.id.clone(), photo.clone());
     }
     Ok(scan)
+}
+
+/// Tells the preview server the open album's retouch edits. Called when an album opens
+/// and whenever a photo is retouched; the whole set replaces the last one.
+#[tauri::command]
+fn set_retouches(
+    edits: HashMap<String, RetouchEdits>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let cleaned = edits
+        .into_iter()
+        .map(|(id, e)| (id, e.sanitized()))
+        .filter(|(_, e)| !e.is_empty())
+        .collect();
+    *state.retouches.lock().map_err(|e| e.to_string())? = cleaned;
+    Ok(())
+}
+
+/// A photo opened in the retoucher outside an album, with what was saved for it last time.
+#[derive(Serialize)]
+struct RetouchPhoto {
+    photo: PhotoInfo,
+    saved: Option<SavedRetouch>,
+}
+
+#[derive(Serialize)]
+struct OpenedToRetouch {
+    photos: Vec<RetouchPhoto>,
+    skipped: Vec<String>,
+}
+
+/// Whether a photo is one of the app's own retouched copies.
+fn is_retouched_copy(photo: &PhotoInfo) -> bool {
+    photo
+        .path
+        .parent()
+        .and_then(|d| d.file_name())
+        .is_some_and(|n| n == RETOUCHED_FOLDER)
+}
+
+/// Opens photos for retouching: each path is a photo or a folder of them. Photos that
+/// cannot be read are skipped and named.
+#[tauri::command]
+async fn open_to_retouch(
+    paths: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<OpenedToRetouch, String> {
+    let (found, skipped) = tauri::async_runtime::spawn_blocking(move || {
+        let mut found: Vec<PhotoInfo> = Vec::new();
+        let mut skipped: Vec<String> = Vec::new();
+        for path in paths.iter().map(PathBuf::from) {
+            if path.is_dir() {
+                match scan_folder(&path) {
+                    Ok(scan) => {
+                        // A folder's own retouched copies are not offered back for retouching.
+                        found.extend(scan.photos.into_iter().filter(|p| !is_retouched_copy(p)));
+                        skipped.extend(scan.skipped.into_iter().map(|s| s.file_name));
+                    }
+                    Err(e) => skipped.push(e.to_string()),
+                }
+            } else {
+                match read_photo_file(&path) {
+                    Ok(photo) => found.push(photo),
+                    Err(e) => skipped.push(e.to_string()),
+                }
+            }
+        }
+        (found, skipped)
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+    {
+        let mut photos = state.photos.lock().map_err(|e| e.to_string())?;
+        for photo in &found {
+            photos.insert(photo.id.clone(), photo.clone());
+        }
+    }
+    let photos = found
+        .into_iter()
+        .map(|photo| RetouchPhoto {
+            saved: read_saved(&photo),
+            photo,
+        })
+        .collect();
+    Ok(OpenedToRetouch { photos, skipped })
+}
+
+fn known_photo(state: &AppState, id: &str) -> Result<PhotoInfo, String> {
+    state
+        .photos
+        .lock()
+        .map_err(|e| e.to_string())?
+        .get(id)
+        .cloned()
+        .ok_or_else(|| "That photo is not open.".to_string())
+}
+
+/// The retoucher's picture: the editing preview with these edits and this colour.
+#[tauri::command]
+async fn retouch_preview(
+    photo_id: String,
+    edits: RetouchEdits,
+    adjust: Adjustments,
+    state: State<'_, AppState>,
+) -> Result<tauri::ipc::Response, String> {
+    let photo = known_photo(&state, &photo_id)?;
+    let cache_dir = state.cache_dir.clone();
+    let bytes = tauri::async_runtime::spawn_blocking(move || {
+        let preview = ensure_preview(&photo, &cache_dir, PreviewTier::Edit)?;
+        adjusted_preview(&preview, &adjust, Some(&edits))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+/// Saves a full-size retouched copy beside the original. Returns where it went.
+#[tauri::command]
+async fn save_retouched_photo(
+    photo_id: String,
+    saved: SavedRetouch,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let photo = known_photo(&state, &photo_id)?;
+    let saved = SavedRetouch {
+        edits: saved.edits.sanitized(),
+        adjust: saved.adjust.sanitized(),
+    };
+    tauri::async_runtime::spawn_blocking(move || save_retouched(&photo, &saved))
+        .await
+        .map_err(|e| e.to_string())?
+        .map(|path| path.display().to_string())
+        .map_err(|e| e.to_string())
 }
 
 #[derive(Deserialize)]
@@ -766,12 +906,14 @@ fn requested_adjustments(query: Option<&str>) -> Adjustments {
 
 fn serve_preview(
     photos: &Mutex<HashMap<String, PhotoInfo>>,
+    retouches: &Mutex<HashMap<String, RetouchEdits>>,
     cache_dir: &std::path::Path,
     id: &str,
     width: u32,
     adjust: &Adjustments,
 ) -> Response<Vec<u8>> {
     let photo = photos.lock().ok().and_then(|map| map.get(id).cloned());
+    let retouch = retouches.lock().ok().and_then(|map| map.get(id).cloned());
     let Some(photo) = photo else {
         return plain_response(StatusCode::NOT_FOUND, "unknown photo");
     };
@@ -779,17 +921,18 @@ fn serve_preview(
     let bytes = ensure_preview(&photo, cache_dir, PreviewTier::from_width(width))
         .map_err(|e| e.to_string())
         .and_then(|path| {
-            if adjust.is_identity() {
+            if adjust.is_identity() && retouch.is_none() {
                 fs::read(path).map_err(|e| e.to_string())
             } else {
-                adjusted_preview(&path, adjust).map_err(|e| e.to_string())
+                adjusted_preview(&path, adjust, retouch.as_ref()).map_err(|e| e.to_string())
             }
         });
     match bytes {
         Ok(bytes) => Response::builder()
             .status(StatusCode::OK)
             .header(header::CONTENT_TYPE, "image/jpeg")
-            // The id changes when the file changes, so a preview never goes stale.
+            // The id changes when the file changes, and the address carries a stamp of
+            // the photo's retouch edits, so a preview never goes stale.
             .header(header::CACHE_CONTROL, "max-age=31536000, immutable")
             .body(bytes)
             .unwrap_or_default(),
@@ -810,6 +953,7 @@ fn main() {
         .register_asynchronous_uri_scheme_protocol("album", |ctx, request, responder| {
             let state = ctx.app_handle().state::<AppState>();
             let photos = state.photos.clone();
+            let retouches = state.retouches.clone();
             let cache_dir = state.cache_dir.clone();
             let pool = state.preview_pool.clone();
             let id = request
@@ -821,7 +965,9 @@ fn main() {
             let width = requested_width(request.uri().query());
             let adjust = requested_adjustments(request.uri().query());
             pool.spawn(move || {
-                responder.respond(serve_preview(&photos, &cache_dir, &id, width, &adjust));
+                responder.respond(serve_preview(
+                    &photos, &retouches, &cache_dir, &id, width, &adjust,
+                ));
             });
         })
         .setup(|app| {
@@ -833,6 +979,7 @@ fn main() {
             app.manage(AppState {
                 photos: Arc::new(Mutex::new(HashMap::new())),
                 facts: Arc::new(Mutex::new(HashMap::new())),
+                retouches: Arc::new(Mutex::new(HashMap::new())),
                 registry: load_registry(&packs_dir),
                 cards: TemplateRegistry::with_cards(),
                 preview_pool: Arc::new(
@@ -848,6 +995,10 @@ fn main() {
             print_options,
             make_spec,
             import_folder,
+            set_retouches,
+            open_to_retouch,
+            retouch_preview,
+            save_retouched_photo,
             suggest_layouts,
             suggest_card_layouts,
             card_photo_counts,
