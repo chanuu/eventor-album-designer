@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use album_core::adjust::Adjustments;
+use album_core::adjust::{neutralise, Adjustments};
 use album_core::autobuild::{
     gallery_left_out, plan_album, rate_photos, AlbumPlan, GalleryLeftOut, PhotoFacts, PhotoRating,
     PlanOptions,
@@ -266,6 +266,46 @@ async fn retouch_preview(
     .map_err(|e| e.to_string())?
     .map_err(|e| e.to_string())?;
     Ok(tauri::ipc::Response::new(bytes))
+}
+
+/// White balance from a spot that should be grey or white: the Temperature and Tint that
+/// make it neutral. `x` and `y` are shares of the photo; a small patch is averaged so
+/// one noisy pixel cannot throw it off.
+#[tauri::command]
+async fn neutral_at(
+    photo_id: String,
+    x: f64,
+    y: f64,
+    state: State<'_, AppState>,
+) -> Result<(f64, f64), String> {
+    let photo = known_photo(&state, &photo_id)?;
+    let cache_dir = state.cache_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let preview =
+            ensure_preview(&photo, &cache_dir, PreviewTier::Edit).map_err(|e| e.to_string())?;
+        let image = image::open(preview).map_err(|e| e.to_string())?.into_rgb8();
+        let (w, h) = image.dimensions();
+        let cx = (x.clamp(0.0, 1.0) * f64::from(w - 1)).round() as i64;
+        let cy = (y.clamp(0.0, 1.0) * f64::from(h - 1)).round() as i64;
+        let mut sum = [0.0f64; 3];
+        let mut n = 0.0f64;
+        for dy in -2..=2 {
+            for dx in -2..=2 {
+                let (px, py) = (cx + dx, cy + dy);
+                if px < 0 || py < 0 || px >= i64::from(w) || py >= i64::from(h) {
+                    continue;
+                }
+                let p = image.get_pixel(px as u32, py as u32);
+                for k in 0..3 {
+                    sum[k] += f64::from(p[k]) / 255.0;
+                }
+                n += 1.0;
+            }
+        }
+        Ok(neutralise(sum.map(|v| v / n.max(1.0))))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Finds the faces in a photo for Magic skin, ahead of time. Returns how many.
@@ -1023,6 +1063,7 @@ fn main() {
             open_to_retouch,
             retouch_preview,
             prepare_skin,
+            neutral_at,
             save_retouched_photo,
             suggest_layouts,
             suggest_card_layouts,
