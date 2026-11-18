@@ -15,7 +15,9 @@ use crate::eyes::{face_mesh, failed, find_faces, models};
 use crate::{ensure_preview, MediaError, PhotoInfo, PreviewTier};
 
 /// Changing how skin is found must not reuse maps found the old way.
-const CACHE_VERSION: &str = "skin-v1";
+const CACHE_VERSION: &str = "skin-v2";
+/// Only faces the finder is this sure of. Below it, an ear or a hand can pass as one.
+const SKIN_FACE_CONFIDENCE: f32 = 0.8;
 /// Faces smaller than this share of the photo's long edge are left alone.
 const SMALLEST_FACE_SHARE: f32 = 0.03;
 
@@ -76,7 +78,7 @@ pub fn find_skin(image: &DynamicImage) -> Result<SkinMap, MediaError> {
 
     let mut faces = Vec::new();
     for face in find_faces(models, image).map_err(failed)? {
-        if face.w.min(face.h) < long * SMALLEST_FACE_SHARE {
+        if face.score < SKIN_FACE_CONFIDENCE || face.w.min(face.h) < long * SMALLEST_FACE_SHARE {
             continue;
         }
         let mesh = face_mesh(models, &rgb, &face).map_err(failed)?;
