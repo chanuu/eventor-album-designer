@@ -249,6 +249,7 @@ async fn retouch_preview(
     photo_id: String,
     edits: RetouchEdits,
     adjust: Adjustments,
+    max_edge: Option<u32>,
     state: State<'_, AppState>,
 ) -> Result<tauri::ipc::Response, String> {
     let photo = known_photo(&state, &photo_id)?;
@@ -260,7 +261,7 @@ async fn retouch_preview(
         } else {
             None
         };
-        adjusted_preview(&preview, &adjust, Some(&edits), faces.as_ref())
+        adjusted_preview(&preview, &adjust, Some(&edits), faces.as_ref(), max_edge)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -987,7 +988,7 @@ fn serve_preview(
             if adjust.is_identity() && retouch.is_none() {
                 fs::read(path).map_err(|e| e.to_string())
             } else {
-                adjusted_preview(&path, adjust, retouch.as_ref(), faces.as_ref())
+                adjusted_preview(&path, adjust, retouch.as_ref(), faces.as_ref(), None)
                     .map_err(|e| e.to_string())
             }
         });

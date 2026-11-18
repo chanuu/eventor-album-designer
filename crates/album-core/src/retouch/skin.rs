@@ -12,6 +12,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use rayon::prelude::*;
+
 use super::filters::{box_blur, guided};
 
 /// How much of each, 0 to 1. All zero is no change.
@@ -84,20 +86,6 @@ fn from_ycc(c: [f32; 3]) -> [f32; 3] {
     [r, g, b]
 }
 
-fn inside(poly: &[(f32, f32)], x: f32, y: f32) -> bool {
-    let mut odd = false;
-    let mut j = poly.len().wrapping_sub(1);
-    for i in 0..poly.len() {
-        let (xi, yi) = poly[i];
-        let (xj, yj) = poly[j];
-        if (yi > y) != (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi {
-            odd = !odd;
-        }
-        j = i;
-    }
-    odd
-}
-
 struct Placed {
     outline: Vec<(f32, f32)>,
     holes: Vec<Vec<(f32, f32)>>,
@@ -150,19 +138,66 @@ fn place(face: &SkinFace, w: usize, h: usize) -> Option<Placed> {
     })
 }
 
-/// How much a pixel is skin, 0 to 1, for one face.
-fn skin_weight(face: &Placed, x: f32, y: f32, ycc: [f32; 3]) -> f32 {
-    // Skin is never blue, and always a little red.
-    if ycc[0] < 0.02 || ycc[1] > 0.03 || ycc[2] < -0.005 {
-        return 0.0;
+/// Fills a polygon into a mask of the region, setting `value` inside it. Scanline, so
+/// each pixel costs one write rather than a test against every edge.
+fn fill(
+    mask: &mut [u8],
+    rw: usize,
+    rh: usize,
+    origin: (usize, usize),
+    poly: &[(f32, f32)],
+    value: u8,
+) {
+    if poly.len() < 3 {
+        return;
     }
-    if face.holes.iter().any(|hole| inside(hole, x, y)) {
+    let (y0, y1) = poly
+        .iter()
+        .fold((f32::MAX, f32::MIN), |(a, b), p| (a.min(p.1), b.max(p.1)));
+    let first = (y0.floor().max(origin.1 as f32) as usize).saturating_sub(origin.1);
+    let last = ((y1.ceil() as usize).saturating_sub(origin.1)).min(rh);
+    let mut crossings: Vec<f32> = Vec::with_capacity(16);
+    for ry in first..last {
+        let y = (ry + origin.1) as f32 + 0.5;
+        crossings.clear();
+        let mut j = poly.len() - 1;
+        for i in 0..poly.len() {
+            let (xi, yi) = poly[i];
+            let (xj, yj) = poly[j];
+            if (yi > y) != (yj > y) {
+                crossings.push((xj - xi) * (y - yi) / (yj - yi) + xi);
+            }
+            j = i;
+        }
+        crossings.sort_by(f32::total_cmp);
+        for pair in crossings.as_chunks::<2>().0 {
+            // Pixel centres strictly between the two crossings.
+            let from =
+                ((pair[0] - 0.5).ceil().max(origin.0 as f32) as usize).saturating_sub(origin.0);
+            let to = (((pair[1] - 0.5).ceil().max(0.0) as usize).saturating_sub(origin.0)).min(rw);
+            if from < to {
+                mask[ry * rw + from..ry * rw + to].fill(value);
+            }
+        }
+    }
+}
+
+const OUTSIDE: u8 = 0;
+const FACE: u8 = 1;
+const HOLE: u8 = 2;
+
+/// How much a pixel is skin, 0 to 1, for one face, given where it lies.
+fn skin_weight(face: &Placed, x: f32, y: f32, ycc: [f32; 3], place: u8) -> f32 {
+    // Skin is never blue, and always a little red.
+    if place == HOLE || ycc[0] < 0.02 || ycc[1] > 0.03 || ycc[2] < -0.005 {
         return 0.0;
     }
     let z = ((ycc[1] - face.chroma[0]) / (face.spread[0] * 2.5)).powi(2)
         + ((ycc[2] - face.chroma[1]) / (face.spread[1] * 2.5)).powi(2);
+    // Red spots are skin too: the colour test is looser towards red.
+    let z = if ycc[2] > face.chroma[1] { z * 0.5 } else { z };
     let colour = (-0.5 * z).exp();
-    if inside(&face.outline, x, y) {
+    if place == FACE {
         // Inside the face, trust the outline more than the colour, which shine and
         // shadow can throw off.
         return (colour * 2.0).min(1.0);
@@ -176,6 +211,10 @@ fn skin_weight(face: &Placed, x: f32, y: f32, ycc: [f32; 3]) -> f32 {
     }
     colour * (1.0 - d.powi(4))
 }
+
+/// Detail in log brightness bigger than this is shape, such as the shadow beside a nose
+/// or the line of a lip, not a blemish, and smoothing leaves it alone.
+const SHAPE: f32 = 0.09;
 
 /// Retouches the skin of every face in `skin`, on tightly packed RGB bytes `w` by `h`.
 pub fn apply_skin(pixels: &mut [u8], w: usize, h: usize, skin: &SkinMap, settings: SkinSettings) {
@@ -193,7 +232,7 @@ pub fn apply_skin(pixels: &mut [u8], w: usize, h: usize, skin: &SkinMap, setting
     let face_w = widths[widths.len() / 2].max(8.0);
 
     // Work only inside the zones, with room for the filters around them.
-    let pad = face_w * 0.07;
+    let pad = face_w * 0.12;
     let clampx = |v: f32| (v.max(0.0) as usize).min(w);
     let clampy = |v: f32| (v.max(0.0) as usize).min(h);
     let rx0 = clampx(faces.iter().map(|f| f.zone.0).fold(f32::MAX, f32::min) - pad);
@@ -205,88 +244,120 @@ pub fn apply_skin(pixels: &mut [u8], w: usize, h: usize, skin: &SkinMap, setting
     }
     let (rw, rh) = (rx1 - rx0, ry1 - ry0);
 
-    let mut ycc = Vec::with_capacity(rw * rh);
-    let mut mask = Vec::with_capacity(rw * rh);
-    for y in ry0..ry1 {
-        for x in rx0..rx1 {
-            let i = (y * w + x) * 3;
-            let c = [
-                f32::from(pixels[i]) / 255.0,
-                f32::from(pixels[i + 1]) / 255.0,
-                f32::from(pixels[i + 2]) / 255.0,
-            ];
-            let v = to_ycc(c);
-            let (fx, fy) = (x as f32 + 0.5, y as f32 + 0.5);
-            let m = faces
-                .iter()
-                .filter(|f| fx >= f.zone.0 && fx <= f.zone.2 && fy >= f.zone.1 && fy <= f.zone.3)
-                .map(|f| skin_weight(f, fx, fy, v))
-                .fold(0.0f32, f32::max);
-            ycc.push(v);
-            mask.push(m);
+    let ycc: Vec<[f32; 3]> = (0..rw * rh)
+        .into_par_iter()
+        .map(|i| {
+            let (x, y) = (rx0 + i % rw, ry0 + i / rw);
+            let p = (y * w + x) * 3;
+            to_ycc([
+                f32::from(pixels[p]) / 255.0,
+                f32::from(pixels[p + 1]) / 255.0,
+                f32::from(pixels[p + 2]) / 255.0,
+            ])
+        })
+        .collect();
+
+    // Where skin is: each face's outline and holes filled in once, then the colour test.
+    let mut mask = vec![0.0f32; rw * rh];
+    let mut places = vec![OUTSIDE; rw * rh];
+    for face in &faces {
+        places.fill(OUTSIDE);
+        fill(&mut places, rw, rh, (rx0, ry0), &face.outline, FACE);
+        for hole in &face.holes {
+            fill(&mut places, rw, rh, (rx0, ry0), hole, HOLE);
         }
+        mask.par_chunks_mut(rw).enumerate().for_each(|(ry, row)| {
+            let fy = (ry0 + ry) as f32 + 0.5;
+            if fy < face.zone.1 || fy > face.zone.3 {
+                return;
+            }
+            for (rx, m) in row.iter_mut().enumerate() {
+                let fx = (rx0 + rx) as f32 + 0.5;
+                if fx < face.zone.0 || fx > face.zone.2 {
+                    continue;
+                }
+                let i = ry * rw + rx;
+                *m = m.max(skin_weight(face, fx, fy, ycc[i], places[i]));
+            }
+        });
     }
     let feather = (face_w * 0.02).max(1.0) as usize;
     let mask = box_blur(&box_blur(&mask, rw, rh, feather), rw, rh, feather);
 
+    let smooth = settings.smooth as f32;
+    let even = settings.even as f32;
+    let brighten = settings.brighten as f32;
     let log: Vec<f32> = ycc
-        .iter()
+        .par_iter()
         .map(|c| (c[0].max(0.0) + LOG_FLOOR).ln())
         .collect();
-    let smooth = settings.smooth as f32;
-    let (base, soft) = if smooth > 0.0 {
-        let r = (face_w * 0.03).max(2.0) as usize;
-        let fine = (face_w * 0.0035).max(1.0) as usize;
-        (
-            guided(&log, rw, rh, r, 0.02 + smooth * smooth * 0.25),
-            box_blur(&log, rw, rh, fine),
-        )
-    } else {
-        (Vec::new(), Vec::new())
-    };
-    let even = settings.even as f32;
-    let (cb_near, cr_near) = if even > 0.0 {
-        let r = (face_w * 0.06).max(3.0) as usize;
-        let cb: Vec<f32> = ycc.iter().map(|c| c[1]).collect();
-        let cr: Vec<f32> = ycc.iter().map(|c| c[2]).collect();
-        (box_blur(&cb, rw, rh, r), box_blur(&cr, rw, rh, r))
-    } else {
-        (Vec::new(), Vec::new())
-    };
-    let brighten = settings.brighten as f32;
+    // The filters are independent of each other, so they run side by side.
+    let ((base, soft), (cb_near, cr_near)) = rayon::join(
+        || {
+            if smooth <= 0.0 {
+                return (Vec::new(), Vec::new());
+            }
+            // Blemish-sized, so the shape of the face is kept.
+            let r = (face_w * 0.015).max(2.0) as usize;
+            let fine = (face_w * 0.003).max(1.0) as usize;
+            rayon::join(
+                || guided(&log, rw, rh, r, 0.008 + smooth * smooth * 0.05),
+                || box_blur(&log, rw, rh, fine),
+            )
+        },
+        || {
+            if even <= 0.0 {
+                return (Vec::new(), Vec::new());
+            }
+            // Wide enough to see past a blotch to the skin around it.
+            let r = (face_w * 0.1).max(3.0) as usize;
+            let cb: Vec<f32> = ycc.iter().map(|c| c[1]).collect();
+            let cr: Vec<f32> = ycc.iter().map(|c| c[2]).collect();
+            rayon::join(|| box_blur(&cb, rw, rh, r), || box_blur(&cr, rw, rh, r))
+        },
+    );
     // Blemishes go first; fine pores only fade above halfway, for the polished look.
     let s_mid = (smooth * 1.6).min(1.0);
     let s_fine = ((smooth - 0.4) / 0.6).clamp(0.0, 1.0) * 0.6;
 
-    for y in 0..rh {
-        for x in 0..rw {
-            let i = y * rw + x;
-            let m = mask[i];
-            if m <= 0.002 {
-                continue;
+    let region = &mut pixels[ry0 * w * 3..ry1 * w * 3];
+    region
+        .par_chunks_mut(w * 3)
+        .enumerate()
+        .for_each(|(ry, row)| {
+            for rx in 0..rw {
+                let i = ry * rw + rx;
+                let m = mask[i];
+                if m <= 0.002 {
+                    continue;
+                }
+                let [y0, mut cb, mut cr] = ycc[i];
+                let mut l = y0;
+                if smooth > 0.0 {
+                    let fine = log[i] - soft[i];
+                    let mid = (log[i] - base[i]) - fine;
+                    // Small detail is blemish and goes; large detail is shape and stays.
+                    let keep_shape = (-(mid / SHAPE).powi(2)).exp();
+                    l = (log[i] - m * (s_mid * keep_shape * mid + s_fine * fine)).exp() - LOG_FLOOR;
+                }
+                if even > 0.0 {
+                    // Redder than the skin around it is a blotch: take most of it out. Other
+                    // differences are evened more gently, so natural colour stays.
+                    let red = cr - cr_near[i];
+                    cr -= red * even * m * if red > 0.0 { 1.0 } else { 0.4 };
+                    cb += (cb_near[i] - cb) * even * m * 0.5;
+                }
+                if brighten > 0.0 {
+                    l += brighten * m * 0.35 * l * (1.0 - l);
+                    cr -= brighten * m * 0.08 * cr.max(0.0);
+                }
+                let out = from_ycc([l, cb, cr]);
+                let p = (rx0 + rx) * 3;
+                for (k, v) in out.into_iter().enumerate() {
+                    row[p + k] = (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+                }
             }
-            let [y0, mut cb, mut cr] = ycc[i];
-            let mut l = y0;
-            if smooth > 0.0 {
-                let fine = log[i] - soft[i];
-                let mid = (log[i] - base[i]) - fine;
-                l = (log[i] - m * (s_mid * mid + s_fine * fine)).exp() - LOG_FLOOR;
-            }
-            if even > 0.0 {
-                cb += (cb_near[i] - cb) * even * m;
-                cr += (cr_near[i] - cr) * even * m;
-            }
-            if brighten > 0.0 {
-                l += brighten * m * 0.35 * l * (1.0 - l);
-                cr -= brighten * m * 0.08 * cr.max(0.0);
-            }
-            let out = from_ycc([l, cb, cr]);
-            let p = ((ry0 + y) * w + rx0 + x) * 3;
-            for (k, v) in out.into_iter().enumerate() {
-                pixels[p + k] = (v.clamp(0.0, 1.0) * 255.0).round() as u8;
-            }
-        }
-    }
+        });
 }
 
 #[cfg(test)]

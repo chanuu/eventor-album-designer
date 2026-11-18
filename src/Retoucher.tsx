@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  GRID_PREVIEW, NO_RETOUCH, NO_SKIN, neutralAt, prepareSkin, previewUrl, retouchPreview, suggestColour,
+  EDIT_PREVIEW, GRID_PREVIEW, NO_RETOUCH, NO_SKIN, neutralAt, prepareSkin, previewUrl, retouchPreview, suggestColour,
   type Adjustments, type PhotoInfo, type RetouchEdits, type RetouchTool, type SkinSettings, type Stroke,
 } from './api';
 import EffectsPanel, { NO_ADJUSTMENTS } from './EffectsPanel';
@@ -87,6 +87,9 @@ type MixChannel = 'mix_hue' | 'mix_saturation' | 'mix_luminance';
 let copiedColour: Adjustments | null = null;
 
 const MIN_ZOOM_OF_FIT = 0.5;
+/** The quick picture shown while sliders move, and how long changes must stop for the full one. */
+const DRAFT_EDGE = 1024;
+const SETTLE_MS = 250;
 const MAX_ZOOM = 4;
 
 /**
@@ -237,7 +240,12 @@ function PhotoEditor({
   const [url, setUrl] = useState<string | null>(null);
   const [originalUrl, setOriginalUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [natural, setNatural] = useState<{ w: number; h: number } | null>(null);
+  // The editing preview's size, known from the photo, so a half-size draft and the full
+  // picture line up and the brush means the same on both.
+  const natural = useMemo(() => {
+    const scale = Math.min(1, EDIT_PREVIEW / Math.max(photo.width, photo.height));
+    return { w: Math.round(photo.width * scale), h: Math.round(photo.height * scale) };
+  }, [photo.width, photo.height]);
   const [stage, setStage] = useState<{ w: number; h: number }>({ w: 800, h: 600 });
   const [view, setView] = useState<{ zoom: number; x: number; y: number } | null>(null);
   const [compare, setCompare] = useState(false);
@@ -310,20 +318,54 @@ function PhotoEditor({
     return Array.from(ctx.getImageData(x, y, 1, 1).data.slice(0, 3));
   }
 
-  // The picture, drawn by Rust with every edit so far. Older answers are ignored.
-  useEffect(() => {
+  /*
+   * The picture, drawn by Rust with every edit so far.
+   *
+   * One drawing at a time: while one is being made, changes only note that another is
+   * wanted, so dragging a slider never piles up work. While changes keep coming, a quick
+   * half-size picture follows them; once they stop, the full-size one replaces it.
+   */
+  const latest = useRef(work);
+  const drawing_ = useRef(false);
+  const settle = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const draw = useCallback((size: number) => {
+    drawing_.current = true;
+    setBusy(true);
+    const asked = latest.current;
     const ticket = request.current + 1;
     request.current = ticket;
-    setBusy(true);
-    retouchPreview(photo.id, work.edits, work.adjust)
+    retouchPreview(photo.id, asked.edits, asked.adjust, size)
       .then((blob) => {
         if (request.current !== ticket) return;
         const next = URL.createObjectURL(blob);
         setUrl((before) => { if (before) URL.revokeObjectURL(before); return next; });
       })
       .catch((e) => { if (request.current === ticket) onNotice(`Could not draw the photo: ${String(e)}`); })
-      .finally(() => { if (request.current === ticket) setBusy(false); });
-  }, [photo.id, work, onNotice]);
+      .finally(() => {
+        if (request.current !== ticket) return;
+        drawing_.current = false;
+        if (latest.current !== asked) {
+          draw(DRAFT_EDGE);
+        } else if (size === DRAFT_EDGE) {
+          settle.current = setTimeout(() => draw(EDIT_PREVIEW), SETTLE_MS);
+        } else {
+          setBusy(false);
+        }
+      });
+  }, [photo.id, onNotice]);
+
+  const first = useRef(true);
+  useEffect(() => {
+    latest.current = work;
+    if (settle.current) clearTimeout(settle.current);
+    settle.current = null;
+    // The first picture is the full one; after that, quick ones while things change.
+    const size = first.current ? EDIT_PREVIEW : DRAFT_EDGE;
+    first.current = false;
+    if (!drawing_.current) draw(size);
+  }, [work, draw]);
+
+  useEffect(() => () => { if (settle.current) clearTimeout(settle.current); }, []);
 
   // The untouched photo, for comparing.
   useEffect(() => {
@@ -587,11 +629,7 @@ function PhotoEditor({
               src={showOriginalOnly ? originalUrl! : url}
               alt={photo.file_name}
               draggable={false}
-              onLoad={(e) => {
-                const img = e.currentTarget;
-                if (!natural) setNatural({ w: img.naturalWidth, h: img.naturalHeight });
-                if (!showOriginalOnly) clearOverlay();
-              }}
+              onLoad={() => { if (!showOriginalOnly) clearOverlay(); }}
             />
             {compare && originalUrl && !showOriginalOnly && (
               <>

@@ -304,13 +304,18 @@ pub fn adjusted_preview(
     adjust: &Adjustments,
     retouch: Option<&RetouchEdits>,
     faces: Option<&SkinMap>,
+    max_edge: Option<u32>,
 ) -> Result<Vec<u8>, MediaError> {
-    let mut image = image::open(preview)
-        .map_err(|e| MediaError::Read {
-            path: preview.display().to_string(),
-            reason: e.to_string(),
-        })?
-        .into_rgb8();
+    let mut opened = image::open(preview).map_err(|e| MediaError::Read {
+        path: preview.display().to_string(),
+        reason: e.to_string(),
+    })?;
+    // A smaller picture for quick feedback. Every edit is sized as a share of the photo,
+    // so it looks the same, only less sharp.
+    if let Some(edge) = max_edge.filter(|e| *e >= 64 && *e < opened.width().max(opened.height())) {
+        opened = opened.resize(edge, edge, image::imageops::FilterType::Triangle);
+    }
+    let mut image = opened.into_rgb8();
     if let Some(edits) = retouch {
         let (w, h) = (image.width() as usize, image.height() as usize);
         apply_retouch(&mut image, w, h, edits, faces);

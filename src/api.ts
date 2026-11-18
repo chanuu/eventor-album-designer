@@ -305,8 +305,8 @@ export const openToRetouch = (paths: string[]) =>
   invoke<{ photos: RetouchPhoto[]; skipped: string[] }>('open_to_retouch', { paths });
 
 /** The retoucher's picture, drawn by the same code that prints. */
-export async function retouchPreview(photoId: string, edits: RetouchEdits, adjust: Adjustments): Promise<Blob> {
-  const buffer = await invoke<ArrayBuffer>('retouch_preview', { photoId, edits, adjust });
+export async function retouchPreview(photoId: string, edits: RetouchEdits, adjust: Adjustments, maxEdge?: number): Promise<Blob> {
+  const buffer = await invoke<ArrayBuffer>('retouch_preview', { photoId, edits, adjust, maxEdge: maxEdge ?? null });
   return new Blob([new Uint8Array(buffer)], { type: 'image/jpeg' });
 }
 
