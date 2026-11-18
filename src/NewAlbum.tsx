@@ -101,7 +101,7 @@ export default function NewAlbum({
           <span className="brand-mark" aria-hidden="true">E</span>
           <div>
             <strong>Eventor</strong>
-            <span>Album Designer</span>
+            <span>Studio Manager</span>
           </div>
         </div>
         <button type="button" className="btn wide-left" onClick={onBack}><HomeIcon aria-hidden="true" />Home</button>

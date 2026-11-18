@@ -1,4 +1,4 @@
-# Eventor Album Designer
+# Eventor Studio Manager
 
 A desktop app for designing photo albums, built with Rust and Tauri. A photographer
 selects photos, gets a layout picked automatically for that number of photos,

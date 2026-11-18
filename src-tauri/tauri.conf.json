@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Eventor Album Designer",
+  "productName": "Eventor Studio Manager",
   "version": "0.1.1",
   "identifier": "com.eventorcrm.albumdesigner",
   "build": {
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Eventor Album Designer",
+        "title": "Eventor Studio Manager",
         "width": 1440,
         "height": 900,
         "minWidth": 1100,
@@ -33,7 +33,7 @@
     "publisher": "Eventor",
     "copyright": "© 2026 Eventor",
     "category": "Photography",
-    "shortDescription": "Design wedding albums and publish them to Eventor",
+    "shortDescription": "Design albums and cards, retouch photos, and publish them to Eventor",
     "icon": ["icons/icon.ico", "icons/icon.png"],
     "windows": {
       "nsis": {

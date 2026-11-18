@@ -68,14 +68,14 @@ export default function App() {
           <span className="brand-mark" aria-hidden="true">E</span>
           <div>
             <strong>Eventor</strong>
-            <span>Album Designer</span>
+            <span>Studio Manager</span>
           </div>
         </div>
         {access.state === 'signed-out' && <EventorSignIn onSignedIn={check} />}
         {access.state === 'not-in-package' && (
           <>
             <h1>Not part of your package</h1>
-            <p className="muted">The album designer tool is not included in your Eventor package. Please contact Eventor to add it.</p>
+            <p className="muted">Eventor Studio Manager is not included in your Eventor package. Please contact Eventor to add it.</p>
           </>
         )}
         {access.state === 'device-limit' && (

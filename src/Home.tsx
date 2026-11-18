@@ -49,7 +49,7 @@ export default function Home({
           <span className="brand-mark" aria-hidden="true">E</span>
           <div>
             <strong>Eventor</strong>
-            <span>Album Designer</span>
+            <span>Studio Manager</span>
           </div>
         </div>
         <span className="topbar-gap" />

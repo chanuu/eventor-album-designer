@@ -27,7 +27,7 @@ export default function DeviceLimit({ used, limit, devices, canRemove, onFreed }
 
   const remove = async (device: DesignerDevice) => {
     const label = device.name ?? 'this computer';
-    if (!window.confirm(`Remove ${label}? It will need a free place to use the album designer again.`)) return;
+    if (!window.confirm(`Remove ${label}? It will need a free place to use Eventor Studio Manager again.`)) return;
     setRemoving(device.id);
     setError('');
     try {
@@ -44,15 +44,15 @@ export default function DeviceLimit({ used, limit, devices, canRemove, onFreed }
       <h1>No computers left on your plan</h1>
       <p className="muted">
         {limit === 0
-          ? 'Your Eventor plan does not include the album designer on any computer. Please contact Eventor to change your plan.'
-          : `Your Eventor plan allows the album designer on ${limit} ${limit === 1 ? 'computer' : 'computers'}, and ${used} ${used === 1 ? 'is' : 'are'} already using it. `}
+          ? 'Your Eventor plan does not include Eventor Studio Manager on any computer. Please contact Eventor to change your plan.'
+          : `Your Eventor plan allows Eventor Studio Manager on ${limit} ${limit === 1 ? 'computer' : 'computers'}, and ${used} ${used === 1 ? 'is' : 'are'} already using it. `}
         {limit > 0 &&
           (canRemove
             ? 'Remove one you no longer use to use this computer instead, or contact Eventor for a plan with more.'
             : 'Ask someone who can manage your studio settings to remove one, or contact Eventor for a plan with more.')}
       </p>
       {devices.length > 0 && (
-        <ul className="device-list" aria-label="Computers using the album designer">
+        <ul className="device-list" aria-label="Computers using Eventor Studio Manager">
           {devices.map((d) => (
             <li key={d.id}>
               {d.platform === 'macos' ? <LaptopIcon aria-hidden="true" /> : <MonitorIcon aria-hidden="true" />}
