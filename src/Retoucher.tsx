@@ -1,7 +1,7 @@
 import { ask } from '@tauri-apps/plugin-dialog';
 import {
   BandageIcon, BrushIcon, CircleIcon, ClipboardCopyIcon, ClipboardPasteIcon, CrosshairIcon, HandIcon,
-  MoonIcon, PipetteIcon, Redo2Icon, RotateCcwIcon, SaveIcon, SmileIcon, SparklesIcon,
+  MoonIcon, MousePointer2Icon, PipetteIcon, Redo2Icon, RotateCcwIcon, SaveIcon, SmileIcon, SparklesIcon,
   SquareSplitHorizontalIcon, StampIcon, SunIcon, Undo2Icon, WandSparklesIcon, XIcon, ZoomInIcon,
   ZoomOutIcon,
 } from 'lucide-react';
@@ -242,6 +242,11 @@ function PhotoEditor({
   const [view, setView] = useState<{ zoom: number; x: number; y: number } | null>(null);
   const [compare, setCompare] = useState(false);
   const [split, setSplit] = useState(0.5);
+  /** Once the line has been moved, the hint to drag it is not needed. */
+  const [dragged, setDragged] = useState(false);
+  const splitting = useRef(false);
+  /** The brush outline hides while the pointer is on the before/after line. */
+  const [onDivider, setOnDivider] = useState(false);
   const [holdOriginal, setHoldOriginal] = useState(false);
   const [spaceHeld, setSpaceHeld] = useState(false);
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
@@ -590,8 +595,46 @@ function PhotoEditor({
             />
             {compare && originalUrl && !showOriginalOnly && (
               <>
-                <img className="rt-original" src={originalUrl} alt="" draggable={false} style={{ clipPath: `inset(0 ${100 - split * 100}% 0 0)` }} />
-                <span className="rt-split" style={{ left: `${split * 100}%` }} aria-hidden="true" />
+                {/* Retouched on the left, the original on the right, as a printed before-and-after reads. */}
+                <img className="rt-original" src={originalUrl} alt="" draggable={false} style={{ clipPath: `inset(0 0 0 ${split * 100}%)` }} />
+                <span className="rt-compare-tag after" aria-hidden="true">After</span>
+                <span className="rt-compare-tag before" aria-hidden="true">Before</span>
+                <div
+                  className="rt-divider"
+                  style={{ left: `${split * 100}%` }}
+                  onPointerDown={(e) => {
+                    // Moving the line is not painting.
+                    e.stopPropagation();
+                    e.currentTarget.setPointerCapture(e.pointerId);
+                    splitting.current = true;
+                    setDragged(true);
+                  }}
+                  onPointerMove={(e) => {
+                    if (!splitting.current) return;
+                    const box = photoRef.current?.getBoundingClientRect();
+                    if (box && box.width > 0) setSplit(Math.min(1, Math.max(0, (e.clientX - box.left) / box.width)));
+                  }}
+                  onPointerUp={() => { splitting.current = false; }}
+                  onPointerCancel={() => { splitting.current = false; }}
+                  onPointerEnter={() => setOnDivider(true)}
+                  onPointerLeave={() => setOnDivider(false)}
+                >
+                  <span className="rt-divider-line" aria-hidden="true" />
+                  <button
+                    type="button"
+                    className="rt-divider-handle"
+                    role="slider"
+                    aria-label="Where before and after meet"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={Math.round(split * 100)}
+                    onKeyDown={(e) => {
+                      const step = e.shiftKey ? 0.1 : 0.02;
+                      if (e.key === 'ArrowLeft') { e.preventDefault(); e.stopPropagation(); setDragged(true); setSplit((s) => Math.max(0, s - step)); }
+                      if (e.key === 'ArrowRight') { e.preventDefault(); e.stopPropagation(); setDragged(true); setSplit((s) => Math.min(1, s + step)); }
+                    }}
+                  >‹ ›</button>
+                </div>
               </>
             )}
             <canvas ref={overlayRef} className="rt-overlay" width={natural?.w ?? 1} height={natural?.h ?? 1} />
@@ -600,7 +643,10 @@ function PhotoEditor({
             )}
           </div>
         )}
-        {cursor && !panMode && brush && url && (
+        {compare && !dragged && url && (
+          <span className="rt-compare-hint" aria-hidden="true"><MousePointer2Icon />Drag to compare</span>
+        )}
+        {cursor && !panMode && brush && url && !(compare && onDivider) && (
           <span
             className="rt-cursor"
             style={{ width: cursorSize, height: cursorSize, transform: `translate(calc(${cursor.x}px - 50%), calc(${cursor.y}px - 50%))` }}
@@ -683,9 +729,6 @@ function PhotoEditor({
         <button type="button" className="btn" disabled={!history.canUndo} onClick={history.undo} title="Undo (Ctrl+Z)"><Undo2Icon aria-hidden="true" />Undo</button>
         <button type="button" className="btn" disabled={!history.canRedo} onClick={history.redo} title="Redo (Ctrl+Shift+Z)"><Redo2Icon aria-hidden="true" />Redo</button>
         <button type="button" className={`btn ${compare ? 'on' : ''}`} aria-pressed={compare} onClick={() => setCompare((c) => !c)} title="Before and after. Hold \ to see the original."><SquareSplitHorizontalIcon aria-hidden="true" />Before / after</button>
-        {compare && (
-          <input type="range" aria-label="Where the before and after meet" min={0} max={1} step={0.005} value={split} onChange={(e) => setSplit(Number(e.target.value))} className="rt-split-range" />
-        )}
         <button type="button" className="btn" title="Copy this photo's colour" onClick={() => { copiedColour = { ...NO_ADJUSTMENTS, ...work.adjust }; onCopied(); onNotice('Colour copied. Paste it on another photo.'); }}><ClipboardCopyIcon aria-hidden="true" />Copy colour</button>
         <button type="button" className="btn" disabled={!copiedColour} title="Give this photo the copied colour" onClick={() => { if (!copiedColour) return; const colour = copiedColour; history.seal(); history.set((w) => ({ ...w, adjust: colour })); }}><ClipboardPasteIcon aria-hidden="true" />Paste</button>
         <span className="rt-foot-gap" />
