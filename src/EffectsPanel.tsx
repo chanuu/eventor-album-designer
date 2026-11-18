@@ -1,9 +1,11 @@
 import { ChevronDownIcon, ChevronRightIcon, RotateCcwIcon, Wand2Icon } from 'lucide-react';
 import { useState, type CSSProperties } from 'react';
-import type { Adjustments } from './api';
+import type { Adjustments, Grade } from './api';
+import ColourWheel, { NO_GRADE } from './ColourWheel';
 
 type MixKey = 'mix_hue' | 'mix_saturation' | 'mix_luminance';
-type NumberKey = Exclude<keyof Adjustments, 'black_and_white' | MixKey>;
+type GradeKey = 'grade_shadows' | 'grade_midtones' | 'grade_highlights';
+type NumberKey = Exclude<keyof Adjustments, 'black_and_white' | MixKey | GradeKey>;
 
 type Control = { key: NumberKey; label: string; min: number; max: number; step: number; scale: number; unit?: string };
 
@@ -68,7 +70,23 @@ export const NO_ADJUSTMENTS: Adjustments = {
   mix_hue: NONE,
   mix_saturation: NONE,
   mix_luminance: NONE,
+  grade_shadows: NO_GRADE,
+  grade_midtones: NO_GRADE,
+  grade_highlights: NO_GRADE,
+  grade_blending: 0,
+  grade_balance: 0,
 };
+
+const GRADE_WHEELS: { key: GradeKey; label: string }[] = [
+  { key: 'grade_shadows', label: 'Shadows' },
+  { key: 'grade_midtones', label: 'Midtones' },
+  { key: 'grade_highlights', label: 'Highlights' },
+];
+
+const GRADE_SLIDERS: Control[] = [
+  { key: 'grade_blending', label: 'Blending', ...WHOLE },
+  { key: 'grade_balance', label: 'Balance', ...WHOLE },
+];
 
 /** What each slider of the mixer does, shown along its track. */
 function mixTrack(tab: MixKey, hue: number): string {
@@ -77,14 +95,14 @@ function mixTrack(tab: MixKey, hue: number): string {
   return `linear-gradient(90deg, hsl(${hue} 80% 18%), hsl(${hue} 80% 50%), hsl(${hue} 80% 82%))`;
 }
 
-type Section = 'tone' | 'colour' | 'mixer' | 'hue';
+type Section = 'tone' | 'colour' | 'mixer' | 'hue' | 'grading';
 
 /**
  * Tone and colour controls. The picture comes from Rust through the same function the
  * exporter uses, so there is no separate on-screen version that could print differently.
  */
 export default function EffectsPanel({
-  title, hint, value: given, showOriginal, autoBusy, onChange, onGestureStart, onAuto, onShowOriginal,
+  title, hint, value: given, showOriginal, autoBusy, onChange, onGestureStart, onAuto, onShowOriginal, extra,
 }: {
   title: string;
   hint: string;
@@ -95,6 +113,8 @@ export default function EffectsPanel({
   onGestureStart: () => void;
   onAuto: () => void;
   onShowOriginal: (show: boolean) => void;
+  /** More controls under the Auto button, such as the retoucher's eyedropper. */
+  extra?: React.ReactNode;
 }) {
   const [open, setOpen] = useState<Section | null>(null);
   const [tab, setTab] = useState<MixKey>('mix_hue');
@@ -108,7 +128,7 @@ export default function EffectsPanel({
       key={control.key}
       label={control.label}
       control={control}
-      value={value[control.key]}
+      value={value[control.key] ?? 0}
       onGestureStart={onGestureStart}
       onChange={(next) => onChange({ [control.key]: next })}
     />
@@ -128,6 +148,7 @@ export default function EffectsPanel({
       <button type="button" className="btn" disabled={autoBusy} onClick={onAuto}><Wand2Icon aria-hidden="true" />
         {autoBusy ? 'Working…' : 'Auto colour and levels'}
       </button>
+      {extra}
 
       <Group name="Tone adjustments" open={open === 'tone'} onToggle={() => toggle('tone')}>
         {TONE.map(row)}
@@ -169,6 +190,20 @@ export default function EffectsPanel({
       </Group>
       <Group name="Hue / Saturation" open={open === 'hue'} onToggle={() => toggle('hue')}>
         {HUE_SATURATION.map(row)}
+      </Group>
+      <Group name="Colour grading" open={open === 'grading'} onToggle={() => toggle('grading')}>
+        <div className="wheels">
+          {GRADE_WHEELS.map((wheel) => (
+            <ColourWheel
+              key={wheel.key}
+              label={wheel.label}
+              value={{ ...NO_GRADE, ...(value[wheel.key] as Grade | undefined) }}
+              onGestureStart={onGestureStart}
+              onChange={(change) => onChange({ [wheel.key]: { ...NO_GRADE, ...(value[wheel.key] as Grade | undefined), ...change } })}
+            />
+          ))}
+        </div>
+        {GRADE_SLIDERS.map(row)}
       </Group>
 
       <label className="toggle bw">

@@ -1,13 +1,14 @@
 import { ask } from '@tauri-apps/plugin-dialog';
 import {
-  BandageIcon, BrushIcon, CircleIcon, HandIcon, MoonIcon, Redo2Icon, RotateCcwIcon, SaveIcon,
-  SmileIcon, SquareSplitHorizontalIcon, StampIcon, SunIcon, Undo2Icon, WandSparklesIcon, XIcon,
-  ZoomInIcon, ZoomOutIcon,
+  BandageIcon, BrushIcon, CircleIcon, ClipboardCopyIcon, ClipboardPasteIcon, CrosshairIcon, HandIcon,
+  MoonIcon, PipetteIcon, Redo2Icon, RotateCcwIcon, SaveIcon, SmileIcon, SparklesIcon,
+  SquareSplitHorizontalIcon, StampIcon, SunIcon, Undo2Icon, WandSparklesIcon, XIcon, ZoomInIcon,
+  ZoomOutIcon,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  GRID_PREVIEW, NO_RETOUCH, previewUrl, retouchPreview, suggestColour,
-  type Adjustments, type PhotoInfo, type RetouchEdits, type RetouchTool, type Stroke,
+  GRID_PREVIEW, NO_RETOUCH, NO_SKIN, neutralAt, prepareSkin, previewUrl, retouchPreview, suggestColour,
+  type Adjustments, type PhotoInfo, type RetouchEdits, type RetouchTool, type SkinSettings, type Stroke,
 } from './api';
 import EffectsPanel, { NO_ADJUSTMENTS } from './EffectsPanel';
 import { useHistory } from './history';
@@ -17,8 +18,11 @@ export type RetouchItem = { photo: PhotoInfo; edits: RetouchEdits; adjust: Adjus
 
 type Work = { edits: RetouchEdits; adjust: Adjustments };
 
+/** Tools that are not brushes: Magic skin works on every face, the others on colour. */
+type PanelTool = 'skin' | 'picker' | 'target' | 'hand';
+
 type ToolInfo = {
-  id: RetouchTool | 'hand';
+  id: RetouchTool | PanelTool;
   name: string;
   key: string;
   icon: ReactNode;
@@ -30,6 +34,7 @@ type ToolInfo = {
 };
 
 const TOOLS: ToolInfo[] = [
+  { id: 'skin', name: 'Magic skin', key: 'm', icon: <SparklesIcon aria-hidden="true" />, help: 'Smooths, brightens and evens the skin of every face at once. Eyes, brows and lips are left sharp, and each person keeps their own skin colour.', size: 0, softness: 0, strength: 0 },
   { id: 'heal', name: 'Spot healing', key: 'j', icon: <BandageIcon aria-hidden="true" />, help: 'Paint over a pimple, mark or stray hair. It is replaced with matching skin from around it.', size: 14, softness: 0.4, strength: 1 },
   { id: 'clone', name: 'Clone stamp', key: 's', icon: <StampIcon aria-hidden="true" />, help: 'Alt-click where to copy from, then paint. Use it where healing guesses wrong, such as a sign behind a head.', size: 24, softness: 0.5, strength: 1 },
   { id: 'smooth', name: 'Smooth skin', key: 'b', icon: <BrushIcon aria-hidden="true" />, help: 'Paint smoothing just where you want it. Fine grain is kept so skin still looks like skin.', size: 60, softness: 0.7, strength: 0.6 },
@@ -37,8 +42,49 @@ const TOOLS: ToolInfo[] = [
   { id: 'darken', name: 'Darken', key: 'o', icon: <MoonIcon aria-hidden="true" />, help: 'Calm a shiny forehead or a bright patch.', size: 50, softness: 0.8, strength: 0.4 },
   { id: 'whiten', name: 'Whiten teeth and eyes', key: 'w', icon: <SmileIcon aria-hidden="true" />, help: 'Paint over teeth or the whites of the eyes to take the yellow out.', size: 18, softness: 0.5, strength: 0.7 },
   { id: 'red_eye', name: 'Red eye', key: 'r', icon: <CircleIcon aria-hidden="true" />, help: 'Click the middle of a red eye. Only the red is changed.', size: 16, softness: 0.3, strength: 1 },
+  { id: 'picker', name: 'White balance picker', key: 'i', icon: <PipetteIcon aria-hidden="true" />, help: 'Click something that should be white or grey, such as a shirt or a wall, to correct the colour of the whole photo.', size: 0, softness: 0, strength: 0 },
+  { id: 'target', name: 'Drag a colour', key: 't', icon: <CrosshairIcon aria-hidden="true" />, help: 'Press on a colour in the photo and drag up or down to change it, as in the colour mixer.', size: 0, softness: 0, strength: 0 },
   { id: 'hand', name: 'Move around', key: 'h', icon: <HandIcon aria-hidden="true" />, help: 'Drag to move around the photo. Hold Space with any tool to do the same.', size: 0, softness: 0, strength: 0 },
 ];
+
+/** Magic skin's one-click setting: a natural retouch that keeps skin texture. */
+const SKIN_PRESET: SkinSettings = { smooth: 0.45, brighten: 0.25, even: 0.3 };
+
+/** The mixer's colours, as hues in degrees, in Rust's order. */
+const MIX_HUES = [0, 30, 60, 120, 180, 240, 270, 300];
+
+/** How much a hue belongs to each mixer colour; the same sharing as Rust's band_weights. */
+function bandWeights(hue: number): number[] {
+  const h = ((hue % 360) + 360) % 360;
+  const weights = new Array(8).fill(0);
+  for (let i = 0; i < 8; i += 1) {
+    const next = (i + 1) % 8;
+    const start = MIX_HUES[i];
+    const end = next === 0 ? 360 : MIX_HUES[next];
+    if (h >= start && h < end) {
+      const t = (h - start) / (end - start);
+      weights[i] = 1 - t;
+      weights[next] = t;
+      break;
+    }
+  }
+  return weights;
+}
+
+function hueOf([r, g, b]: number[]): { hue: number; colourful: boolean } {
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const d = max - min;
+  if (d < 12) return { hue: 0, colourful: false };
+  let hue = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  hue *= 60;
+  return { hue: (hue + 360) % 360, colourful: true };
+}
+
+type MixChannel = 'mix_hue' | 'mix_saturation' | 'mix_luminance';
+
+/** Colour copied from one photo, to paste on others. Kept while the app is open. */
+let copiedColour: Adjustments | null = null;
 
 const MIN_ZOOM_OF_FIT = 0.5;
 const MAX_ZOOM = 4;
@@ -65,6 +111,8 @@ export default function Retoucher({
     Object.fromEntries(items.map((i) => [i.photo.id, JSON.stringify({ edits: i.edits, adjust: i.adjust })])));
   const [notice, setNotice] = useState('');
   const [saving, setSaving] = useState(false);
+  const [hasCopied, setHasCopied] = useState(copiedColour !== null);
+  const [pasteTick, setPasteTick] = useState(0);
 
   const item = items[index];
   const unsaved = (id: string) => JSON.stringify(work[id]) !== saved[id];
@@ -116,6 +164,21 @@ export default function Retoucher({
         </div>
         {notice && <span className="rt-notice" role="status">{notice}</span>}
         <div className="rt-head-actions">
+          {items.length > 1 && (
+            <button
+              type="button"
+              className="btn"
+              disabled={!hasCopied}
+              title="Give every photo here the copied colour"
+              onClick={() => {
+                if (!copiedColour) return;
+                const colour = copiedColour;
+                setWork((all) => Object.fromEntries(Object.entries(all).map(([id, w]) => [id, { ...w, adjust: colour }])));
+                setPasteTick((t) => t + 1);
+                setNotice(`Pasted the colour onto all ${items.length} photos. Save each one you want to keep.`);
+              }}
+            ><ClipboardPasteIcon aria-hidden="true" />Paste colour to all</button>
+          )}
           <button type="button" className="btn" onClick={() => void close()}><XIcon aria-hidden="true" />{mode === 'album' ? 'Cancel' : 'Close'}</button>
           <button type="button" className="btn-primary" disabled={saving || (mode === 'files' && !unsaved(item.photo.id))} onClick={() => void save()}>
             <SaveIcon aria-hidden="true" />{saving ? 'Saving…' : mode === 'album' ? 'Apply to album' : 'Save copy'}
@@ -129,6 +192,8 @@ export default function Retoucher({
         initial={work[item.photo.id]}
         onChange={(next) => change(item.photo.id, next)}
         onNotice={setNotice}
+        pasteTick={pasteTick}
+        onCopied={() => setHasCopied(true)}
       />
 
       {items.length > 1 && (
@@ -153,12 +218,15 @@ export default function Retoucher({
 }
 
 function PhotoEditor({
-  photo, initial, onChange, onNotice,
+  photo, initial, onChange, onNotice, pasteTick, onCopied,
 }: {
   photo: PhotoInfo;
   initial: Work;
   onChange: (work: Work) => void;
   onNotice: (message: string) => void;
+  /** Goes up when the colour is pasted onto every photo, this one included. */
+  pasteTick: number;
+  onCopied: () => void;
 }) {
   const history = useHistory<Work>(initial);
   const work = history.present;
@@ -180,6 +248,10 @@ function PhotoEditor({
   const [cloneSource, setCloneSource] = useState<[number, number] | null>(null);
   const [cloneOffset, setCloneOffset] = useState<[number, number] | null>(null);
   const [autoBusy, setAutoBusy] = useState(false);
+  const [faces, setFaces] = useState<number | null>(null);
+  const [channel, setChannel] = useState<MixChannel>('mix_saturation');
+  const targeting = useRef<{ y: number; weights: number[]; base: number[] } | null>(null);
+  const sampler = useRef<HTMLCanvasElement | null>(null);
 
   const stageRef = useRef<HTMLDivElement | null>(null);
   const photoRef = useRef<HTMLDivElement | null>(null);
@@ -193,6 +265,45 @@ function PhotoEditor({
   const longEdge = natural ? Math.max(natural.w, natural.h) : 2048;
 
   useEffect(() => { onChange(work); }, [work, onChange]);
+
+  // Pasting onto every photo includes this one, which keeps its own undo.
+  const firstTick = useRef(pasteTick);
+  useEffect(() => {
+    if (pasteTick === firstTick.current || !copiedColour) return;
+    const colour = copiedColour;
+    history.seal();
+    history.set((w) => ({ ...w, adjust: colour }));
+  }, [pasteTick, history]);
+
+  // Magic skin needs the faces; finding them once, when the tool is first chosen.
+  useEffect(() => {
+    if (toolId !== 'skin' || faces !== null) return;
+    prepareSkin(photo.id)
+      .then(setFaces)
+      .catch((e) => { setFaces(0); onNotice(`Could not look for faces: ${String(e)}`); });
+  }, [toolId, faces, photo.id, onNotice]);
+
+  const skin = work.edits.skin ?? NO_SKIN;
+  const setSkin = (change: Partial<SkinSettings>, merge?: string) =>
+    history.set((w) => ({ ...w, edits: { ...w.edits, skin: { ...NO_SKIN, ...w.edits.skin, ...change } } }), merge);
+
+  /** The colour of the picture under the pointer, 0 to 255. */
+  function colourAt(p: [number, number]): number[] | null {
+    const img = photoRef.current?.querySelector('img');
+    if (!img || !natural) return null;
+    const canvas = sampler.current ?? document.createElement('canvas');
+    sampler.current = canvas;
+    if (canvas.width !== natural.w || canvas.height !== natural.h) {
+      canvas.width = natural.w;
+      canvas.height = natural.h;
+    }
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return null;
+    ctx.drawImage(img, 0, 0);
+    const x = Math.min(natural.w - 1, Math.max(0, Math.round(p[0] * natural.w)));
+    const y = Math.min(natural.h - 1, Math.max(0, Math.round(p[1] * natural.h)));
+    return Array.from(ctx.getImageData(x, y, 1, 1).data.slice(0, 3));
+  }
 
   // The picture, drawn by Rust with every edit so far. Older answers are ignored.
   useEffect(() => {
@@ -285,6 +396,31 @@ function PhotoEditor({
     if (e.button !== 0) return;
     const p = toPhoto(e);
     if (!p || p[0] < 0 || p[1] < 0 || p[0] > 1 || p[1] > 1) return;
+    if (tool.id === 'skin') return;
+    if (tool.id === 'picker') {
+      neutralAt(photo.id, p[0], p[1])
+        .then(([temperature, tint]) => {
+          history.seal();
+          history.set((w) => ({ ...w, adjust: { ...NO_ADJUSTMENTS, ...w.adjust, temperature, tint } }));
+          onNotice('White balance set from that spot.');
+        })
+        .catch((err) => onNotice(String(err)));
+      return;
+    }
+    if (tool.id === 'target') {
+      const colour = colourAt(p);
+      if (!colour) return;
+      const { hue, colourful } = hueOf(colour);
+      if (!colourful) {
+        onNotice('That spot is grey, so it has no colour to change. Press on something colourful.');
+        return;
+      }
+      e.currentTarget.setPointerCapture(e.pointerId);
+      history.seal();
+      const now = { ...NO_ADJUSTMENTS, ...work.adjust };
+      targeting.current = { y: e.clientY, weights: bandWeights(hue), base: [...now[channel]] };
+      return;
+    }
     const id = tool.id as RetouchTool;
     if (id === 'clone' && e.altKey) {
       setCloneSource(p);
@@ -308,6 +444,14 @@ function PhotoEditor({
       setView({ zoom: shown.zoom, x: from.vx + (e.clientX - from.x), y: from.vy + (e.clientY - from.y) });
       return;
     }
+    const aim = targeting.current;
+    if (aim) {
+      // Up is more; a full photo height of drag is the whole range.
+      const amount = (aim.y - e.clientY) / 200;
+      const next = aim.base.map((v, i) => Math.max(-1, Math.min(1, v + aim.weights[i] * amount)));
+      history.set((w) => ({ ...w, adjust: { ...NO_ADJUSTMENTS, ...w.adjust, [channel]: next } }), 'target');
+      return;
+    }
     const d = drawing.current;
     if (!d || d.tool === 'red_eye') return;
     const p = toPhoto(e);
@@ -321,6 +465,10 @@ function PhotoEditor({
 
   function onPointerUp() {
     panning.current = null;
+    if (targeting.current) {
+      targeting.current = null;
+      history.seal();
+    }
     const d = drawing.current;
     drawing.current = null;
     if (!d) return;
@@ -381,11 +529,12 @@ function PhotoEditor({
   };
 
   const changed = useMemo(
-    () => work.edits.strokes.length > 0 || JSON.stringify({ ...NO_ADJUSTMENTS, ...work.adjust }) !== JSON.stringify(NO_ADJUSTMENTS),
+    () => work.edits.strokes.length > 0 || JSON.stringify(work.edits.skin ?? NO_SKIN) !== JSON.stringify(NO_SKIN) || JSON.stringify({ ...NO_ADJUSTMENTS, ...work.adjust }) !== JSON.stringify(NO_ADJUSTMENTS),
     [work],
   );
 
   const panMode = tool.id === 'hand' || spaceHeld;
+  const brush = !['hand', 'skin', 'picker', 'target'].includes(tool.id);
   const showOriginalOnly = holdOriginal && !!originalUrl;
   const cursorSize = setting.size * 2 * shown.zoom;
 
@@ -409,7 +558,7 @@ function PhotoEditor({
 
       <div
         ref={stageRef}
-        className={`rt-stage ${panMode ? 'pan' : ''}`}
+        className={`rt-stage ${panMode ? 'pan' : ''} ${brush ? '' : 'pointer'} ${tool.id === 'target' ? 'target' : ''}`}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -451,7 +600,7 @@ function PhotoEditor({
             )}
           </div>
         )}
-        {cursor && !panMode && url && (
+        {cursor && !panMode && brush && url && (
           <span
             className="rt-cursor"
             style={{ width: cursorSize, height: cursorSize, transform: `translate(calc(${cursor.x}px - 50%), calc(${cursor.y}px - 50%))` }}
@@ -466,7 +615,34 @@ function PhotoEditor({
         <section className="rt-section">
           <h3>{tool.name}</h3>
           <p className="muted">{tool.help}</p>
-          {tool.id !== 'hand' && (
+          {tool.id === 'skin' && (
+            <>
+              {faces === null && <p className="loader"><span className="loader-ring" aria-hidden="true" />Finding faces…</p>}
+              {faces === 0 && <p className="warn">No face found in this photo, so Magic skin has nothing to do. The brushes still work.</p>}
+              {faces !== null && faces > 0 && <p className="muted">{faces === 1 ? 'One face found.' : `${faces} faces found.`}</p>}
+              <button
+                type="button"
+                className="btn-primary"
+                disabled={!faces}
+                onClick={() => { history.seal(); setSkin(SKIN_PRESET); }}
+              ><SparklesIcon aria-hidden="true" />Retouch skin</button>
+              <Slider label="Smooth" min={0} max={1} step={0.01} value={skin.smooth} shown={`${Math.round(skin.smooth * 100)}`}
+                onStart={history.seal} onChange={(v) => setSkin({ smooth: v }, 'skin:smooth')} />
+              <Slider label="Brighten" min={0} max={1} step={0.01} value={skin.brighten} shown={`${Math.round(skin.brighten * 100)}`}
+                onStart={history.seal} onChange={(v) => setSkin({ brighten: v }, 'skin:brighten')} />
+              <Slider label="Even tone" min={0} max={1} step={0.01} value={skin.even} shown={`${Math.round(skin.even * 100)}`}
+                onStart={history.seal} onChange={(v) => setSkin({ even: v }, 'skin:even')} />
+              <p className="muted">Up to 50 keeps skin texture. Higher gives a polished, magazine look.</p>
+            </>
+          )}
+          {tool.id === 'target' && (
+            <div className="segment" role="radiogroup" aria-label="What dragging changes">
+              {([['mix_hue', 'Hue'], ['mix_saturation', 'Saturation'], ['mix_luminance', 'Luminance']] as const).map(([key, label]) => (
+                <button key={key} type="button" role="radio" aria-checked={channel === key} className={channel === key ? 'on' : ''} onClick={() => setChannel(key)}>{label}</button>
+              ))}
+            </div>
+          )}
+          {!['hand', 'skin', 'picker', 'target'].includes(tool.id) && (
             <>
               <Slider label="Size" min={2} max={400} step={1} value={setting.size} shown={`${Math.round(setting.size)} px`}
                 onChange={(v) => setSettings((all) => ({ ...all, [tool.id]: { ...all[tool.id], size: v } }))} />
@@ -510,6 +686,8 @@ function PhotoEditor({
         {compare && (
           <input type="range" aria-label="Where the before and after meet" min={0} max={1} step={0.005} value={split} onChange={(e) => setSplit(Number(e.target.value))} className="rt-split-range" />
         )}
+        <button type="button" className="btn" title="Copy this photo's colour" onClick={() => { copiedColour = { ...NO_ADJUSTMENTS, ...work.adjust }; onCopied(); onNotice('Colour copied. Paste it on another photo.'); }}><ClipboardCopyIcon aria-hidden="true" />Copy colour</button>
+        <button type="button" className="btn" disabled={!copiedColour} title="Give this photo the copied colour" onClick={() => { if (!copiedColour) return; const colour = copiedColour; history.seal(); history.set((w) => ({ ...w, adjust: colour })); }}><ClipboardPasteIcon aria-hidden="true" />Paste</button>
         <span className="rt-foot-gap" />
         <button type="button" className="btn" onClick={() => setZoom(shown.zoom / 1.25)} aria-label="Zoom out"><ZoomOutIcon aria-hidden="true" /></button>
         <button type="button" className="btn" onClick={() => setView(null)}>Fit</button>
@@ -527,8 +705,9 @@ function PhotoEditor({
 }
 
 function Slider({
-  label, min, max, step, value, shown, onChange,
+  label, min, max, step, value, shown, onChange, onStart,
 }: {
+  onStart?: () => void;
   label: string;
   min: number;
   max: number;
@@ -540,7 +719,7 @@ function Slider({
   return (
     <label className="fx-row">
       <span className="fx-name">{label}</span>
-      <input type="range" aria-label={label} min={min} max={max} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} />
+      <input type="range" aria-label={label} min={min} max={max} step={step} value={value} onPointerDown={onStart} onChange={(e) => onChange(Number(e.target.value))} />
       <output>{shown}</output>
     </label>
   );

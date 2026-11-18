@@ -1,4 +1,4 @@
-import { openAlbum, suggestCardLayouts, suggestLayouts, type CardDetails, type Cover, type Music, type PhotoInfo, type Project, type PublishLink, type Rating, type RetouchEdits, type Spread } from './api';
+import { hasRetouch, openAlbum, suggestCardLayouts, suggestLayouts, type CardDetails, type Cover, type Music, type PhotoInfo, type Project, type PublishLink, type Rating, type RetouchEdits, type Spread } from './api';
 import { fillOptions, NO_DETAILS } from './cards';
 import type { Album } from './App';
 
@@ -44,7 +44,7 @@ export function toProject(
   // Only photos still in the album, and only ones with something done to them.
   const kept = new Set(photos.map((p) => p.id));
   const edits = Object.fromEntries(
-    Object.entries(retouch).filter(([id, e]) => kept.has(id) && e.strokes.length > 0),
+    Object.entries(retouch).filter(([id, e]) => kept.has(id) && hasRetouch(e)),
   );
   return {
     ...(Object.keys(edits).length ? { retouch: edits } : {}),

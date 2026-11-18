@@ -13,6 +13,7 @@ import {
   relinkPhotos,
   saveAlbum,
   setRetouches,
+  hasRetouch,
   subscribeRetouches,
   retouchesVersion,
   NO_RETOUCH,
@@ -945,7 +946,7 @@ export default function Workspace({ album }: { album: Album }) {
           onSave={async ({ photo, edits, adjust }) => {
             setRetouch((all) => {
               const next = { ...all };
-              if (edits.strokes.length) next[photo.id] = edits;
+              if (hasRetouch(edits)) next[photo.id] = edits;
               else delete next[photo.id];
               return next;
             });

@@ -36,7 +36,16 @@ export type Adjustments = {
   mix_hue: number[];
   mix_saturation: number[];
   mix_luminance: number[];
+  /** Colour grading. Absent in albums saved before it existed, meaning none. */
+  grade_shadows?: Grade;
+  grade_midtones?: Grade;
+  grade_highlights?: Grade;
+  grade_blending?: number;
+  grade_balance?: number;
 };
+
+/** One colour-grading wheel: hue in degrees, saturation 0 to 1, luminance -1 to 1. */
+export type Grade = { hue: number; saturation: number; luminance: number };
 
 export type FrameStyle = { opacity: number; border_mm: number; border_colour: string };
 
@@ -195,9 +204,21 @@ export type Stroke = {
   source?: [number, number];
 };
 
-export type RetouchEdits = { strokes: Stroke[] };
+/** Magic skin, 0 to 1 each. */
+export type SkinSettings = { smooth: number; brighten: number; even: number };
+
+export const NO_SKIN: SkinSettings = { smooth: 0, brighten: 0, even: 0 };
+
+export type RetouchEdits = { strokes: Stroke[]; skin?: SkinSettings };
 
 export const NO_RETOUCH: RetouchEdits = { strokes: [] };
+
+/** Whether an edit list does anything. */
+export function hasRetouch(edits: RetouchEdits | undefined): boolean {
+  if (!edits) return false;
+  const skin = edits.skin ?? NO_SKIN;
+  return edits.strokes.length > 0 || skin.smooth > 0 || skin.brighten > 0 || skin.even > 0;
+}
 
 /** What the retoucher keeps for one photo outside an album. */
 export type SavedRetouch = { edits: RetouchEdits; adjust: Adjustments };
@@ -273,7 +294,7 @@ export async function setRetouches(edits: Record<string, RetouchEdits>): Promise
   // stale picture is never fetched under a new address and kept.
   retouchStamps = Object.fromEntries(
     Object.entries(edits)
-      .filter(([, e]) => e.strokes.length > 0)
+      .filter(([, e]) => hasRetouch(e))
       .map(([id, e]) => [id, stampOf(e)]),
   );
   retouchVersion += 1;
@@ -288,6 +309,13 @@ export async function retouchPreview(photoId: string, edits: RetouchEdits, adjus
   const buffer = await invoke<ArrayBuffer>('retouch_preview', { photoId, edits, adjust });
   return new Blob([new Uint8Array(buffer)], { type: 'image/jpeg' });
 }
+
+/** Finds the faces in a photo for Magic skin. Resolves to how many. */
+export const prepareSkin = (photoId: string) => invoke<number>('prepare_skin', { photoId });
+
+/** The Temperature and Tint that make the spot at x, y (shares of the photo) neutral. */
+export const neutralAt = (photoId: string, x: number, y: number) =>
+  invoke<[number, number]>('neutral_at', { photoId, x, y });
 
 /** Writes a full-size retouched copy beside the original. Resolves to where it went. */
 export const saveRetouchedPhoto = (photoId: string, saved: SavedRetouch) =>
@@ -474,6 +502,9 @@ export function previewUrl(photoId: string, width: number, adjust?: Adjustments)
     ...eight(adjust.mix_hue),
     ...eight(adjust.mix_saturation),
     ...eight(adjust.mix_luminance),
+    ...[adjust.grade_shadows, adjust.grade_midtones, adjust.grade_highlights].flatMap((g) => [g?.hue ?? 0, g?.saturation ?? 0, g?.luminance ?? 0]),
+    adjust.grade_blending ?? 0,
+    adjust.grade_balance ?? 0,
   ];
   return values.every((v) => v === 0) ? base : `${base}&fx=${values.join(',')}`;
 }

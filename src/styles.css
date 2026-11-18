@@ -614,3 +614,18 @@ fieldset.plain > legend { font-size: 14px; color: var(--ink); margin-bottom: 4px
 .context-menu button:hover, .context-menu button:focus-visible { background: var(--brand-soft); outline: none; }
 .context-menu button svg { width: 16px; height: 16px; color: var(--brand-text); }
 .title-icon { width: 26px; height: 26px; vertical-align: -4px; color: var(--brand-text); }
+
+/* Colour grading wheels. */
+.wheels { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.wheel-block { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; }
+.wheel-label { font-size: 11px; font-weight: 600; color: var(--ink-mid); }
+.wheel { position: relative; width: 100%; max-width: 84px; aspect-ratio: 1; border-radius: 50%; cursor: crosshair; touch-action: none;
+  background: radial-gradient(circle, #8a8a8a 0%, rgb(138 138 138 / 0%) 70%), conic-gradient(from 90deg, hsl(0 80% 55%), hsl(300 80% 55%), hsl(240 80% 55%), hsl(180 80% 55%), hsl(120 80% 55%), hsl(60 80% 55%), hsl(0 80% 55%));
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 35%); }
+.wheel-dot { position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px rgb(0 0 0 / 60%); pointer-events: none; }
+.wheel-lum { grid-template-columns: 1fr; width: 100%; gap: 2px; }
+.wheel-lum .fx-name { justify-content: center; font-size: 11px; }
+.wheel-lum output { text-align: center; }
+.rt-stage.pointer { cursor: crosshair; }
+.rt-stage.target { cursor: ns-resize; }
+.rt-section .btn-primary { align-self: flex-start; }
