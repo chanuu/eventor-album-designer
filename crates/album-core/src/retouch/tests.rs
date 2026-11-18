@@ -47,7 +47,10 @@ fn dab(tool: Tool, x: f64, y: f64, radius: f64) -> Stroke {
 }
 
 fn edits(strokes: Vec<Stroke>) -> RetouchEdits {
-    RetouchEdits { strokes }
+    RetouchEdits {
+        strokes,
+        ..Default::default()
+    }
 }
 
 #[test]
@@ -234,6 +237,7 @@ fn bad_strokes_from_a_file_are_dropped_or_limited() {
                 ..dab(Tool::Brighten, 0.5, 0.5, 0.1)
             },
         ],
+        ..Default::default()
     }
     .sanitized();
     assert_eq!(wild.strokes.len(), 1);

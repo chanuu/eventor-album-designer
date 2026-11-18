@@ -8,7 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use album_core::adjust::Adjustments;
-use album_core::retouch::{apply_edits, RetouchEdits};
+use album_core::retouch::{apply_retouch, RetouchEdits};
 use serde::{Deserialize, Serialize};
 
 use crate::{decode_upright, MediaError, PhotoInfo};
@@ -82,9 +82,15 @@ pub fn save_retouched(photo: &PhotoInfo, saved: &SavedRetouch) -> Result<PathBuf
         ));
     }
 
-    let mut image = decode_upright(photo)?.into_rgb8();
+    let decoded = decode_upright(photo)?;
+    let faces = if saved.edits.needs_faces() {
+        Some(crate::skin::find_skin(&decoded)?)
+    } else {
+        None
+    };
+    let mut image = decoded.into_rgb8();
     let (w, h) = (image.width() as usize, image.height() as usize);
-    apply_edits(&mut image, w, h, &saved.edits);
+    apply_retouch(&mut image, w, h, &saved.edits, faces.as_ref());
     saved.adjust.apply_rgb(&mut image);
 
     fs::create_dir_all(folder(photo)).map_err(|e| write_error(&e))?;
@@ -148,6 +154,7 @@ mod tests {
                     strength: 1.0,
                     source: None,
                 }],
+                ..Default::default()
             },
             adjust: Adjustments::default(),
         };

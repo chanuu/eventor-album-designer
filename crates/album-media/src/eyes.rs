@@ -33,7 +33,7 @@ const CACHE_VERSION: &str = "eyes-v1";
 
 type Run = Box<dyn Fn(Tensor) -> TractResult<TVec<TValue>> + Send + Sync>;
 
-struct Models {
+pub(crate) struct Models {
     finder: Run,
     mesh: Run,
 }
@@ -47,7 +47,7 @@ fn load(bytes: &[u8], shape: &[usize]) -> TractResult<Run> {
     Ok(Box::new(move |input: Tensor| plan.run(tvec!(input.into()))))
 }
 
-fn models() -> Result<&'static Models, MediaError> {
+pub(crate) fn models() -> Result<&'static Models, MediaError> {
     static MODELS: OnceLock<Result<Models, String>> = OnceLock::new();
     MODELS
         .get_or_init(|| {
@@ -64,24 +64,24 @@ fn models() -> Result<&'static Models, MediaError> {
         })
 }
 
-fn failed(e: impl std::fmt::Display) -> MediaError {
+pub(crate) fn failed(e: impl std::fmt::Display) -> MediaError {
     MediaError::Read {
         path: "the face check".to_string(),
         reason: e.to_string(),
     }
 }
 
-struct Face {
-    score: f32,
-    cx: f32,
-    cy: f32,
-    w: f32,
-    h: f32,
-    right_eye: (f32, f32),
-    left_eye: (f32, f32),
+pub(crate) struct Face {
+    pub score: f32,
+    pub cx: f32,
+    pub cy: f32,
+    pub w: f32,
+    pub h: f32,
+    pub right_eye: (f32, f32),
+    pub left_eye: (f32, f32),
 }
 
-fn find_faces(models: &Models, image: &DynamicImage) -> TractResult<Vec<Face>> {
+pub(crate) fn find_faces(models: &Models, image: &DynamicImage) -> TractResult<Vec<Face>> {
     let (w, h) = image.dimensions();
     let scale = FINDER_SIDE as f32 / w.max(h) as f32;
     let small = image
@@ -166,8 +166,12 @@ fn sample(rgb: &RgbImage, x: f32, y: f32) -> [f32; 3] {
     out
 }
 
-/// How open each eye is, for one face: eyelid gap against eye width.
-fn eye_openness(models: &Models, rgb: &RgbImage, face: &Face) -> TractResult<(f32, f32)> {
+/// MediaPipe's 478 face points for one face, in the photo's pixels.
+pub(crate) fn face_mesh(
+    models: &Models,
+    rgb: &RgbImage,
+    face: &Face,
+) -> TractResult<Vec<(f32, f32)>> {
     let angle = (face.left_eye.1 - face.right_eye.1).atan2(face.left_eye.0 - face.right_eye.0);
     let (sin, cos) = angle.sin_cos();
     let size = face.w.max(face.h) * MESH_MARGIN;
@@ -195,7 +199,15 @@ fn eye_openness(models: &Models, rgb: &RgbImage, face: &Face) -> TractResult<(f3
     let flat = flat
         .as_slice()
         .ok_or_else(|| TractError::msg("unexpected landmark layout"))?;
-    let point = |i: usize| to_photo(flat[i * 3], flat[i * 3 + 1]);
+    Ok((0..478)
+        .map(|i| to_photo(flat[i * 3], flat[i * 3 + 1]))
+        .collect())
+}
+
+/// How open each eye is, for one face: eyelid gap against eye width.
+fn eye_openness(models: &Models, rgb: &RgbImage, face: &Face) -> TractResult<(f32, f32)> {
+    let mesh = face_mesh(models, rgb, face)?;
+    let point = |i: usize| mesh[i];
     let gap = |a: usize, b: usize| {
         let (p, q) = (point(a), point(b));
         (p.0 - q.0).hypot(p.1 - q.1)

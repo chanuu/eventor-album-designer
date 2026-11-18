@@ -10,9 +10,10 @@ use std::path::{Path, PathBuf};
 pub mod analyze;
 pub mod eyes;
 pub mod retouched;
+pub mod skin;
 
 use album_core::adjust::Adjustments;
-use album_core::retouch::{apply_edits, RetouchEdits};
+use album_core::retouch::{apply_retouch, RetouchEdits, SkinMap};
 use image::metadata::Orientation;
 use image::{DynamicImage, ImageReader};
 use rayon::prelude::*;
@@ -302,6 +303,7 @@ pub fn adjusted_preview(
     preview: &Path,
     adjust: &Adjustments,
     retouch: Option<&RetouchEdits>,
+    faces: Option<&SkinMap>,
 ) -> Result<Vec<u8>, MediaError> {
     let mut image = image::open(preview)
         .map_err(|e| MediaError::Read {
@@ -311,7 +313,7 @@ pub fn adjusted_preview(
         .into_rgb8();
     if let Some(edits) = retouch {
         let (w, h) = (image.width() as usize, image.height() as usize);
-        apply_edits(&mut image, w, h, edits);
+        apply_retouch(&mut image, w, h, edits, faces);
     }
     adjust.apply_rgb(&mut image);
 

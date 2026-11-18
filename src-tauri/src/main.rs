@@ -28,6 +28,7 @@ use album_media::analyze::{analyze_photo, auto_adjust};
 use album_media::eyes::photo_has_closed_eyes;
 use album_media::retouched::{read_saved, save_retouched, SavedRetouch, RETOUCHED_FOLDER};
 use album_media::selection::{make_gallery_copies, match_selection, SelectionMatch, WantedPhoto};
+use album_media::skin::photo_skin;
 use album_media::{
     adjusted_preview, ensure_preview, read_photo_file, scan_folder, PhotoInfo, PreviewTier,
     ScanResult,
@@ -254,12 +255,29 @@ async fn retouch_preview(
     let cache_dir = state.cache_dir.clone();
     let bytes = tauri::async_runtime::spawn_blocking(move || {
         let preview = ensure_preview(&photo, &cache_dir, PreviewTier::Edit)?;
-        adjusted_preview(&preview, &adjust, Some(&edits))
+        let faces = if edits.needs_faces() {
+            Some(photo_skin(&photo, &cache_dir)?)
+        } else {
+            None
+        };
+        adjusted_preview(&preview, &adjust, Some(&edits), faces.as_ref())
     })
     .await
     .map_err(|e| e.to_string())?
     .map_err(|e| e.to_string())?;
     Ok(tauri::ipc::Response::new(bytes))
+}
+
+/// Finds the faces in a photo for Magic skin, ahead of time. Returns how many.
+#[tauri::command]
+async fn prepare_skin(photo_id: String, state: State<'_, AppState>) -> Result<usize, String> {
+    let photo = known_photo(&state, &photo_id)?;
+    let cache_dir = state.cache_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || photo_skin(&photo, &cache_dir))
+        .await
+        .map_err(|e| e.to_string())?
+        .map(|map| map.faces.len())
+        .map_err(|e| e.to_string())
 }
 
 /// Saves a full-size retouched copy beside the original. Returns where it went.
@@ -917,6 +935,11 @@ fn serve_preview(
     let Some(photo) = photo else {
         return plain_response(StatusCode::NOT_FOUND, "unknown photo");
     };
+    // Magic skin needs the photo's faces; finding them is kept, so it happens once.
+    let faces = match &retouch {
+        Some(edits) if edits.needs_faces() => photo_skin(&photo, cache_dir).ok(),
+        _ => None,
+    };
 
     let bytes = ensure_preview(&photo, cache_dir, PreviewTier::from_width(width))
         .map_err(|e| e.to_string())
@@ -924,7 +947,8 @@ fn serve_preview(
             if adjust.is_identity() && retouch.is_none() {
                 fs::read(path).map_err(|e| e.to_string())
             } else {
-                adjusted_preview(&path, adjust, retouch.as_ref()).map_err(|e| e.to_string())
+                adjusted_preview(&path, adjust, retouch.as_ref(), faces.as_ref())
+                    .map_err(|e| e.to_string())
             }
         });
     match bytes {
@@ -998,6 +1022,7 @@ fn main() {
             set_retouches,
             open_to_retouch,
             retouch_preview,
+            prepare_skin,
             save_retouched_photo,
             suggest_layouts,
             suggest_card_layouts,

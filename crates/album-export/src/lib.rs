@@ -12,7 +12,7 @@ use album_core::document::{
     dpi_status, effective_dpi, visible_area, Background, DpiStatus, Frame, ProjectSpec, Shape,
     SpreadDesign,
 };
-use album_core::retouch::{apply_edits, RetouchEdits};
+use album_core::retouch::{apply_retouch, RetouchEdits};
 use album_media::{colour_profile_is_srgb, decode_upright, PhotoInfo};
 use album_store::{Project, ProjectKind};
 use album_text::render_block;
@@ -289,12 +289,20 @@ pub fn render_spread_retouched(
             continue;
         }
 
-        let mut original = decode_upright(photo)
-            .map_err(|e| ExportError::Render(e.to_string()))?
-            .into_rgb8();
-        if let Some(edits) = retouch.get(&photo.id).filter(|e| !e.is_empty()) {
+        let decoded = decode_upright(photo).map_err(|e| ExportError::Render(e.to_string()))?;
+        let edits = retouch.get(&photo.id).filter(|e| !e.is_empty());
+        // Magic skin finds the faces on the photo itself, at print size.
+        let faces = match edits {
+            Some(e) if e.needs_faces() => Some(
+                album_media::skin::find_skin(&decoded)
+                    .map_err(|e| ExportError::Render(e.to_string()))?,
+            ),
+            _ => None,
+        };
+        let mut original = decoded.into_rgb8();
+        if let Some(edits) = edits {
             let (w, h) = (original.width() as usize, original.height() as usize);
-            apply_edits(&mut original, w, h, edits);
+            apply_retouch(&mut original, w, h, edits, faces.as_ref());
         }
         let (photo_w, photo_h) = original.dimensions();
         let area = visible_area(
@@ -940,6 +948,7 @@ mod tests {
                     strength: 1.0,
                     source: None,
                 }],
+                ..Default::default()
             },
         );
         let decode = |p: &Project| {

@@ -9,7 +9,10 @@
 
 mod filters;
 mod mask;
+mod skin;
 mod tools;
+
+pub use skin::{apply_skin, SkinFace, SkinMap, SkinSettings};
 
 use serde::{Deserialize, Serialize};
 
@@ -70,6 +73,9 @@ pub struct Stroke {
 #[serde(default)]
 pub struct RetouchEdits {
     pub strokes: Vec<Stroke>,
+    /// Magic skin, over every face. Drawn before the strokes.
+    #[serde(skip_serializing_if = "SkinSettings::is_none")]
+    pub skin: SkinSettings,
 }
 
 fn finite_share(v: f64) -> bool {
@@ -117,7 +123,12 @@ impl Stroke {
 
 impl RetouchEdits {
     pub fn is_empty(&self) -> bool {
-        self.strokes.is_empty()
+        self.strokes.is_empty() && self.skin.is_none()
+    }
+
+    /// Whether drawing these edits needs the photo's faces.
+    pub fn needs_faces(&self) -> bool {
+        !self.skin.sanitized().is_none()
     }
 
     /// Keeps a list from a file or a request inside sensible limits.
@@ -129,17 +140,33 @@ impl RetouchEdits {
                 .filter_map(Stroke::sanitized)
                 .take(MAX_STROKES)
                 .collect(),
+            skin: self.skin.sanitized(),
         }
     }
 }
 
 /// Draws every stroke, in order, onto tightly packed RGB bytes `width` by `height`,
-/// which must be the whole photo (any size).
+/// which must be the whole photo (any size). Magic skin needs the faces; without them
+/// it is left out.
 pub fn apply_edits(pixels: &mut [u8], width: usize, height: usize, edits: &RetouchEdits) {
+    apply_retouch(pixels, width, height, edits, None);
+}
+
+/// The same, with the photo's faces for Magic skin.
+pub fn apply_retouch(
+    pixels: &mut [u8],
+    width: usize,
+    height: usize,
+    edits: &RetouchEdits,
+    faces: Option<&SkinMap>,
+) {
     if width == 0 || height == 0 || pixels.len() != width * height * 3 {
         return;
     }
     let edits = edits.sanitized();
+    if let Some(faces) = faces {
+        apply_skin(pixels, width, height, faces, edits.skin);
+    }
     let mut image = tools::Image {
         px: pixels,
         w: width,
