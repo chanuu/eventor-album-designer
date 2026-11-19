@@ -533,7 +533,7 @@ function PhotoEditor({
       if (!cloneOffset) setCloneOffset(offset);
       stroke.source = offset;
     }
-    history.set((w) => ({ ...w, edits: { strokes: [...w.edits.strokes, stroke] } }));
+    history.set((w) => ({ ...w, edits: { ...w.edits, strokes: [...w.edits.strokes, stroke] } }));
   }
 
   function onWheel(e: React.WheelEvent<HTMLDivElement>) {
