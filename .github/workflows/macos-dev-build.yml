@@ -1,8 +1,8 @@
-# A macOS development build of the album designer, for testing on a Mac.
+# A macOS development build of Eventor Studio Manager, for testing on a Mac.
 #
 # It is not signed with an Apple Developer ID or notarised, so macOS will refuse to open it
 # until it is allowed: right-click the app and choose Open, or run
-#   xattr -cr "/Applications/Eventor Album Designer.app"
+#   xattr -cr "/Applications/Eventor Studio Manager.app"
 # The build is universal, so it runs on both Apple silicon and Intel Macs.
 
 name: macOS dev build
@@ -69,7 +69,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: eventor-album-designer-macos-${{ github.sha }}
+          name: eventor-studio-manager-macos-${{ github.sha }}
           path: target/universal-apple-darwin/release/bundle/dmg/*.dmg
           if-no-files-found: error
           retention-days: 14
