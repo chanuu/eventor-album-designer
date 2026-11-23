@@ -1,6 +1,7 @@
 import { ImageOffIcon, ImagesIcon, LightbulbIcon, SparklesIcon, XIcon } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
+import { fillPages, fillsSpread } from './fillPages';
 import {
   analyzePhotos,
   GRID_PREVIEW,
@@ -36,6 +37,8 @@ const STYLES: Style[] = [
 
 /** A layout and its mirrored copy look alike, so they count as one when avoiding repeats. */
 const family = (templateId: string) => templateId.replace(/-mirrored$/, '');
+
+const FULL_SPREAD = 'eventor-essentials/1-full-spread';
 
 /** Prefers the chosen style, and avoids the layouts used on the spreads just before. */
 function chooseLayout(options: LayoutOption[], tag: string, recent: string[]) {
@@ -155,16 +158,18 @@ export default function AutoBuild({
     setBusy(true);
     setError('');
     try {
-      const groups = plan.spreads.map((ids) => ids.flatMap((id) => byId.get(id) ?? []));
+      const spreadAspect = (spec.trim_w_mm * 2) / spec.trim_h_mm;
+      const groups = fillPages(
+        plan.spreads.map((ids) => ids.flatMap((id) => byId.get(id) ?? [])),
+        (p) => fillsSpread(p.width / p.height, spreadAspect),
+      );
       const allOptions = await Promise.all(groups.map((group) => suggestLayouts(group, spec)));
       const recent: string[] = [];
-      let singles = 0;
       const spreads: Spread[] = groups.map((group, i) => {
         const options = allOptions[i];
-        // A feature photo takes turns: filling the spread, then sitting in open space.
-        // Fine art has its own single-photo pages.
-        const look = group.length === 1 && tag !== 'fineart' ? (singles++ % 2 === 0 ? 'hero' : 'airy') : tag;
-        const optionIndex = chooseLayout(options, look, recent.slice(0, chosenStyle?.memory ?? 1));
+        // A feature photo fills both pages, so neither is left blank.
+        const full = group.length === 1 ? options.findIndex((o) => family(o.template_id) === FULL_SPREAD) : -1;
+        const optionIndex = full >= 0 ? full : chooseLayout(options, tag, recent.slice(0, chosenStyle?.memory ?? 1));
         const design = options[optionIndex].design;
         if (design.template_id) recent.unshift(design.template_id);
         return {

@@ -30,6 +30,10 @@ const EMPTY_PAPER_WEIGHT: f64 = 0.35;
 /// Layouts with deliberate open space still come up, through a style or Auto design.
 const AIRY_PENALTY: f64 = 0.15;
 
+/// A page with nothing on it looks like a mistake. This is enough to put a full spread
+/// first for a photo that suits one, but not to crop an upright photo to a strip.
+const BLANK_PAGE_PENALTY: f64 = 0.12;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Photo {
     pub asset_id: String,
@@ -114,7 +118,20 @@ pub(crate) fn layout_score(crop_loss: f64, template: &Template) -> f64 {
     } else {
         0.0
     };
-    crop_loss + EMPTY_PAPER_WEIGHT * (1.0 - covered.min(1.0)) + airy
+    let blank = if leaves_a_blank_page(template) {
+        BLANK_PAGE_PENALTY
+    } else {
+        0.0
+    };
+    crop_loss + EMPTY_PAPER_WEIGHT * (1.0 - covered.min(1.0)) + airy + blank
+}
+
+/// Whether the left or the right page has no photo on it.
+fn leaves_a_blank_page(template: &Template) -> bool {
+    const FOLD: f64 = 0.5;
+    const EDGE: f64 = 1e-6;
+    let rects = || template.frames.iter().map(|f| f.rect_pct);
+    !rects().any(|r| r.x < FOLD - EDGE) || !rects().any(|r| r.x + r.w > FOLD + EDGE)
 }
 
 /// Every layout that fits these photos and this album, best first.
