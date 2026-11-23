@@ -9,8 +9,8 @@ use std::path::{Path, PathBuf};
 
 pub mod analyze;
 pub mod eyes;
-pub mod retouched;
 pub mod live;
+pub mod retouched;
 pub mod skin;
 
 use album_core::adjust::Adjustments;

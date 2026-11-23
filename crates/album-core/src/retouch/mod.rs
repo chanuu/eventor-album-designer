@@ -8,16 +8,20 @@
 //! Like `adjust`, this works on tightly packed RGB bytes, so it needs no image library.
 
 mod filters;
+mod makeup;
 mod mask;
 mod skin;
 mod tools;
 
+pub use makeup::{apply_makeup, facing, Makeup, SIDE_ON};
 pub use skin::{apply_skin, SkinFace, SkinMap, SkinSettings};
 
 use serde::{Deserialize, Serialize};
 
 /// The most strokes one photo may carry. A file asking for more is cut to this.
 const MAX_STROKES: usize = 2000;
+/// The most faces one photo may have makeup on, or be left out of Magic skin.
+const MAX_FACES: usize = 100;
 /// The most points one stroke may carry.
 const MAX_POINTS: usize = 4000;
 /// The smallest and largest brush, as a share of the photo's long edge.
@@ -68,6 +72,15 @@ pub struct Stroke {
     pub source: Option<[f64; 2]>,
 }
 
+/// Makeup on one face. Faces are found again at every size, so the face is remembered by
+/// where its middle is, a share of the photo.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct FaceMakeup {
+    pub at: [f64; 2],
+    #[serde(default)]
+    pub makeup: Makeup,
+}
+
 /// Everything done to one photo in the retoucher.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -76,6 +89,12 @@ pub struct RetouchEdits {
     /// Magic skin, over every face. Drawn before the strokes.
     #[serde(skip_serializing_if = "SkinSettings::is_none")]
     pub skin: SkinSettings,
+    /// The middles of faces Magic skin leaves alone.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub skin_skip: Vec<[f64; 2]>,
+    /// Drawn over Magic skin and under the strokes.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub makeup: Vec<FaceMakeup>,
 }
 
 fn finite_share(v: f64) -> bool {
@@ -123,12 +142,16 @@ impl Stroke {
 
 impl RetouchEdits {
     pub fn is_empty(&self) -> bool {
-        self.strokes.is_empty() && self.skin.is_none()
+        self.strokes.is_empty() && self.skin.is_none() && !self.has_makeup()
+    }
+
+    fn has_makeup(&self) -> bool {
+        self.makeup.iter().any(|f| !f.makeup.sanitized().is_none())
     }
 
     /// Whether drawing these edits needs the photo's faces.
     pub fn needs_faces(&self) -> bool {
-        !self.skin.sanitized().is_none()
+        !self.skin.sanitized().is_none() || self.has_makeup()
     }
 
     /// Keeps a list from a file or a request inside sensible limits.
@@ -141,6 +164,24 @@ impl RetouchEdits {
                 .take(MAX_STROKES)
                 .collect(),
             skin: self.skin.sanitized(),
+            skin_skip: self
+                .skin_skip
+                .iter()
+                .filter(|p| finite_share(p[0]) && finite_share(p[1]))
+                .take(MAX_FACES)
+                .copied()
+                .collect(),
+            makeup: self
+                .makeup
+                .iter()
+                .filter(|f| finite_share(f.at[0]) && finite_share(f.at[1]))
+                .map(|f| FaceMakeup {
+                    at: f.at,
+                    makeup: f.makeup.sanitized(),
+                })
+                .filter(|f| !f.makeup.is_none())
+                .take(MAX_FACES)
+                .collect(),
         }
     }
 }
@@ -165,7 +206,33 @@ pub fn apply_retouch(
     }
     let edits = edits.sanitized();
     if let Some(faces) = faces {
-        apply_skin(pixels, width, height, faces, edits.skin);
+        if edits.skin_skip.is_empty() {
+            apply_skin(pixels, width, height, faces, edits.skin);
+        } else {
+            let skipped: Vec<usize> = edits
+                .skin_skip
+                .iter()
+                .filter_map(|p| faces.at(*p))
+                .collect();
+            let kept = SkinMap {
+                faces: (0..faces.faces.len())
+                    .filter(|i| !skipped.contains(i))
+                    .map(|i| faces.faces[i].clone())
+                    .collect(),
+            };
+            apply_skin(pixels, width, height, &kept, edits.skin);
+        }
+        for made in &edits.makeup {
+            let Some(face) = faces.at(made.at).map(|i| &faces.faces[i]) else {
+                continue;
+            };
+            let points: Vec<(f32, f32)> = face
+                .points
+                .iter()
+                .map(|p| ((p[0] * width as f64) as f32, (p[1] * height as f64) as f32))
+                .collect();
+            apply_makeup(pixels, width, height, &points, &made.makeup);
+        }
     }
     let mut image = tools::Image {
         px: pixels,

@@ -15,11 +15,11 @@ use crate::eyes::{face_mesh, failed, find_faces, models};
 use crate::{ensure_preview, MediaError, PhotoInfo, PreviewTier};
 
 /// Changing how skin is found must not reuse maps found the old way.
-const CACHE_VERSION: &str = "skin-v2";
+const CACHE_VERSION: &str = "skin-v3";
 /// Only faces the finder is this sure of. Below it, an ear or a hand can pass as one.
 const SKIN_FACE_CONFIDENCE: f32 = 0.8;
 /// Faces smaller than this share of the photo's long edge are left alone.
-const SMALLEST_FACE_SHARE: f32 = 0.03;
+const SMALLEST_FACE_SHARE: f32 = 0.02;
 
 // MediaPipe face mesh point numbers.
 const OUTLINE: [usize; 36] = [
@@ -127,6 +127,7 @@ pub fn find_skin(image: &DynamicImage) -> Result<SkinMap, MediaError> {
             .map(|k| (found.iter().map(|c| (c[k] - mean[k]).powi(2)).sum::<f32>() / n).sqrt());
 
         faces.push(SkinFace {
+            points: mesh.iter().copied().map(share).collect(),
             outline: outline.into_iter().map(share).collect(),
             holes,
             chroma: mean.map(f64::from),
@@ -134,6 +135,8 @@ pub fn find_skin(image: &DynamicImage) -> Result<SkinMap, MediaError> {
             width: f64::from(width / long),
         });
     }
+    // Left to right, as people are named in a picture.
+    faces.sort_by(|a: &SkinFace, b| a.middle()[0].total_cmp(&b.middle()[0]));
     Ok(SkinMap { faces })
 }
 
@@ -200,5 +203,70 @@ mod tests {
         let plain =
             DynamicImage::ImageRgb8(RgbImage::from_pixel(320, 240, image::Rgb([40, 60, 200])));
         assert!(find_skin(&plain).unwrap().faces.is_empty());
+    }
+
+    #[test]
+    fn makeup_goes_only_on_the_face_it_was_put_on() {
+        use album_core::retouch::{apply_retouch, FaceMakeup, Makeup, RetouchEdits};
+        // The same person twice, side by side.
+        let one = photo("eyes-open.png").to_rgb8();
+        let (w, h) = one.dimensions();
+        let mut two = image::RgbImage::new(w * 2, h);
+        image::imageops::overlay(&mut two, &one, 0, 0);
+        image::imageops::overlay(&mut two, &one, i64::from(w), 0);
+        let map = find_skin(&DynamicImage::ImageRgb8(two.clone())).unwrap();
+        assert_eq!(map.faces.len(), 2);
+        assert!(map.faces.iter().all(|f| f.points.len() >= 468));
+        assert!(map.faces[0].middle()[0] < 0.5 && map.faces[1].middle()[0] > 0.5);
+        let mut edits = RetouchEdits {
+            makeup: vec![FaceMakeup {
+                at: map.faces[1].middle(),
+                makeup: Makeup {
+                    lip: 0.9,
+                    lip_rgb: [165, 22, 44],
+                    ..Makeup::default()
+                },
+            }],
+            ..RetouchEdits::default()
+        };
+        assert!(edits.needs_faces() && !edits.is_empty());
+        let mut made = two.clone();
+        apply_retouch(&mut made, (w * 2) as usize, h as usize, &edits, Some(&map));
+        let changed = |from: u32, to: u32| {
+            (from..to)
+                .flat_map(|x| (0..h).map(move |y| (x, y)))
+                .filter(|&(x, y)| made.get_pixel(x, y) != two.get_pixel(x, y))
+                .count()
+        };
+        assert_eq!(changed(0, w), 0, "the other face was changed");
+        assert!(changed(w, w * 2) > 50, "no lip colour was put on");
+
+        // Magic skin can leave a face out too.
+        edits.makeup.clear();
+        edits.skin.smooth = 0.8;
+        edits.skin_skip = vec![map.faces[0].middle()];
+        let mut smooth = two.clone();
+        apply_retouch(
+            &mut smooth,
+            (w * 2) as usize,
+            h as usize,
+            &edits,
+            Some(&map),
+        );
+        let face = map.faces[0].bounds();
+        let x = ((face[0] + face[2] * 0.5) * f64::from(w * 2)) as u32;
+        let y = ((face[1] + face[3] * 0.7) * f64::from(h)) as u32;
+        let patch = |from: u32| {
+            (0..20u32)
+                .flat_map(|i| (0..20u32).map(move |j| (i, j)))
+                .filter(|&(i, j)| {
+                    smooth.get_pixel(from + i, y + j) != two.get_pixel(from + i, y + j)
+                })
+                .count()
+        };
+        assert!(patch(x) < patch(x + w), "{} {}", patch(x), patch(x + w));
+        // Edits from before makeup still read, and write as they did.
+        let old: RetouchEdits = serde_json::from_str("{\"strokes\":[]}").unwrap();
+        assert!(old.is_empty() && !serde_json::to_string(&old).unwrap().contains("makeup"));
     }
 }

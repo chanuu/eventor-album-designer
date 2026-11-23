@@ -10,7 +10,7 @@
 use std::path::{Path, PathBuf};
 
 use album_core::adjust::Adjustments;
-use album_core::retouch::{apply_retouch, RetouchEdits, SkinMap, SkinSettings, Stroke};
+use album_core::retouch::{apply_retouch, FaceMakeup, RetouchEdits, SkinMap, SkinSettings, Stroke};
 use image::RgbImage;
 
 use crate::MediaError;
@@ -23,11 +23,15 @@ struct Stage {
     edge: Option<u32>,
     base: RgbImage,
     skin: SkinSettings,
+    skin_skip: Vec<[f64; 2]>,
     /// Whether the faces were known when `skinned` was drawn.
     with_faces: bool,
     skinned: RgbImage,
+    makeup: Vec<FaceMakeup>,
+    /// `skinned` with `makeup`.
+    made_up: RgbImage,
     strokes: Vec<Stroke>,
-    /// `skinned` with `strokes`.
+    /// `made_up` with `strokes`.
     stroked: RgbImage,
 }
 
@@ -38,8 +42,11 @@ impl Stage {
             preview: preview.to_path_buf(),
             edge,
             skin: SkinSettings::default(),
+            skin_skip: Vec::new(),
             with_faces: false,
             skinned: base.clone(),
+            makeup: Vec::new(),
+            made_up: base.clone(),
             strokes: Vec::new(),
             stroked: base.clone(),
             base,
@@ -48,24 +55,38 @@ impl Stage {
 
     fn draw(&mut self, edits: &RetouchEdits, faces: Option<&SkinMap>) -> RgbImage {
         let edits = edits.sanitized();
-        if self.skin != edits.skin || self.with_faces != faces.is_some() {
+        let skin_again = self.skin != edits.skin
+            || self.skin_skip != edits.skin_skip
+            || self.with_faces != faces.is_some();
+        if skin_again {
             self.skinned = self.base.clone();
             let only_skin = RetouchEdits {
-                strokes: Vec::new(),
                 skin: edits.skin,
+                skin_skip: edits.skin_skip.clone(),
+                ..RetouchEdits::default()
             };
             paint(&mut self.skinned, &only_skin, faces);
             self.skin = edits.skin;
+            self.skin_skip.clone_from(&edits.skin_skip);
             self.with_faces = faces.is_some();
+        }
+        if skin_again || self.makeup != edits.makeup {
+            self.made_up = self.skinned.clone();
+            let only_makeup = RetouchEdits {
+                makeup: edits.makeup.clone(),
+                ..RetouchEdits::default()
+            };
+            paint(&mut self.made_up, &only_makeup, faces);
+            self.makeup.clone_from(&edits.makeup);
             self.strokes.clear();
-            self.stroked = self.skinned.clone();
+            self.stroked = self.made_up.clone();
         }
         // The newest stroke may still be growing, so it is never kept.
         let settled = edits.strokes.len().saturating_sub(1);
         let (kept, newest) = edits.strokes.split_at(settled);
         if !kept.starts_with(&self.strokes) {
             self.strokes.clear();
-            self.stroked = self.skinned.clone();
+            self.stroked = self.made_up.clone();
         }
         let more = kept[self.strokes.len()..].to_vec();
         if !more.is_empty() {
@@ -138,7 +159,7 @@ pub fn to_canvas_bytes(image: &RgbImage) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use album_core::retouch::Tool;
+    use album_core::retouch::{Makeup, Tool};
 
     fn stroke(tool: Tool, x: f64, radius: f64) -> Stroke {
         Stroke {
@@ -191,8 +212,23 @@ mod tests {
             (vec![], skin),
         ];
         let mut live = LivePreview::default();
+        let middle = faces.faces[0].middle();
+        let lips = |lip: f32| FaceMakeup {
+            at: middle,
+            makeup: Makeup {
+                lip,
+                blush: 0.5,
+                ..Makeup::default()
+            },
+        };
+        let makeup = [vec![], vec![lips(0.4)], vec![lips(0.8)]];
         for (n, (strokes, skin)) in steps.into_iter().enumerate() {
-            let edits = RetouchEdits { strokes, skin };
+            let edits = RetouchEdits {
+                strokes,
+                skin,
+                makeup: makeup[(n / 2) % 3].clone(),
+                skin_skip: if n == 5 { vec![middle] } else { vec![] },
+            };
             let known = edits.needs_faces().then_some(&faces);
             for edge in [Some(300), None] {
                 let got = live.draw(&photo, &colour, &edits, known, edge).unwrap();

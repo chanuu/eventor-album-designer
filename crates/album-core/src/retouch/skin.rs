@@ -50,6 +50,9 @@ impl SkinSettings {
 /// height; `width` is the face's width as a share of the photo's long edge.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SkinFace {
+    /// All 478 points of the face, for makeup. Empty in maps made before it.
+    #[serde(default)]
+    pub points: Vec<[f64; 2]>,
     /// The outline of the face, in order around it.
     pub outline: Vec<[f64; 2]>,
     /// Eyes, brows and lips: never touched.
@@ -64,6 +67,41 @@ pub struct SkinFace {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct SkinMap {
     pub faces: Vec<SkinFace>,
+}
+
+impl SkinFace {
+    /// Left, top, width and height of the face's outline, as shares of the photo.
+    pub fn bounds(&self) -> [f64; 4] {
+        let fold = |k: usize| {
+            self.outline
+                .iter()
+                .fold((f64::MAX, f64::MIN), |(a, b), p| (a.min(p[k]), b.max(p[k])))
+        };
+        let ((x0, x1), (y0, y1)) = (fold(0), fold(1));
+        [x0, y0, x1 - x0, y1 - y0]
+    }
+
+    pub fn middle(&self) -> [f64; 2] {
+        let [x, y, w, h] = self.bounds();
+        [x + w / 2.0, y + h / 2.0]
+    }
+}
+
+impl SkinMap {
+    /// The face whose middle is nearest this spot, if the spot is on that face.
+    pub fn at(&self, spot: [f64; 2]) -> Option<usize> {
+        let off = |f: &SkinFace| {
+            let [x, y, w, h] = f.bounds();
+            let dx = (spot[0] - x - w / 2.0) / w.max(1e-9);
+            let dy = (spot[1] - y - h / 2.0) / h.max(1e-9);
+            dx.hypot(dy)
+        };
+        (0..self.faces.len())
+            .map(|i| (i, off(&self.faces[i])))
+            .filter(|(_, d)| *d < 0.5)
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(i, _)| i)
+    }
 }
 
 /// Brightness is smoothed as a logarithm offset by this, so black does not blow up.
@@ -397,6 +435,7 @@ mod tests {
         let ycc = to_ycc([200.0 / 255.0, 150.0 / 255.0, 125.0 / 255.0]);
         let map = SkinMap {
             faces: vec![SkinFace {
+                points: Vec::new(),
                 outline,
                 holes: vec![eye],
                 chroma: [f64::from(ycc[1]), f64::from(ycc[2])],

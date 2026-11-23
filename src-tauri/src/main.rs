@@ -19,7 +19,7 @@ use album_core::document::{
 };
 use album_core::layoutvary::vary_layout;
 use album_core::pack::{load_pack_dir, TemplateRegistry};
-use album_core::retouch::RetouchEdits;
+use album_core::retouch::{facing, RetouchEdits, SIDE_ON};
 use album_export::{
     check_album, export_album, is_upload_address, render_web_spread, ExportFormats, ExportResult,
     Issue,
@@ -316,16 +316,39 @@ async fn neutral_at(
     .map_err(|e| e.to_string())?
 }
 
-/// Finds the faces in a photo for Magic skin, ahead of time. Returns how many.
+/// A face that can be chosen in the retoucher.
+#[derive(Serialize)]
+struct RetouchFace {
+    /// Its middle, which is how edits name it.
+    at: [f64; 2],
+    /// Left, top, width and height. All are shares of the photo.
+    bounds: [f64; 4],
+    /// Too far turned for makeup to be put on.
+    side_on: bool,
+}
+
+/// Finds the faces in a photo for Magic skin and makeup, ahead of time, left to right.
 #[tauri::command]
-async fn prepare_skin(photo_id: String, state: State<'_, AppState>) -> Result<usize, String> {
+async fn prepare_skin(
+    photo_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<RetouchFace>, String> {
     let photo = known_photo(&state, &photo_id)?;
+    let aspect = f64::from(photo.width) / f64::from(photo.height.max(1));
     let cache_dir = state.cache_dir.clone();
-    tauri::async_runtime::spawn_blocking(move || photo_skin(&photo, &cache_dir))
+    let map = tauri::async_runtime::spawn_blocking(move || photo_skin(&photo, &cache_dir))
         .await
         .map_err(|e| e.to_string())?
-        .map(|map| map.faces.len())
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    Ok(map
+        .faces
+        .iter()
+        .map(|face| RetouchFace {
+            at: face.middle(),
+            bounds: face.bounds(),
+            side_on: facing(&face.points, aspect) < SIDE_ON,
+        })
+        .collect())
 }
 
 /// Saves a full-size retouched copy beside the original. Returns where it went.
