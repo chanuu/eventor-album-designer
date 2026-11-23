@@ -1,16 +1,17 @@
 import { ask } from '@tauri-apps/plugin-dialog';
 import {
   BandageIcon, BrushIcon, CircleIcon, ClipboardCopyIcon, ClipboardPasteIcon, CrosshairIcon, HandIcon,
-  MoonIcon, MousePointer2Icon, PipetteIcon, Redo2Icon, RotateCcwIcon, SaveIcon, SmileIcon, SparklesIcon,
+  MoonIcon, MousePointer2Icon, PaletteIcon, PipetteIcon, Redo2Icon, RotateCcwIcon, SaveIcon, SmileIcon, SparklesIcon,
   SquareSplitHorizontalIcon, StampIcon, SunIcon, Undo2Icon, WandSparklesIcon, XIcon, ZoomInIcon,
   ZoomOutIcon,
 } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  EDIT_PREVIEW, GRID_PREVIEW, NO_RETOUCH, NO_SKIN, neutralAt, prepareSkin, previewUrl, retouchPreview, suggestColour,
-  type Adjustments, type PhotoInfo, type RetouchEdits, type RetouchTool, type SkinSettings, type Stroke,
+  EDIT_PREVIEW, GRID_PREVIEW, hasRetouch, NO_MAKEUP, NO_RETOUCH, NO_SKIN, neutralAt, prepareSkin, previewUrl, retouchPreview, suggestColour,
+  type Adjustments, type PhotoInfo, type Makeup, type RetouchEdits, type RetouchFace, type RetouchTool, type SkinSettings, type Stroke,
 } from './api';
 import EffectsPanel, { NO_ADJUSTMENTS } from './EffectsPanel';
+import { FaceList, FaceMarks, leftOutOfSkin, makeupOn, MakeupPanel, toggleSkin, wearsMakeup, withMakeup } from './FaceMakeup';
 import { useHistory } from './history';
 
 /** One photo in the retoucher, with its edits and colour as they stand. */
@@ -18,8 +19,8 @@ export type RetouchItem = { photo: PhotoInfo; edits: RetouchEdits; adjust: Adjus
 
 type Work = { edits: RetouchEdits; adjust: Adjustments };
 
-/** Tools that are not brushes: Magic skin works on every face, the others on colour. */
-type PanelTool = 'skin' | 'picker' | 'target' | 'hand';
+/** Tools that are not brushes: Magic skin and makeup work on faces, the others on colour. */
+type PanelTool = 'skin' | 'makeup' | 'picker' | 'target' | 'hand';
 
 type ToolInfo = {
   id: RetouchTool | PanelTool;
@@ -35,6 +36,7 @@ type ToolInfo = {
 
 const TOOLS: ToolInfo[] = [
   { id: 'skin', name: 'Magic skin', key: 'm', icon: <SparklesIcon aria-hidden="true" />, help: 'Smooths, brightens and evens the skin of every face at once. Eyes, brows and lips are left sharp, and each person keeps their own skin colour.', size: 0, softness: 0, strength: 0 },
+  { id: 'makeup', name: 'Makeup', key: 'u', icon: <PaletteIcon aria-hidden="true" />, help: 'Lip colour, blush, contour and highlight, only on the faces you choose.', size: 0, softness: 0, strength: 0 },
   { id: 'heal', name: 'Spot healing', key: 'j', icon: <BandageIcon aria-hidden="true" />, help: 'Paint over a pimple, mark or stray hair. It is replaced with matching skin from around it.', size: 14, softness: 0.4, strength: 1 },
   { id: 'clone', name: 'Clone stamp', key: 's', icon: <StampIcon aria-hidden="true" />, help: 'Alt-click where to copy from, then paint. Use it where healing guesses wrong, such as a sign behind a head.', size: 24, softness: 0.5, strength: 1 },
   { id: 'smooth', name: 'Smooth skin', key: 'b', icon: <BrushIcon aria-hidden="true" />, help: 'Paint smoothing just where you want it. Fine grain is kept so skin still looks like skin.', size: 60, softness: 0.7, strength: 0.6 },
@@ -295,7 +297,9 @@ function PhotoEditor({
   const [cloneSource, setCloneSource] = useState<[number, number] | null>(null);
   const [cloneOffset, setCloneOffset] = useState<[number, number] | null>(null);
   const [autoBusy, setAutoBusy] = useState(false);
-  const [faces, setFaces] = useState<number | null>(null);
+  const [faces, setFaces] = useState<RetouchFace[] | null>(null);
+  /** The faces makeup is being put on, by their place in the list. */
+  const [chosen, setChosen] = useState<number[]>([]);
   const [channel, setChannel] = useState<MixChannel>('mix_saturation');
   const targeting = useRef<{ y: number; weights: number[]; base: number[] } | null>(null);
 
@@ -323,15 +327,31 @@ function PhotoEditor({
 
   // Magic skin needs the faces; finding them once, when the tool is first chosen.
   useEffect(() => {
-    if (toolId !== 'skin' || faces !== null) return;
+    if ((toolId !== 'skin' && toolId !== 'makeup') || faces !== null) return;
     prepareSkin(photo.id)
-      .then(setFaces)
-      .catch((e) => { setFaces(0); onNotice(`Could not look for faces: ${String(e)}`); });
+      .then((found) => {
+        setFaces(found);
+        // With one person there is nothing to choose; with more, no one is made up unasked.
+        if (found.length === 1 && !found[0].side_on) setChosen([0]);
+      })
+      .catch((e) => { setFaces([]); onNotice(`Could not look for faces: ${String(e)}`); });
   }, [toolId, faces, photo.id, onNotice]);
 
   const skin = work.edits.skin ?? NO_SKIN;
   const setSkin = (change: Partial<SkinSettings>, merge?: string) =>
     history.set((w) => ({ ...w, edits: { ...w.edits, skin: { ...NO_SKIN, ...w.edits.skin, ...change } } }), merge);
+
+  const chosenFaces = (faces ?? []).filter((_, i) => chosen.includes(i));
+  const setMakeup = (change: Partial<Makeup>, merge?: string) =>
+    history.set((w) => ({ ...w, edits: withMakeup(w.edits, chosenFaces, change) }), merge && `${merge}:${chosen.join()}`);
+  const toggleChosen = (i: number) => setChosen((all) => (all.includes(i) ? all.filter((n) => n !== i) : [...all, i].sort((a, b) => a - b)));
+  const toggleSkinFace = (i: number) => {
+    const face = faces?.[i];
+    if (!face) return;
+    history.seal();
+    history.set((w) => ({ ...w, edits: toggleSkin(w.edits, face) }));
+  };
+  const sideOn = (face: RetouchFace) => (face.side_on ? 'This face is turned too far for makeup' : null);
 
   /** The colour of the picture under the pointer, 0 to 255. */
   function colourAt(p: [number, number]): number[] | null {
@@ -506,7 +526,7 @@ function PhotoEditor({
     if (e.button !== 0) return;
     const p = toPhoto(e);
     if (!p || p[0] < 0 || p[1] < 0 || p[0] > 1 || p[1] > 1) return;
-    if (tool.id === 'skin') return;
+    if (tool.id === 'skin' || tool.id === 'makeup') return;
     if (tool.id === 'picker') {
       neutralAt(photo.id, p[0], p[1])
         .then(([temperature, tint]) => {
@@ -625,18 +645,24 @@ function PhotoEditor({
     return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); };
   }, [history, toolId]);
 
+  /** Fills a good part of the view with one face, to see makeup close up. */
+  const zoomToFace = (face: RetouchFace) => {
+    const zoom = Math.min(MAX_ZOOM, Math.max(fitZoom, (stage.h * 0.6) / (face.bounds[3] * natural.h)));
+    setView({ zoom, x: (0.5 - face.at[0]) * natural.w * zoom, y: (0.5 - face.at[1]) * natural.h * zoom });
+  };
+
   const setTool = (id: ToolInfo['id'], alt: boolean) => {
     if (alt && id === 'brighten') setToolId('darken');
     else setToolId(id);
   };
 
   const changed = useMemo(
-    () => work.edits.strokes.length > 0 || JSON.stringify(work.edits.skin ?? NO_SKIN) !== JSON.stringify(NO_SKIN) || JSON.stringify({ ...NO_ADJUSTMENTS, ...work.adjust }) !== JSON.stringify(NO_ADJUSTMENTS),
+    () => hasRetouch(work.edits) || JSON.stringify({ ...NO_ADJUSTMENTS, ...work.adjust }) !== JSON.stringify(NO_ADJUSTMENTS),
     [work],
   );
 
   const panMode = tool.id === 'hand' || spaceHeld;
-  const brush = !['hand', 'skin', 'picker', 'target'].includes(tool.id);
+  const brush = !['hand', 'skin', 'makeup', 'picker', 'target'].includes(tool.id);
   const showOriginalOnly = holdOriginal && original !== null;
   const cursorSize = setting.size * 2 * shown.zoom;
 
@@ -728,6 +754,12 @@ function PhotoEditor({
               </>
             )}
             <canvas ref={overlayRef} className="rt-overlay" width={natural?.w ?? 1} height={natural?.h ?? 1} />
+            {tool.id === 'makeup' && faces && !compare && !showOriginalOnly && (
+              <FaceMarks faces={faces} chosen={(f) => chosenFaces.includes(f)} cannot={sideOn} quiet={spaceHeld} onToggle={toggleChosen} />
+            )}
+            {tool.id === 'skin' && faces && faces.length > 1 && !compare && !showOriginalOnly && (
+              <FaceMarks faces={faces} chosen={(f) => !leftOutOfSkin(work.edits, f)} quiet={spaceHeld} onToggle={toggleSkinFace} />
+            )}
             {tool.id === 'clone' && cloneSource && (
               <span className="rt-source" style={{ left: `${cloneSource[0] * 100}%`, top: `${cloneSource[1] * 100}%` }} aria-hidden="true" />
             )}
@@ -754,12 +786,15 @@ function PhotoEditor({
           {tool.id === 'skin' && (
             <>
               {faces === null && <p className="loader"><span className="loader-ring" aria-hidden="true" />Finding faces…</p>}
-              {faces === 0 && <p className="warn">No face found in this photo, so Magic skin has nothing to do. The brushes still work.</p>}
-              {faces !== null && faces > 0 && <p className="muted">{faces === 1 ? 'One face found.' : `${faces} faces found.`}</p>}
+              {faces?.length === 0 && <p className="warn">No face found in this photo, so Magic skin has nothing to do. The brushes still work.</p>}
+              {faces !== null && faces.length > 0 && <p className="muted">{faces.length === 1 ? 'One face found.' : `${faces.length} faces found. Click a face to leave it out, or to put it back.`}</p>}
+              {faces !== null && faces.length > 1 && (
+                <FaceList photoId={photo.id} photoAspect={natural.w / natural.h} faces={faces} chosen={(f) => !leftOutOfSkin(work.edits, f)} marked={() => false} onToggle={toggleSkinFace} onZoom={zoomToFace} />
+              )}
               <button
                 type="button"
                 className="btn-primary"
-                disabled={!faces}
+                disabled={!faces?.length}
                 onClick={() => { history.seal(); setSkin(SKIN_PRESET); }}
               ><SparklesIcon aria-hidden="true" />Retouch skin</button>
               <Slider label="Smooth" min={0} max={1} step={0.01} value={skin.smooth} shown={`${Math.round(skin.smooth * 100)}`}
@@ -771,6 +806,37 @@ function PhotoEditor({
               <p className="muted">Up to 50 keeps skin texture. Higher gives a polished, magazine look.</p>
             </>
           )}
+          {tool.id === 'makeup' && (
+            <>
+              {faces === null && <p className="loader"><span className="loader-ring" aria-hidden="true" />Finding faces…</p>}
+              {faces?.length === 0 && <p className="warn">No face found in this photo, so there is no one to put makeup on.</p>}
+              {faces !== null && faces.length > 0 && (
+                <>
+                  <FaceList photoId={photo.id} photoAspect={natural.w / natural.h} faces={faces} chosen={(f) => chosenFaces.includes(f)} marked={(f) => wearsMakeup(makeupOn(work.edits, f))} cannot={sideOn} onToggle={toggleChosen} onZoom={zoomToFace} />
+                  {faces.length > 1 && (
+                    <div className="face-all">
+                      <button type="button" className="btn" onClick={() => setChosen(faces.flatMap((f, i) => (f.side_on ? [] : [i])))}>Choose all</button>
+                      <button type="button" className="btn" disabled={!chosen.length} onClick={() => setChosen([])}>Choose none</button>
+                    </div>
+                  )}
+                  <p className={chosen.length ? 'muted' : 'warn'}>
+                    {faces.every((f) => f.side_on) ? 'Every face here is turned too far for makeup.'
+                      : chosen.length === 0 ? 'Click a face, here or on the photo, to put makeup on it.'
+                        : chosen.length === 1 ? `Makeup for face ${chosen[0] + 1}.` : `Makeup for faces ${chosen.map((i) => i + 1).join(', ')} together.`}
+                  </p>
+                  <MakeupPanel
+                    value={chosenFaces[0] ? makeupOn(work.edits, chosenFaces[0]) : NO_MAKEUP}
+                    disabled={!chosen.length}
+                    onStart={history.seal}
+                    onChange={setMakeup}
+                    slider={(label, value, onChange) => (
+                      <Slider key={label} label={label} min={0} max={1} step={0.01} value={value} shown={`${Math.round(value * 100)}`} onStart={history.seal} onChange={onChange} />
+                    )}
+                  />
+                </>
+              )}
+            </>
+          )}
           {tool.id === 'target' && (
             <div className="segment" role="radiogroup" aria-label="What dragging changes">
               {([['mix_hue', 'Hue'], ['mix_saturation', 'Saturation'], ['mix_luminance', 'Luminance']] as const).map(([key, label]) => (
@@ -778,7 +844,7 @@ function PhotoEditor({
               ))}
             </div>
           )}
-          {!['hand', 'skin', 'picker', 'target'].includes(tool.id) && (
+          {brush && (
             <>
               <Slider label="Size" min={2} max={400} step={1} value={setting.size} shown={`${Math.round(setting.size)} px`}
                 onChange={(v) => setSettings((all) => ({ ...all, [tool.id]: { ...all[tool.id], size: v } }))} />

@@ -654,3 +654,38 @@ fieldset.plain > legend { font-size: 14px; color: var(--ink); margin-bottom: 4px
   .topbar .btn:not(.icon-btn) { font-size: 0; gap: 0; padding: 0 10px; }
   .topbar .btn .count-badge { font-size: 11px; margin-left: 5px; }
 }
+
+/* Faces to choose from, in the retoucher. */
+.face-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.face-card { position: relative; }
+.face-pick { position: relative; display: block; width: 64px; height: 64px; padding: 0; overflow: hidden; border: 2px solid var(--line-strong); border-radius: 10px; background: var(--canvas); }
+.face-pick img { position: absolute; max-width: none; pointer-events: none; }
+.face-card.on .face-pick { border-color: var(--brand); box-shadow: 0 0 0 2px var(--brand-soft); }
+.face-card:not(.on) .face-pick img { opacity: .6; }
+.face-card.off .face-pick { opacity: .4; }
+.face-number, .face-tick { position: absolute; top: 3px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; font-size: 10px; font-weight: 700; line-height: 16px; color: #fff; background: rgb(15 15 20 / 75%); }
+.face-number { left: 3px; }
+.face-tick { right: 3px; padding: 0; display: grid; place-items: center; background: var(--brand); }
+.face-tick svg { width: 11px; height: 11px; }
+.face-dot { position: absolute; left: 5px; bottom: 5px; width: 8px; height: 8px; border-radius: 50%; background: #ff5fa2; border: 1px solid #fff; }
+.face-zoom { position: absolute; right: 3px; bottom: 3px; display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 6px; color: #fff; background: rgb(15 15 20 / 75%); }
+.face-zoom svg { width: 12px; height: 12px; }
+.face-all { display: flex; gap: 6px; }
+.face-all .btn { height: 28px; font-size: 12px; }
+.face-mark { position: absolute; padding: 0; border: 2px dashed rgb(255 255 255 / 80%); border-radius: 18px; background: none; cursor: pointer; box-shadow: 0 0 0 1px rgb(0 0 0 / 35%); }
+.face-mark:hover:not(:disabled) { border-color: #fff; border-style: solid; }
+.face-mark.on { border: 2px solid var(--brand); }
+.face-mark.off { opacity: .45; cursor: not-allowed; }
+.face-mark span { position: absolute; left: 50%; bottom: 100%; margin-bottom: 4px; transform: translateX(-50%); display: inline-flex; align-items: center; gap: 3px; height: 20px; padding: 0 7px; border-radius: 10px; font-size: 11px; font-weight: 700; color: #fff; background: rgb(15 15 20 / 80%); }
+.face-mark.on span { background: var(--brand); }
+.face-mark svg { width: 11px; height: 11px; }
+.makeup { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.makeup:disabled { opacity: .45; }
+.makeup h4 { margin: 4px 0 0; font-size: 12px; color: var(--ink); }
+.looks { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.looks .btn { height: 32px; justify-content: center; }
+.shades { display: flex; flex-wrap: wrap; gap: 7px; }
+.shades button, .shade-own { width: 24px; height: 24px; padding: 0; border-radius: 50%; border: 1px solid rgb(255 255 255 / 25%); }
+.shades button.on { box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--brand); }
+.shade-own { position: relative; overflow: hidden; background: conic-gradient(red, yellow, lime, aqua, blue, magenta, red); }
+.shade-own input { position: absolute; inset: -6px; width: 40px; height: 40px; opacity: 0; cursor: pointer; }

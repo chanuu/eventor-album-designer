@@ -209,7 +209,24 @@ export type SkinSettings = { smooth: number; brighten: number; even: number };
 
 export const NO_SKIN: SkinSettings = { smooth: 0, brighten: 0, even: 0 };
 
-export type RetouchEdits = { strokes: Stroke[]; skin?: SkinSettings };
+export type Rgb = [number, number, number];
+
+/** What is put on one face. Each amount is 0 to 1. */
+export type Makeup = { lip_rgb: Rgb; lip: number; gloss: number; blush_rgb: Rgb; blush: number; contour: number; highlight: number };
+
+export const NO_MAKEUP: Makeup = { lip_rgb: [178, 62, 84], lip: 0, gloss: 0, blush_rgb: [226, 110, 120], blush: 0, contour: 0, highlight: 0 };
+
+/** A face found in a photo. Everything is a share of the photo. */
+export type RetouchFace = { at: [number, number]; bounds: [number, number, number, number]; side_on: boolean };
+
+export type RetouchEdits = {
+  strokes: Stroke[];
+  skin?: SkinSettings;
+  /** The middles of faces Magic skin leaves alone. */
+  skin_skip?: [number, number][];
+  /** Makeup, each on the face whose middle is at this spot. */
+  makeup?: { at: [number, number]; makeup: Makeup }[];
+};
 
 export const NO_RETOUCH: RetouchEdits = { strokes: [] };
 
@@ -217,7 +234,7 @@ export const NO_RETOUCH: RetouchEdits = { strokes: [] };
 export function hasRetouch(edits: RetouchEdits | undefined): boolean {
   if (!edits) return false;
   const skin = edits.skin ?? NO_SKIN;
-  return edits.strokes.length > 0 || skin.smooth > 0 || skin.brighten > 0 || skin.even > 0;
+  return edits.strokes.length > 0 || skin.smooth > 0 || skin.brighten > 0 || skin.even > 0 || !!edits.makeup?.length;
 }
 
 /** What the retoucher keeps for one photo outside an album. */
@@ -318,8 +335,8 @@ export type FaceBox = [number, number, number, number];
 /** Where the faces are, by photo id, for crops that keep them in view. */
 export const findPhotoFaces = (ids: string[]) => invoke<Record<string, FaceBox[]>>('find_photo_faces', { ids });
 
-/** Finds the faces in a photo for Magic skin. Resolves to how many. */
-export const prepareSkin = (photoId: string) => invoke<number>('prepare_skin', { photoId });
+/** Finds the faces in a photo for Magic skin and makeup, left to right. */
+export const prepareSkin = (photoId: string) => invoke<RetouchFace[]>('prepare_skin', { photoId });
 
 /** The Temperature and Tint that make the spot at x, y (shares of the photo) neutral. */
 export const neutralAt = (photoId: string, x: number, y: number) =>
