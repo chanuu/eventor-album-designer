@@ -5,7 +5,7 @@ import {
   SquareSplitHorizontalIcon, StampIcon, SunIcon, Undo2Icon, WandSparklesIcon, XIcon, ZoomInIcon,
   ZoomOutIcon,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   EDIT_PREVIEW, GRID_PREVIEW, NO_RETOUCH, NO_SKIN, neutralAt, prepareSkin, previewUrl, retouchPreview, suggestColour,
   type Adjustments, type PhotoInfo, type RetouchEdits, type RetouchTool, type SkinSettings, type Stroke,
@@ -87,9 +87,17 @@ type MixChannel = 'mix_hue' | 'mix_saturation' | 'mix_luminance';
 let copiedColour: Adjustments | null = null;
 
 const MIN_ZOOM_OF_FIT = 0.5;
-/** The quick picture shown while sliders move, and how long changes must stop for the full one. */
-const DRAFT_EDGE = 1024;
+/**
+ * The quick picture shown while things change is about as big as it is on screen, so the
+ * full one taking over is not seen. Sizes go in steps, as each new one starts afresh.
+ */
+const DRAFT_STEP = 256;
+const DRAFT_LEAST = 768;
+const DRAFT_MOST = 1536;
+/** How long changes must stop before the full-size picture is drawn. */
 const SETTLE_MS = 250;
+/** Brushes whose result shows while painting. Healing looks around the whole mark first. */
+const LIVE_TOOLS: RetouchTool[] = ['clone', 'smooth', 'brighten', 'darken', 'whiten'];
 const MAX_ZOOM = 4;
 
 /**
@@ -220,6 +228,29 @@ export default function Retoucher({
   );
 }
 
+/** Draws a picture over the whole canvas. The size never changes, so it never goes blank. */
+function paintPicture(canvas: HTMLCanvasElement, picture: ImageData) {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  if (picture.width === canvas.width && picture.height === canvas.height) {
+    ctx.putImageData(picture, 0, 0);
+    return;
+  }
+  const small = document.createElement('canvas');
+  small.width = picture.width;
+  small.height = picture.height;
+  small.getContext('2d')?.putImageData(picture, 0, 0);
+  ctx.imageSmoothingQuality = 'medium';
+  ctx.drawImage(small, 0, 0, canvas.width, canvas.height);
+}
+
+/** A picture that does not change, such as the untouched photo. */
+function Picture({ picture, className, style }: { picture: ImageData; className: string; style?: React.CSSProperties }) {
+  const ref = useRef<HTMLCanvasElement | null>(null);
+  useLayoutEffect(() => { if (ref.current) paintPicture(ref.current, picture); }, [picture]);
+  return <canvas ref={ref} className={className} style={style} width={picture.width} height={picture.height} aria-hidden="true" />;
+}
+
 function PhotoEditor({
   photo, initial, onChange, onNotice, pasteTick, onCopied,
 }: {
@@ -237,8 +268,11 @@ function PhotoEditor({
   const [settings, setSettings] = useState<Record<string, { size: number; softness: number; strength: number }>>(
     () => Object.fromEntries(TOOLS.map((t) => [t.id, { size: t.size, softness: t.softness, strength: t.strength }])),
   );
-  const [url, setUrl] = useState<string | null>(null);
-  const [originalUrl, setOriginalUrl] = useState<string | null>(null);
+  /** Whether the first picture has been drawn. */
+  const [ready, setReady] = useState(false);
+  const [original, setOriginal] = useState<ImageData | null>(null);
+  const pictureRef = useRef<HTMLCanvasElement | null>(null);
+  const pictures = useRef(0);
   const [busy, setBusy] = useState(false);
   // The editing preview's size, known from the photo, so a half-size draft and the full
   // picture line up and the brush means the same on both.
@@ -264,7 +298,6 @@ function PhotoEditor({
   const [faces, setFaces] = useState<number | null>(null);
   const [channel, setChannel] = useState<MixChannel>('mix_saturation');
   const targeting = useRef<{ y: number; weights: number[]; base: number[] } | null>(null);
-  const sampler = useRef<HTMLCanvasElement | null>(null);
 
   const stageRef = useRef<HTMLDivElement | null>(null);
   const photoRef = useRef<HTMLDivElement | null>(null);
@@ -302,57 +335,60 @@ function PhotoEditor({
 
   /** The colour of the picture under the pointer, 0 to 255. */
   function colourAt(p: [number, number]): number[] | null {
-    const img = photoRef.current?.querySelector('img');
-    if (!img || !natural) return null;
-    const canvas = sampler.current ?? document.createElement('canvas');
-    sampler.current = canvas;
-    if (canvas.width !== natural.w || canvas.height !== natural.h) {
-      canvas.width = natural.w;
-      canvas.height = natural.h;
-    }
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const ctx = pictureRef.current?.getContext('2d');
     if (!ctx) return null;
-    ctx.drawImage(img, 0, 0);
     const x = Math.min(natural.w - 1, Math.max(0, Math.round(p[0] * natural.w)));
     const y = Math.min(natural.h - 1, Math.max(0, Math.round(p[1] * natural.h)));
     return Array.from(ctx.getImageData(x, y, 1, 1).data.slice(0, 3));
   }
+
+  const clearOverlay = useCallback(() => {
+    const c = overlayRef.current;
+    c?.getContext('2d')?.clearRect(0, 0, c.width, c.height);
+  }, []);
 
   /*
    * The picture, drawn by Rust with every edit so far.
    *
    * One drawing at a time: while one is being made, changes only note that another is
    * wanted, so dragging a slider never piles up work. While changes keep coming, a quick
-   * half-size picture follows them; once they stop, the full-size one replaces it.
+   * smaller picture follows them; once they stop, the full-size one replaces it.
    */
   const latest = useRef(work);
   const drawing_ = useRef(false);
   const settle = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const draw = useCallback((size: number) => {
+  const draftEdge = useRef(DRAFT_LEAST);
+  const draw = useCallback((full: boolean) => {
     drawing_.current = true;
     setBusy(true);
     const asked = latest.current;
     const ticket = request.current + 1;
     request.current = ticket;
-    retouchPreview(photo.id, asked.edits, asked.adjust, size)
-      .then((blob) => {
+    retouchPreview(photo.id, asked.edits, asked.adjust, full ? EDIT_PREVIEW : draftEdge.current)
+      .then((picture) => {
         if (request.current !== ticket) return;
-        const next = URL.createObjectURL(blob);
-        setUrl((before) => { if (before) URL.revokeObjectURL(before); return next; });
+        const canvas = pictureRef.current;
+        if (!canvas) return;
+        paintPicture(canvas, picture);
+        pictures.current += 1;
+        canvas.dataset.drawn = String(pictures.current);
+        // The trail goes once the picture has the stroke that left it.
+        if (latest.current === asked && !drawing.current) clearOverlay();
+        setReady(true);
       })
       .catch((e) => { if (request.current === ticket) onNotice(`Could not draw the photo: ${String(e)}`); })
       .finally(() => {
         if (request.current !== ticket) return;
         drawing_.current = false;
         if (latest.current !== asked) {
-          draw(DRAFT_EDGE);
-        } else if (size === DRAFT_EDGE) {
-          settle.current = setTimeout(() => draw(EDIT_PREVIEW), SETTLE_MS);
+          draw(false);
+        } else if (!full) {
+          settle.current = setTimeout(() => { if (!drawing_.current) draw(true); }, SETTLE_MS);
         } else {
           setBusy(false);
         }
       });
-  }, [photo.id, onNotice]);
+  }, [photo.id, onNotice, clearOverlay]);
 
   const first = useRef(true);
   useEffect(() => {
@@ -360,24 +396,26 @@ function PhotoEditor({
     if (settle.current) clearTimeout(settle.current);
     settle.current = null;
     // The first picture is the full one; after that, quick ones while things change.
-    const size = first.current ? EDIT_PREVIEW : DRAFT_EDGE;
+    const full = first.current;
     first.current = false;
-    if (!drawing_.current) draw(size);
+    if (!drawing_.current) draw(full);
   }, [work, draw]);
 
-  useEffect(() => () => { if (settle.current) clearTimeout(settle.current); }, []);
+  useEffect(() => () => {
+    if (settle.current) clearTimeout(settle.current);
+    // Whatever is still being drawn is for a photo no longer shown.
+    request.current += 1;
+    drawing_.current = false;
+  }, []);
 
   // The untouched photo, for comparing.
   useEffect(() => {
     let live = true;
-    let made: string | null = null;
     retouchPreview(photo.id, NO_RETOUCH, NO_ADJUSTMENTS)
-      .then((blob) => { if (live) { made = URL.createObjectURL(blob); setOriginalUrl(made); } })
+      .then((picture) => { if (live) setOriginal(picture); })
       .catch(() => {});
-    return () => { live = false; if (made) URL.revokeObjectURL(made); };
+    return () => { live = false; };
   }, [photo.id]);
-
-  useEffect(() => () => { if (url) URL.revokeObjectURL(url); }, [url]);
 
   // Measure the area the photo sits in.
   useEffect(() => {
@@ -392,6 +430,11 @@ function PhotoEditor({
   const fitZoom = natural ? Math.min((stage.w - 48) / natural.w, (stage.h - 48) / natural.h) : 1;
   const shown = view ?? { zoom: fitZoom, x: 0, y: 0 };
 
+  useEffect(() => {
+    const onScreen = longEdge * shown.zoom * window.devicePixelRatio;
+    draftEdge.current = Math.min(DRAFT_MOST, Math.max(DRAFT_LEAST, Math.ceil(onScreen / DRAFT_STEP) * DRAFT_STEP));
+  }, [longEdge, shown.zoom]);
+
   const setZoom = useCallback((zoom: number, around?: { x: number; y: number }) => {
     setView((v) => {
       const now = v ?? { zoom: fitZoom, x: 0, y: 0 };
@@ -403,12 +446,6 @@ function PhotoEditor({
       return { zoom: next, x: around.x - px * next, y: around.y - py * next };
     });
   }, [fitZoom]);
-
-  // A new stroke's trail is cleared once the picture with it has arrived.
-  const clearOverlay = useCallback(() => {
-    const c = overlayRef.current;
-    c?.getContext('2d')?.clearRect(0, 0, c.width, c.height);
-  }, []);
 
   function toPhoto(e: { clientX: number; clientY: number }): [number, number] | null {
     const box = photoRef.current?.getBoundingClientRect();
@@ -430,6 +467,32 @@ function PhotoEditor({
     ctx.beginPath();
     ctx.arc(p[0] * c.width, p[1] * c.height, r, 0, Math.PI * 2);
     ctx.fill();
+  }
+
+  /** The stroke being painted, as it stands. */
+  function strokeSoFar(d: { points: [number, number][]; tool: RetouchTool }): Stroke {
+    const stroke: Stroke = {
+      tool: d.tool,
+      points: [...d.points],
+      radius: setting.size / longEdge,
+      softness: setting.softness,
+      strength: setting.strength,
+    };
+    if (d.tool === 'clone' && cloneSource) {
+      // The first stroke after choosing a copy point sets the offset; later strokes keep
+      // it, so the copy moves along with the brush.
+      stroke.source = cloneOffset ?? [cloneSource[0] - d.points[0][0], cloneSource[1] - d.points[0][1]];
+    }
+    return stroke;
+  }
+
+  /** Draws the stroke being painted into the picture, before it is finished. */
+  function showStroke() {
+    if (!drawing.current) return;
+    latest.current = { ...work, edits: { ...work.edits, strokes: [...work.edits.strokes, strokeSoFar(drawing.current)] } };
+    if (settle.current) clearTimeout(settle.current);
+    settle.current = null;
+    if (!drawing_.current) draw(false);
   }
 
   function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
@@ -481,7 +544,8 @@ function PhotoEditor({
     }
     e.currentTarget.setPointerCapture(e.pointerId);
     drawing.current = { points: [p], tool: id };
-    paintTrail(p);
+    if (LIVE_TOOLS.includes(id)) showStroke();
+    else paintTrail(p);
   }
 
   function onPointerMove(e: React.PointerEvent<HTMLDivElement>) {
@@ -507,7 +571,8 @@ function PhotoEditor({
     const gap = Math.hypot((p[0] - last[0]) * (natural?.w ?? 1), (p[1] - last[1]) * (natural?.h ?? 1));
     if (gap < Math.max(1, setting.size * 0.2)) return;
     d.points.push(p);
-    paintTrail(p);
+    if (LIVE_TOOLS.includes(d.tool)) showStroke();
+    else paintTrail(p);
   }
 
   function onPointerUp() {
@@ -519,20 +584,8 @@ function PhotoEditor({
     const d = drawing.current;
     drawing.current = null;
     if (!d) return;
-    const stroke: Stroke = {
-      tool: d.tool,
-      points: d.points,
-      radius: setting.size / longEdge,
-      softness: setting.softness,
-      strength: setting.strength,
-    };
-    if (d.tool === 'clone' && cloneSource) {
-      // The first stroke after choosing a copy point sets the offset; later strokes keep
-      // it, so the copy moves along with the brush.
-      const offset = cloneOffset ?? [cloneSource[0] - d.points[0][0], cloneSource[1] - d.points[0][1]] as [number, number];
-      if (!cloneOffset) setCloneOffset(offset);
-      stroke.source = offset;
-    }
+    const stroke = strokeSoFar(d);
+    if (stroke.source && !cloneOffset) setCloneOffset(stroke.source);
     history.set((w) => ({ ...w, edits: { ...w.edits, strokes: [...w.edits.strokes, stroke] } }));
   }
 
@@ -545,7 +598,9 @@ function PhotoEditor({
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
-      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
+      // A slider keeps the focus after it is moved, and types nothing.
+      const typing = target instanceof HTMLInputElement && target.type !== 'range';
+      if (typing || target?.tagName === 'TEXTAREA') return;
       const k = e.key.toLowerCase();
       if ((e.ctrlKey || e.metaKey) && k === 'z') { e.preventDefault(); if (e.shiftKey) history.redo(); else history.undo(); return; }
       if ((e.ctrlKey || e.metaKey) && k === 'y') { e.preventDefault(); history.redo(); return; }
@@ -582,7 +637,7 @@ function PhotoEditor({
 
   const panMode = tool.id === 'hand' || spaceHeld;
   const brush = !['hand', 'skin', 'picker', 'target'].includes(tool.id);
-  const showOriginalOnly = holdOriginal && !!originalUrl;
+  const showOriginalOnly = holdOriginal && original !== null;
   const cursorSize = setting.size * 2 * shown.zoom;
 
   return (
@@ -614,27 +669,24 @@ function PhotoEditor({
         onWheel={onWheel}
         onContextMenu={(e) => e.preventDefault()}
       >
-        {!url && <div className="loader"><span className="loader-ring" aria-hidden="true" />Opening the photo…</div>}
-        {url && (
+        {!ready && <div className="loader"><span className="loader-ring" aria-hidden="true" />Opening the photo…</div>}
+        {natural && (
           <div
             ref={photoRef}
             className="rt-photo"
             style={{
+              visibility: ready ? 'visible' : 'hidden',
               width: (natural?.w ?? 0) * shown.zoom,
               height: (natural?.h ?? 0) * shown.zoom,
               transform: `translate(calc(-50% + ${shown.x}px), calc(-50% + ${shown.y}px))`,
             }}
           >
-            <img
-              src={showOriginalOnly ? originalUrl! : url}
-              alt={photo.file_name}
-              draggable={false}
-              onLoad={() => { if (!showOriginalOnly) clearOverlay(); }}
-            />
-            {compare && originalUrl && !showOriginalOnly && (
+            <canvas ref={pictureRef} className="rt-image" width={natural.w} height={natural.h} role="img" aria-label={photo.file_name} />
+            {holdOriginal && original && <Picture picture={original} className="rt-image" />}
+            {compare && original && !showOriginalOnly && (
               <>
                 {/* Retouched on the left, the original on the right, as a printed before-and-after reads. */}
-                <img className="rt-original" src={originalUrl} alt="" draggable={false} style={{ clipPath: `inset(0 0 0 ${split * 100}%)` }} />
+                <Picture picture={original} className="rt-original" style={{ clipPath: `inset(0 0 0 ${split * 100}%)` }} />
                 <span className="rt-compare-tag after" aria-hidden="true">After</span>
                 <span className="rt-compare-tag before" aria-hidden="true">Before</span>
                 <div
@@ -681,17 +733,17 @@ function PhotoEditor({
             )}
           </div>
         )}
-        {compare && !dragged && url && (
+        {compare && !dragged && ready && (
           <span className="rt-compare-hint" aria-hidden="true"><MousePointer2Icon />Drag to compare</span>
         )}
-        {cursor && !panMode && brush && url && !(compare && onDivider) && (
+        {cursor && !panMode && brush && ready && !(compare && onDivider) && (
           <span
             className="rt-cursor"
             style={{ width: cursorSize, height: cursorSize, transform: `translate(calc(${cursor.x}px - 50%), calc(${cursor.y}px - 50%))` }}
             aria-hidden="true"
           />
         )}
-        {busy && url && <span className="rt-busy"><span className="loader-ring" aria-hidden="true" />Working…</span>}
+        {busy && ready && <span className="rt-busy"><span className="loader-ring" aria-hidden="true" />Working…</span>}
         {showOriginalOnly && <span className="rt-badge">Original</span>}
       </div>
 

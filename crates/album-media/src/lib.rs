@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 pub mod analyze;
 pub mod eyes;
 pub mod retouched;
+pub mod live;
 pub mod skin;
 
 use album_core::adjust::Adjustments;
@@ -294,6 +295,22 @@ pub fn ensure_preview(
     result.map(|()| target)
 }
 
+/// A preview's pixels, at most `max_edge` on the long side. Every edit is sized as a share
+/// of the photo, so a smaller picture looks the same, only less sharp.
+pub(crate) fn open_at(
+    preview: &Path,
+    max_edge: Option<u32>,
+) -> Result<image::RgbImage, MediaError> {
+    let mut opened = image::open(preview).map_err(|e| MediaError::Read {
+        path: preview.display().to_string(),
+        reason: e.to_string(),
+    })?;
+    if let Some(edge) = max_edge.filter(|e| *e >= 64 && *e < opened.width().max(opened.height())) {
+        opened = opened.resize(edge, edge, image::imageops::FilterType::Triangle);
+    }
+    Ok(opened.into_rgb8())
+}
+
 /// A preview with retouching and adjustments applied, as JPEG bytes.
 ///
 /// Not cached, because it changes with every slider movement and starts from a preview
@@ -306,16 +323,7 @@ pub fn adjusted_preview(
     faces: Option<&SkinMap>,
     max_edge: Option<u32>,
 ) -> Result<Vec<u8>, MediaError> {
-    let mut opened = image::open(preview).map_err(|e| MediaError::Read {
-        path: preview.display().to_string(),
-        reason: e.to_string(),
-    })?;
-    // A smaller picture for quick feedback. Every edit is sized as a share of the photo,
-    // so it looks the same, only less sharp.
-    if let Some(edge) = max_edge.filter(|e| *e >= 64 && *e < opened.width().max(opened.height())) {
-        opened = opened.resize(edge, edge, image::imageops::FilterType::Triangle);
-    }
-    let mut image = opened.into_rgb8();
+    let mut image = open_at(preview, max_edge)?;
     if let Some(edits) = retouch {
         let (w, h) = (image.width() as usize, image.height() as usize);
         apply_retouch(&mut image, w, h, edits, faces);

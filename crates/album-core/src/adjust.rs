@@ -3,6 +3,7 @@
 //! The preview and the exporter both run this one function, so a change on screen is
 //! the change that prints. It works on raw RGB bytes, using lookup tables for speed.
 
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
 const MAX_EXPOSURE_STOPS: f64 = 2.0;
@@ -310,7 +311,7 @@ impl Adjustments {
             1.0 + settings.saturation
         };
 
-        for pixel in pixels.as_chunks_mut::<3>().0 {
+        let each = |pixel: &mut [u8; 3]| {
             let mut mapped = [
                 f64::from(tables[0][usize::from(pixel[0])]),
                 f64::from(tables[1][usize::from(pixel[1])]),
@@ -327,7 +328,12 @@ impl Adjustments {
             for (out, value) in pixel.iter_mut().zip(mapped) {
                 *out = (luma + (value - luma) * colour).clamp(0.0, 255.0).round() as u8;
             }
-        }
+        };
+        pixels
+            .as_chunks_mut::<3>()
+            .0
+            .par_chunks_mut(8192)
+            .for_each(|block| block.iter_mut().for_each(each));
     }
 }
 

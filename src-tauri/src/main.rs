@@ -24,6 +24,7 @@ use album_export::{
     check_album, export_album, is_upload_address, render_web_spread, ExportFormats, ExportResult,
     Issue,
 };
+use album_media::live::{to_canvas_bytes, LivePreview};
 use album_media::analyze::{analyze_photo, auto_adjust};
 use album_media::eyes::photo_has_closed_eyes;
 use album_media::retouched::{read_saved, save_retouched, SavedRetouch, RETOUCHED_FOLDER};
@@ -65,6 +66,8 @@ struct AppState {
     facts: Arc<Mutex<HashMap<String, PhotoFacts>>>,
     /// The open album's retouch edits, by photo id, so every preview shows them.
     retouches: Arc<Mutex<HashMap<String, RetouchEdits>>>,
+    /// The retoucher's picture, with its steps kept so that changes show at once.
+    live: Arc<Mutex<LivePreview>>,
     registry: TemplateRegistry,
     /// Thank you card designs, kept apart so an album is never offered one.
     cards: TemplateRegistry,
@@ -254,6 +257,7 @@ async fn retouch_preview(
 ) -> Result<tauri::ipc::Response, String> {
     let photo = known_photo(&state, &photo_id)?;
     let cache_dir = state.cache_dir.clone();
+    let live = Arc::clone(&state.live);
     let bytes = tauri::async_runtime::spawn_blocking(move || {
         let preview = ensure_preview(&photo, &cache_dir, PreviewTier::Edit)?;
         let faces = if edits.needs_faces() {
@@ -261,11 +265,14 @@ async fn retouch_preview(
         } else {
             None
         };
-        adjusted_preview(&preview, &adjust, Some(&edits), faces.as_ref(), max_edge)
+        live.lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .draw(&preview, &adjust, &edits, faces.as_ref(), max_edge)
+            .map(|image| to_canvas_bytes(&image))
     })
     .await
     .map_err(|e| e.to_string())?
-    .map_err(|e| e.to_string())?;
+    .map_err(|e: album_media::MediaError| e.to_string())?;
     Ok(tauri::ipc::Response::new(bytes))
 }
 
@@ -1045,6 +1052,7 @@ fn main() {
                 photos: Arc::new(Mutex::new(HashMap::new())),
                 facts: Arc::new(Mutex::new(HashMap::new())),
                 retouches: Arc::new(Mutex::new(HashMap::new())),
+                live: Arc::new(Mutex::new(LivePreview::default())),
                 registry: load_registry(&packs_dir),
                 cards: TemplateRegistry::with_cards(),
                 preview_pool: Arc::new(

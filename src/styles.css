@@ -584,13 +584,14 @@ fieldset.plain > legend { font-size: 14px; color: var(--ink); margin-bottom: 4px
 .rt-stage.pan { cursor: grab; }
 .rt-stage.pan:active { cursor: grabbing; }
 .rt-photo { position: absolute; left: 50%; top: 50%; box-shadow: 0 10px 40px rgb(0 0 0 / 55%); }
-.rt-photo img, .rt-overlay { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-.rt-photo img { image-rendering: auto; }
+.rt-photo > canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .rt-overlay { pointer-events: none; }
 .rt-source { position: absolute; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; border: 2px solid #50a0ff; box-shadow: 0 0 0 1px rgb(0 0 0 / 60%); pointer-events: none; }
 .rt-cursor { position: absolute; left: 50%; top: 50%; border-radius: 50%; border: 1px solid #fff; box-shadow: 0 0 0 1px rgb(0 0 0 / 70%); pointer-events: none; }
 .rt-busy, .rt-badge { position: absolute; top: 12px; display: inline-flex; align-items: center; gap: 8px; padding: 5px 10px; font-size: 12px; border-radius: 999px; background: rgb(20 20 24 / 80%); color: var(--ink); pointer-events: none; }
-.rt-busy { right: 12px; }
+/* Only for work slow enough to wonder about, so it does not blink on every change. */
+.rt-busy { right: 12px; opacity: 0; animation: rt-busy-in .2s .6s forwards; }
+@keyframes rt-busy-in { to { opacity: 1; } }
 .rt-busy .loader-ring { width: 14px; height: 14px; }
 .rt-badge { left: 12px; }
 .rt-side { grid-row: 1 / 3; grid-column: 3; display: flex; flex-direction: column; gap: 18px; padding: 16px; overflow-y: auto; background: var(--panel); border-left: 1px solid var(--line); }

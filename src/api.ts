@@ -305,9 +305,11 @@ export const openToRetouch = (paths: string[]) =>
   invoke<{ photos: RetouchPhoto[]; skipped: string[] }>('open_to_retouch', { paths });
 
 /** The retoucher's picture, drawn by the same code that prints. */
-export async function retouchPreview(photoId: string, edits: RetouchEdits, adjust: Adjustments, maxEdge?: number): Promise<Blob> {
+export async function retouchPreview(photoId: string, edits: RetouchEdits, adjust: Adjustments, maxEdge?: number): Promise<ImageData> {
   const buffer = await invoke<ArrayBuffer>('retouch_preview', { photoId, edits, adjust, maxEdge: maxEdge ?? null });
-  return new Blob([new Uint8Array(buffer)], { type: 'image/jpeg' });
+  // Width and height, then the pixels as a canvas takes them.
+  const [w, h] = new Uint32Array(buffer, 0, 2);
+  return new ImageData(new Uint8ClampedArray(buffer, 8), w, h);
 }
 
 /** Finds the faces in a photo for Magic skin. Resolves to how many. */
