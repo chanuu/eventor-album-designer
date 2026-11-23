@@ -95,6 +95,20 @@ function carryOver(from: SpreadDesign, to: SpreadDesign): SpreadDesign {
   };
 }
 
+/**
+ * Whether a spread's layouts are for other photos than it has now. The designer adds,
+ * removes and replaces photos without laying the spread out again.
+ */
+function layoutsAreOld(spread: Spread): boolean {
+  const made = spread.options[0]?.design.frames.flatMap((f) => (f.asset_id ? [f.asset_id] : [])) ?? [];
+  return made.length !== spread.photoIds.length || [...made].sort().join() !== [...spread.photoIds].sort().join();
+}
+
+/** A spread with these layouts, and the place among them of the one it uses, or -1. */
+function withLayouts(spread: Spread, options: LayoutOption[]): Spread {
+  return { ...spread, options, optionIndex: options.findIndex((o) => o.template_id === spread.design.template_id) };
+}
+
 function mirrored(design: SpreadDesign): SpreadDesign {
   return {
     ...design,
@@ -195,7 +209,16 @@ export default function Workspace({ album }: { album: Album }) {
   }, []);
 
   const byId = useMemo(() => new Map(photos.map((p) => [p.id, p])), [photos]);
-  const current = spreads.find((s) => s.id === currentId) ?? null;
+  const saved = spreads.find((s) => s.id === currentId) ?? null;
+  // Layouts made for the photos a spread has now. Kept out of the undo history, since
+  // finding them changes nothing the photographer did.
+  const [freshLayouts, setFreshLayouts] = useState<Map<string, LayoutOption[]>>(new Map());
+  const layoutsKey = useCallback((s: Spread) => JSON.stringify([s.photoIds, details]), [details]);
+  const upToDate = useCallback(
+    (s: Spread) => (layoutsAreOld(s) ? withLayouts(s, freshLayouts.get(layoutsKey(s)) ?? []) : s),
+    [freshLayouts, layoutsKey],
+  );
+  const current = useMemo(() => (saved ? upToDate(saved) : null), [saved, upToDate]);
   const currentIndex = current ? spreads.indexOf(current) : -1;
   const frame = current?.design.frames.find((f) => f.id === frameId) ?? null;
   const textBlock = current?.design.texts.find((t) => t.id === textId) ?? null;
@@ -486,6 +509,22 @@ export default function Workspace({ album }: { album: Album }) {
     [byId, spec, cards, details, cardCounts],
   );
 
+  // The layouts offered follow the photos, however those came to be on the spread.
+  useEffect(() => {
+    if (!saved?.photoIds.length || !layoutsAreOld(saved)) return undefined;
+    const key = layoutsKey(saved);
+    if (freshLayouts.has(key)) return undefined;
+    let live = true;
+    const list = saved.photoIds.flatMap((id) => byId.get(id) ?? []);
+    const asked = cards
+      ? suggestCardLayouts(list, spec).then((found) => fillOptions(found, details ?? NO_DETAILS))
+      : suggestLayouts(list, spec);
+    asked
+      .then((options) => { if (live) setFreshLayouts((all) => new Map(all).set(key, options)); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [saved, freshLayouts, layoutsKey, byId, cards, details, spec]);
+
   /** Adds photos to a spread, or starts a new one, and picks the layout automatically. */
   async function addPhotos(ids: string[], spreadId: string | null) {
     const target = spreads.find((s) => s.id === spreadId) ?? null;
@@ -599,14 +638,16 @@ export default function Workspace({ album }: { album: Album }) {
   const chooseLayout = useCallback((pick: (s: Spread) => number) => {
     setFrameId(null);
     setSpreads((all) =>
-      all.map((s) => {
-        if (s.id !== currentId || !s.options.length) return s;
+      all.map((kept) => {
+        if (kept.id !== currentId) return kept;
+        const s = upToDate(kept);
+        if (!s.options.length) return kept;
         const optionIndex = pick(s);
-        if (optionIndex === s.optionIndex) return s;
+        if (optionIndex === s.optionIndex) return kept;
         return { ...s, optionIndex, design: carry(s.design, s.options[optionIndex].design) };
       }),
     );
-  }, [currentId, setSpreads, carry]);
+  }, [currentId, setSpreads, carry, upToDate]);
 
   const cycleLayout = useCallback((step: -1 | 1) => {
     chooseLayout((s) => (s.optionIndex + step + s.options.length) % s.options.length);
@@ -706,9 +747,17 @@ export default function Workspace({ album }: { album: Album }) {
    * photos, chosen from the best, and then rearranged so that no two clicks look alike.
    */
   async function autoDesign() {
-    if (!current || !current.options.length) return;
-    const spreadId = current.id;
+    if (!saved) return;
+    const spreadId = saved.id;
     const ticket = ++autoDesignTicket.current;
+    // Every photo on the spread now takes part, also those added in the designer.
+    let current = upToDate(saved);
+    if (!current.options.length) {
+      const options = await layoutFor(saved.photoIds).catch(() => null);
+      if (!options || ticket !== autoDesignTicket.current) return;
+      current = withLayouts(saved, options);
+    }
+    const { photoIds, options } = current;
     const recent = recentLayouts.current.get(spreadId) ?? [];
     const ranked = current.options.map((option, index) => ({ option, index }));
     // A fine art spread stays fine art: its layouts sit low in the ranking, behind fuller ones.
@@ -742,7 +791,10 @@ export default function Workspace({ album }: { album: Album }) {
       setFrameId(null);
       history.seal();
       setSpreads((all) => all.map((s) => (
-        s.id === spreadId ? { ...s, optionIndex: index, design: carry(s.design, (made ?? option).design) } : s
+        // Photos changed meanwhile are not undone by a layout made without them.
+        s.id === spreadId && s.photoIds.join() === photoIds.join()
+          ? { ...s, options, optionIndex: index, design: carry(s.design, (made ?? option).design) }
+          : s
       )));
       history.seal();
     } catch (e) {
