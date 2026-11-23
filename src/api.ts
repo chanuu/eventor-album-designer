@@ -312,6 +312,12 @@ export async function retouchPreview(photoId: string, edits: RetouchEdits, adjus
   return new ImageData(new Uint8ClampedArray(buffer, 8), w, h);
 }
 
+/** A face as left, top, width and height, each a share of the photo. */
+export type FaceBox = [number, number, number, number];
+
+/** Where the faces are, by photo id, for crops that keep them in view. */
+export const findPhotoFaces = (ids: string[]) => invoke<Record<string, FaceBox[]>>('find_photo_faces', { ids });
+
 /** Finds the faces in a photo for Magic skin. Resolves to how many. */
 export const prepareSkin = (photoId: string) => invoke<number>('prepare_skin', { photoId });
 

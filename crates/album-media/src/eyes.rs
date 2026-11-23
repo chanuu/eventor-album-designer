@@ -259,6 +259,55 @@ pub fn photo_has_closed_eyes(photo: &PhotoInfo, cache_dir: &Path) -> Result<bool
     Ok(closed)
 }
 
+/// Changing how faces are found must not reuse answers found the old way.
+const FACES_VERSION: &str = "faces-v1";
+/// Cropping may trust a face a little less than retouching, but not a pattern in a saree.
+const FOCUS_CONFIDENCE: f32 = 0.7;
+const SMALLEST_FOCUS_SHARE: f32 = 0.025;
+
+/// Each face as left, top, width and height, as shares of the picture.
+pub fn face_boxes(image: &DynamicImage) -> Result<Vec<[f64; 4]>, MediaError> {
+    let (w, h) = (image.width() as f32, image.height() as f32);
+    let smallest = w.max(h) * SMALLEST_FOCUS_SHARE;
+    Ok(find_faces(models()?, image)
+        .map_err(failed)?
+        .into_iter()
+        .filter(|f| f.score >= FOCUS_CONFIDENCE && f.w.min(f.h) >= smallest)
+        .map(|f| {
+            [
+                (f.cx - f.w / 2.0) / w,
+                (f.cy - f.h / 2.0) / h,
+                f.w / w,
+                f.h / h,
+            ]
+            .map(f64::from)
+        })
+        .collect())
+}
+
+/// The same for an imported photo, kept so each photo is looked at once. The small
+/// preview is enough to see where a face is.
+pub fn photo_faces(photo: &PhotoInfo, cache_dir: &Path) -> Result<Vec<[f64; 4]>, MediaError> {
+    let saved_at = cache_dir.join(format!("{}.{FACES_VERSION}.json", photo.id));
+    if let Some(saved) = fs::read_to_string(&saved_at)
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+    {
+        return Ok(saved);
+    }
+    let preview = ensure_preview(photo, cache_dir, PreviewTier::Grid)?;
+    let image = image::open(&preview).map_err(|e| MediaError::Read {
+        path: preview.display().to_string(),
+        reason: e.to_string(),
+    })?;
+    let found = face_boxes(&image)?;
+    // Only a time saver, so failing to keep it must not fail the layout.
+    if let Ok(text) = serde_json::to_string(&found) {
+        let _ = fs::write(&saved_at, text);
+    }
+    Ok(found)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -270,6 +319,17 @@ mod tests {
                 .join(name),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn a_face_is_found_where_it_is_even_on_a_small_picture() {
+        let image = photo("eyes-open.png");
+        for picture in [image.clone(), image.thumbnail(512, 512)] {
+            let faces = face_boxes(&picture).unwrap();
+            assert_eq!(faces.len(), 1, "{faces:?}");
+            let [x, y, w, h] = faces[0];
+            assert!(x > -0.1 && y > -0.1 && x + w < 1.1 && y + h < 1.1 && w > 0.1 && h > 0.1);
+        }
     }
 
     #[test]

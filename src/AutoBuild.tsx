@@ -1,9 +1,11 @@
 import { ImageOffIcon, ImagesIcon, LightbulbIcon, SparklesIcon, XIcon } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
+import { focusFaces } from './faceFit';
 import { fillPages, fillsSpread } from './fillPages';
 import {
   analyzePhotos,
+  findPhotoFaces,
   GRID_PREVIEW,
   planForAlbum,
   previewUrl,
@@ -164,13 +166,15 @@ export default function AutoBuild({
         (p) => fillsSpread(p.width / p.height, spreadAspect),
       );
       const allOptions = await Promise.all(groups.map((group) => suggestLayouts(group, spec)));
+      const found = await findPhotoFaces(groups.flat().map((p) => p.id)).catch(() => ({}));
+      const faces = new Map(Object.entries(found));
       const recent: string[] = [];
       const spreads: Spread[] = groups.map((group, i) => {
         const options = allOptions[i];
         // A feature photo fills both pages, so neither is left blank.
         const full = group.length === 1 ? options.findIndex((o) => family(o.template_id) === FULL_SPREAD) : -1;
         const optionIndex = full >= 0 ? full : chooseLayout(options, tag, recent.slice(0, chosenStyle?.memory ?? 1));
-        const design = options[optionIndex].design;
+        const design = focusFaces(options[optionIndex].design, byId, faces);
         if (design.template_id) recent.unshift(design.template_id);
         return {
           id: crypto.randomUUID(),

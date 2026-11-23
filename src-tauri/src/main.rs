@@ -24,9 +24,9 @@ use album_export::{
     check_album, export_album, is_upload_address, render_web_spread, ExportFormats, ExportResult,
     Issue,
 };
-use album_media::live::{to_canvas_bytes, LivePreview};
 use album_media::analyze::{analyze_photo, auto_adjust};
-use album_media::eyes::photo_has_closed_eyes;
+use album_media::eyes::{photo_faces, photo_has_closed_eyes};
+use album_media::live::{to_canvas_bytes, LivePreview};
 use album_media::retouched::{read_saved, save_retouched, SavedRetouch, RETOUCHED_FOLDER};
 use album_media::selection::{make_gallery_copies, match_selection, SelectionMatch, WantedPhoto};
 use album_media::skin::photo_skin;
@@ -495,6 +495,8 @@ async fn analyze_photos(
                 .par_iter()
                 .map(|photo| {
                     let facts = analyze_photo(photo, &cache_dir).ok();
+                    // Found now, under the progress bar, so that building need not wait.
+                    let _ = photo_faces(photo, &cache_dir);
                     let finished = done.fetch_add(1, Ordering::Relaxed) + 1;
                     if let Ok(mut last) = last_update.try_lock() {
                         if last.elapsed() >= PROGRESS_INTERVAL {
@@ -591,6 +593,36 @@ async fn check_for_gallery(
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// Where the faces are in these photos, by photo id, for crops that keep them in view. A
+/// photo that cannot be looked at has none.
+#[tauri::command]
+async fn find_photo_faces(
+    ids: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<HashMap<String, Vec<[f64; 4]>>, String> {
+    let photos: Vec<PhotoInfo> = {
+        let known = state.photos.lock().map_err(|e| e.to_string())?;
+        ids.iter().filter_map(|id| known.get(id).cloned()).collect()
+    };
+    let cache_dir = state.cache_dir.clone();
+    let pool = state.preview_pool.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        pool.install(|| {
+            photos
+                .par_iter()
+                .map(|p| {
+                    (
+                        p.id.clone(),
+                        photo_faces(p, &cache_dir).unwrap_or_default(),
+                    )
+                })
+                .collect()
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 /// Suggested white balance and levels for one photo.
@@ -1072,6 +1104,7 @@ fn main() {
             open_to_retouch,
             retouch_preview,
             prepare_skin,
+            find_photo_faces,
             neutral_at,
             save_retouched_photo,
             suggest_layouts,

@@ -19,6 +19,7 @@ import {
   NO_RETOUCH,
   suggestCardLayouts,
   suggestColour,
+  findPhotoFaces,
   suggestLayouts,
   varyLayout,
   suggestRatings,
@@ -28,6 +29,7 @@ import {
   type Cover,
   type Frame,
   type FrameStyle,
+  type FaceBox,
   type LayoutOption,
   type Music,
   type Project,
@@ -46,6 +48,7 @@ import AutoBuild from './AutoBuild';
 import CardDetailsDialog from './CardDetailsDialog';
 import { changeCardDesign, fillOptions, listCounts, NO_DETAILS, refillCards } from './cards';
 import CoverDesigner from './CoverDesigner';
+import { designCutsFaces, faceFit, focusFaces } from './faceFit';
 import { effectiveDpi, visibleArea, cropShare } from './crop';
 import EffectsPanel, { NO_ADJUSTMENTS } from './EffectsPanel';
 import CommentsDialog from './CommentsDialog';
@@ -71,6 +74,8 @@ const AUTOSAVE_DELAY_MS = 1500;
 
 /** Shuffle chooses among this many of the layouts that suit the photos best. */
 const AUTO_DESIGN_CHOICES = 12;
+/** How many arrangements it tries before settling for one that cuts a face. */
+const SHUFFLE_TRIES = 5;
 /** How many recent layouts it avoids repeating on the same spread. */
 const AUTO_DESIGN_MEMORY = 4;
 const FINE_ART = 'fineart';
@@ -129,7 +134,6 @@ export default function Workspace({ album }: { album: Album }) {
   const cards = album.kind === 'cards';
   const noun = cards ? 'card' : 'spread';
   const Noun = cards ? 'Card' : 'Spread';
-  const carry = cards ? changeCardDesign : carryOver;
   const [details, setDetails] = useState<CardDetails | null>(cards ? album.details ?? NO_DETAILS : null);
   const [showDetails, setShowDetails] = useState(false);
   const [cardCounts, setCardCounts] = useState<number[]>([]);
@@ -209,6 +213,21 @@ export default function Workspace({ album }: { album: Album }) {
   }, []);
 
   const byId = useMemo(() => new Map(photos.map((p) => [p.id, p])), [photos]);
+  // Where each photo's faces are, once looked for. A ref, since only layouts use it.
+  const faces = useRef<Map<string, FaceBox[]>>(new Map());
+  const loadFaces = useCallback(async (ids: string[]) => {
+    const wanted = [...new Set(ids)].filter((id) => !faces.current.has(id));
+    if (!wanted.length) return;
+    try {
+      for (const [id, found] of Object.entries(await findPhotoFaces(wanted))) faces.current.set(id, found);
+    } catch {
+      // Without faces a crop is simply centred, which must not stop a layout.
+    }
+  }, []);
+  /** A new layout for a spread, keeping what was done to its photos, with faces in view. */
+  const carry = useCallback((from: SpreadDesign, to: SpreadDesign) => focusFaces(
+    (cards ? changeCardDesign : carryOver)(from, to), byId, faces.current, from,
+  ), [cards, byId]);
   const saved = spreads.find((s) => s.id === currentId) ?? null;
   // Layouts made for the photos a spread has now. Kept out of the undo history, since
   // finding them changes nothing the photographer did.
@@ -219,7 +238,7 @@ export default function Workspace({ album }: { album: Album }) {
     [freshLayouts, layoutsKey],
   );
   const current = useMemo(() => (saved ? upToDate(saved) : null), [saved, upToDate]);
-  const currentIndex = current ? spreads.indexOf(current) : -1;
+  const currentIndex = current ? spreads.findIndex((s) => s.id === current.id) : -1;
   const frame = current?.design.frames.find((f) => f.id === frameId) ?? null;
   const textBlock = current?.design.texts.find((t) => t.id === textId) ?? null;
 
@@ -490,6 +509,7 @@ export default function Workspace({ album }: { album: Album }) {
   /** The best layouts for a set of photos, or null with a message if none fits. */
   const layoutFor = useCallback(
     async (photoIds: string[]) => {
+      await loadFaces(photoIds);
       const list = photoIds.flatMap((id) => byId.get(id) ?? []);
       if (cards) {
         const designs = fillOptions(await suggestCardLayouts(list, spec), details ?? NO_DETAILS);
@@ -506,8 +526,12 @@ export default function Workspace({ album }: { album: Album }) {
       }
       return options;
     },
-    [byId, spec, cards, details, cardCounts],
+    [byId, spec, cards, details, cardCounts, loadFaces],
   );
+
+  // Looked for as soon as a spread is opened, so that changing its layout is instant.
+  const photosHere = saved?.photoIds.join() ?? '';
+  useEffect(() => { if (photosHere) void loadFaces(photosHere.split(',')); }, [photosHere, loadFaces]);
 
   // The layouts offered follow the photos, however those came to be on the spread.
   useEffect(() => {
@@ -550,7 +574,7 @@ export default function Workspace({ album }: { album: Album }) {
         photoIds,
         options,
         optionIndex: i,
-        design: option.design,
+        design: focusFaces(option.design, byId, faces.current),
       }));
       setSpreads((all) => [...all, ...made]);
       setCurrentId(made[0].id);
@@ -559,7 +583,7 @@ export default function Workspace({ album }: { album: Album }) {
       }
     } else {
       const id = crypto.randomUUID();
-      setSpreads((all) => [...all, { id, photoIds, options, optionIndex: 0, design: options[0].design }]);
+      setSpreads((all) => [...all, { id, photoIds, options, optionIndex: 0, design: focusFaces(options[0].design, byId, faces.current) }]);
       setCurrentId(id);
     }
   }
@@ -702,11 +726,19 @@ export default function Workspace({ album }: { album: Album }) {
     changeFromDesigner((d) => ({ ...d, template_id: null, frames: [...d.frames, ...made] }));
   }
 
-  function replacePhotoInDesigner(frameId: string, photoId: string) {
+  /** A photo's crop when it is put in a frame. */
+  function fitFor(photoId: string, frame: Frame): Frame['fit'] {
+    const photo = byId.get(photoId);
+    const aspect = photo ? photo.width / photo.height : 1;
+    return faceFit(aspect, frame.rect_mm.w / frame.rect_mm.h, faces.current.get(photoId));
+  }
+
+  async function replacePhotoInDesigner(frameId: string, photoId: string) {
+    await loadFaces([photoId]);
     history.seal();
     changeFromDesigner((d) => ({
       ...d,
-      frames: d.frames.map((f) => (f.id === frameId ? { ...f, asset_id: photoId, fit: { scale: 1, cx: 0.5, cy: 0.5, rot_deg: 0 } } : f)),
+      frames: d.frames.map((f) => (f.id === frameId ? { ...f, asset_id: photoId, fit: fitFor(photoId, f) } : f)),
     }));
   }
 
@@ -771,14 +803,36 @@ export default function Workspace({ album }: { album: Album }) {
     const fresh = best.filter(({ option, index }) => index !== current.optionIndex && !recent.includes(option.template_id));
     const others = best.filter(({ index }) => index !== current.optionIndex);
     const pool = fresh.length ? fresh : others.length ? others : best;
-    const [roll, seed] = crypto.getRandomValues(new Uint32Array(2));
-    const { option, index } = pool[roll % pool.length];
-    const list = current.photoIds.flatMap((id) => byId.get(id) ?? []);
+    const list = photoIds.flatMap((id) => byId.get(id) ?? []);
+    const before = current.design;
     try {
-      // A fine art layout is used as drawn. Moving its lines would undo its margins.
-      const made = staysFineArt
-        ? null
-        : await varyLayout(option.template_id, list, spec, option.design.frames.map((f) => f.rect_mm), seed);
+      await loadFaces(photoIds);
+      let option = pool[0].option;
+      let index = pool[0].index;
+      let design = before;
+      let least = Infinity;
+      // Every layout is tried before one is used twice.
+      const turns = [...pool];
+      for (let i = turns.length - 1; i > 0; i -= 1) {
+        const j = crypto.getRandomValues(new Uint32Array(1))[0] % (i + 1);
+        [turns[i], turns[j]] = [turns[j], turns[i]];
+      }
+      for (let attempt = 0; attempt < SHUFFLE_TRIES && least > 0.01; attempt += 1) {
+        const turn = turns[attempt % turns.length];
+        const [seed] = crypto.getRandomValues(new Uint32Array(1));
+        // A fine art layout is used as drawn. Moving its lines would undo its margins.
+        const made = staysFineArt
+          ? null
+          : await varyLayout(turn.option.template_id, list, spec, turn.option.design.frames.map((f) => f.rect_mm), seed);
+        const tried = carry(before, (made ?? turn.option).design);
+        const cut = designCutsFaces(tried, byId, faces.current);
+        if (cut < least) {
+          ({ option, index } = turn);
+          design = tried;
+          least = cut;
+        }
+        if (staysFineArt && attempt + 1 >= turns.length) break;
+      }
       // Only the latest click counts, when they come quicker than the answers.
       if (ticket !== autoDesignTicket.current) return;
       // Fine art layouts come round only after all the others have been shown.
@@ -793,7 +847,7 @@ export default function Workspace({ album }: { album: Album }) {
       setSpreads((all) => all.map((s) => (
         // Photos changed meanwhile are not undone by a layout made without them.
         s.id === spreadId && s.photoIds.join() === photoIds.join()
-          ? { ...s, options, optionIndex: index, design: carry(s.design, (made ?? option).design) }
+          ? { ...s, options, optionIndex: index, design: s.design === before ? design : carry(s.design, design) }
           : s
       )));
       history.seal();
@@ -830,10 +884,15 @@ export default function Workspace({ album }: { album: Album }) {
       const source = frames.find((f) => f.id === sourceId);
       const target = frames.find((f) => f.id === targetId);
       if (!source || !target) return frames;
-      const contents = (f: Frame) => ({ asset_id: f.asset_id, fit: f.fit, adjust: f.adjust });
+      if (!current) return frames;
+      // The other frame has another shape, so the crop is chosen again for it.
+      const refocused = (from: Frame, to: Frame): Frame => focusFaces(
+        { ...current.design, frames: [{ ...to, asset_id: from.asset_id, fit: from.fit, adjust: from.adjust }] },
+        byId, faces.current, { ...current.design, frames: [from] },
+      ).frames[0];
       return frames.map((f) => {
-        if (f.id === sourceId) return { ...f, ...contents(target) };
-        if (f.id === targetId) return { ...f, ...contents(source) };
+        if (f.id === sourceId) return refocused(target, f);
+        if (f.id === targetId) return refocused(source, f);
         return f;
       });
     });
@@ -1136,7 +1195,7 @@ export default function Workspace({ album }: { album: Album }) {
           onAuto={(chosen) => void autoColour(chosen)}
           onShowOriginal={setShowOriginal}
           onAddPhoto={dropPhotosOnDesigner}
-          onReplacePhoto={replacePhotoInDesigner}
+          onReplacePhoto={(frame, photo) => void replacePhotoInDesigner(frame, photo)}
           onAutoDesign={() => void autoDesign()}
           onPhotoMenu={(e, frameId, photoId) => photoMenu(e, photoId, frameId)}
           cards={cards}
