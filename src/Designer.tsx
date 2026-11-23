@@ -1,5 +1,5 @@
 import { BringToFrontIcon, CropIcon, MousePointer2Icon, SendToBackIcon, Trash2Icon } from 'lucide-react';
-import { SparklesIcon } from 'lucide-react';
+import { ShuffleIcon } from 'lucide-react';
 import {
   AlignCenterHorizontalIcon, AlignCenterVerticalIcon, AlignEndHorizontalIcon, AlignEndVerticalIcon,
   AlignStartHorizontalIcon, AlignStartVerticalIcon,
@@ -473,7 +473,7 @@ export default function Designer({
           )}
           <span className="topbar-gap" />
           <button type="button" className="btn-primary" title="Try a different layout for these photos" onClick={onAutoDesign}>
-            <SparklesIcon aria-hidden="true" />Auto design
+            <ShuffleIcon aria-hidden="true" />Shuffle
           </button>
         </div>
 

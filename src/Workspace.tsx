@@ -1,4 +1,4 @@
-import { ArrowLeftIcon, ArrowRightIcon, BookOpenIcon, ChevronLeftIcon, ChevronRightIcon, DownloadIcon, FlipHorizontal2Icon, ImageMinusIcon, ImagePlusIcon, ImagesIcon, LayoutGridIcon, WandSparklesIcon, MessageSquareIcon, PaletteIcon, PanelRightIcon, PenToolIcon, PlusIcon, Redo2Icon, RotateCcwIcon, SaveIcon, SearchIcon, SendIcon, SparklesIcon, Trash2Icon, Undo2Icon, UsersIcon, XIcon, ZapIcon } from 'lucide-react';
+import { ArrowLeftIcon, ArrowRightIcon, BookOpenIcon, ChevronLeftIcon, ChevronRightIcon, DownloadIcon, FlipHorizontal2Icon, ImageMinusIcon, ImagePlusIcon, ImagesIcon, LayoutGridIcon, WandSparklesIcon, MessageSquareIcon, PaletteIcon, PanelRightIcon, PenToolIcon, PlusIcon, Redo2Icon, RotateCcwIcon, SaveIcon, SearchIcon, SendIcon, ShuffleIcon, Trash2Icon, Undo2Icon, UsersIcon, XIcon, ZapIcon } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { ask, open, save } from '@tauri-apps/plugin-dialog';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -69,7 +69,7 @@ const MAX_ZOOM = 3;
 /** How long after the last change an already-saved album saves itself. */
 const AUTOSAVE_DELAY_MS = 1500;
 
-/** Auto design chooses among this many of the layouts that suit the photos best. */
+/** Shuffle chooses among this many of the layouts that suit the photos best. */
 const AUTO_DESIGN_CHOICES = 12;
 /** How many recent layouts it avoids repeating on the same spread. */
 const AUTO_DESIGN_MEMORY = 4;
@@ -783,7 +783,7 @@ export default function Workspace({ album }: { album: Album }) {
       if (ticket !== autoDesignTicket.current) return;
       // Fine art layouts come round only after all the others have been shown.
       const remembered = staysFineArt ? best.length - 1 : AUTO_DESIGN_MEMORY;
-      // The layout being left counts as shown, even if Auto design did not choose it.
+      // The layout being left counts as shown, even if Shuffle did not choose it.
       const shown = [option.template_id, current.options[current.optionIndex]?.template_id, ...recent]
         .filter((id): id is string => !!id);
       recentLayouts.current.set(spreadId, [...new Set(shown)].slice(0, remembered));
@@ -898,24 +898,40 @@ export default function Workspace({ album }: { album: Album }) {
   }
 
   const option = current?.options[current.optionIndex];
+  /** The designer works on one spread, so with none there is only the album. */
+  const designing = designerOpen && current !== null;
   const framePhoto = frame?.asset_id ? byId.get(frame.asset_id) : undefined;
   const frameDpi = frame && framePhoto ? Math.round(effectiveDpi(framePhoto, frame)) : null;
   const effectsValue = frame?.adjust ?? current?.design.frames[0]?.adjust ?? NO_ADJUSTMENTS;
   const paperNow = current?.design.background.value;
 
   return (
-    <div className="workspace">
+    <div className={`workspace ${designing ? 'designing' : ''}`}>
       <header className="topbar">
-        {designerOpen ? (
-          <button type="button" className="btn" onClick={() => setDesignerOpen(false)}><ChevronLeftIcon aria-hidden="true" />{cards ? 'Back to cards' : 'Back to album'}</button>
-        ) : (
-          <span className="brand-mark small" aria-hidden="true">E</span>
-        )}
+        <span className="brand-mark small" aria-hidden="true">E</span>
+        {/* Always in the same place, so the way back is where the way in was. */}
+        <div className="view-switch" role="group" aria-label="View">
+          <button
+            type="button"
+            aria-pressed={!designing}
+            className={designing ? '' : 'on'}
+            title={`See every ${noun}`}
+            onClick={() => setDesignerOpen(false)}
+          ><BookOpenIcon aria-hidden="true" />{cards ? 'Cards view' : 'Album view'}</button>
+          <button
+            type="button"
+            aria-pressed={designing}
+            className={designing ? 'on' : ''}
+            disabled={!current}
+            title={current ? `Design this ${noun} by hand` : `Add a ${noun} to design it`}
+            onClick={() => { if (!designing) { setFrameId(null); setDesignerOpen(true); } }}
+          ><PenToolIcon aria-hidden="true" />Design view</button>
+        </div>
         <div className="title">
           <strong>{album.name}</strong>
           <span>
             {album.sizeLabel} · {cards ? 'Thank you cards' : spec.binding === 'layflat' ? 'Lay-flat' : 'Magazine'} ·{' '}
-            {designerOpen && current
+            {designing
               ? `designing ${noun} ${currentIndex + 1} of ${spreads.length}`
               : `${spreads.length} ${noun}${spreads.length === 1 ? '' : 's'}`}
           </span>
@@ -928,7 +944,7 @@ export default function Workspace({ album }: { album: Album }) {
             failed: 'Could not save',
           }[saveStatus]}
         </span>
-        <button type="button" className="btn" onClick={() => void saveNow()}><SaveIcon aria-hidden="true" />Save</button>
+        <button type="button" className="btn" title="Save (Ctrl+S)" onClick={() => void saveNow()}><SaveIcon aria-hidden="true" />Save</button>
         <button type="button" className="btn icon-btn" aria-label="Undo" title="Undo (Ctrl+Z)" disabled={!history.canUndo} onClick={() => { setFrameId(null); undo(); }}><Undo2Icon aria-hidden="true" /></button>
         <button type="button" className="btn icon-btn" aria-label="Redo" title="Redo (Ctrl+Y)" disabled={!history.canRedo} onClick={() => { setFrameId(null); redo(); }}><Redo2Icon aria-hidden="true" /></button>
         <span className="topbar-gap" />
@@ -936,15 +952,15 @@ export default function Workspace({ album }: { album: Album }) {
           <input type="checkbox" checked={guides} onChange={(e) => setGuides(e.target.checked)} />
           Print guides
         </label>
-        <button type="button" className={`btn pane-btn ${showBrowser ? 'active' : ''}`} aria-pressed={showBrowser} onClick={() => setShowBrowser(!showBrowser)}><ImagesIcon aria-hidden="true" />Photos</button>
+        <button type="button" className={`btn pane-btn ${showBrowser ? 'active' : ''}`} aria-pressed={showBrowser} title="Photos" onClick={() => setShowBrowser(!showBrowser)}><ImagesIcon aria-hidden="true" />Photos</button>
         {!designerOpen && (
-          <button type="button" className={`btn pane-btn ${showSide ? 'active' : ''}`} aria-pressed={showSide} onClick={() => setShowSide(!showSide)}><PanelRightIcon aria-hidden="true" />Panel</button>
+          <button type="button" className={`btn pane-btn ${showSide ? 'active' : ''}`} aria-pressed={showSide} title="Panel" onClick={() => setShowSide(!showSide)}><PanelRightIcon aria-hidden="true" />Panel</button>
         )}
         {cards && (
           <button type="button" className="btn" title="The couple's names, date, venue and your studio line" onClick={() => setShowDetails(true)}><UsersIcon aria-hidden="true" />Details</button>
         )}
         {!cards && publishLink?.album_id && (
-          <button type="button" className="btn" onClick={() => setShowComments(true)}><MessageSquareIcon aria-hidden="true" />
+          <button type="button" className="btn" title="Comments" onClick={() => setShowComments(true)}><MessageSquareIcon aria-hidden="true" />
             Comments{openComments > 0 && <span className="count-badge">{openComments}</span>}
           </button>
         )}
@@ -1104,7 +1120,7 @@ export default function Workspace({ album }: { album: Album }) {
         />
       )}
 
-      {designerOpen && current ? (
+      {current && designing ? (
         <Designer
           key={current.id}
           design={current.design}
@@ -1158,8 +1174,8 @@ export default function Workspace({ album }: { album: Album }) {
                     className="tool accent"
                     title="Try a different layout for these photos. Click again for another."
                     onClick={() => void autoDesign()}
-                  ><SparklesIcon aria-hidden="true" />
-                    Auto design
+                  ><ShuffleIcon aria-hidden="true" />
+                    Shuffle
                   </button>
                   <button
                     type="button"
