@@ -9,6 +9,7 @@ pub mod autolayout;
 pub mod document;
 pub mod layoutvary;
 pub mod pack;
+pub mod pagelayout;
 pub mod retouch;
 
 mod builtin_list;

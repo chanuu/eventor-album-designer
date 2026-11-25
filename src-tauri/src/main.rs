@@ -19,6 +19,7 @@ use album_core::document::{
 };
 use album_core::layoutvary::vary_layout;
 use album_core::pack::{load_pack_dir, TemplateRegistry};
+use album_core::pagelayout::{page_layouts, PageSide};
 use album_core::retouch::{facing, RetouchEdits, SIDE_ON};
 use album_export::{
     check_album, export_album, is_upload_address, render_web_spread, ExportFormats, ExportResult,
@@ -402,6 +403,44 @@ fn vary_spread_layout(
         crop_loss: layout.crop_loss,
         design: apply_layout(&made, &photos, &layout, &spec),
     })
+}
+
+/// New arrangements for one page, leaving the other as it is. Each holds only that page.
+#[tauri::command]
+fn shuffle_page_layouts(
+    photos: Vec<PhotoInput>,
+    spec: ProjectSpec,
+    side: PageSide,
+    current: Vec<RectMm>,
+    fine_art: bool,
+    seed: u32,
+    state: State<'_, AppState>,
+) -> Vec<LayoutOption> {
+    let photos: Vec<Photo> = photos
+        .into_iter()
+        .map(|p| Photo {
+            asset_id: p.asset_id,
+            aspect: p.aspect,
+        })
+        .collect();
+    page_layouts(
+        &state.registry,
+        &photos,
+        &spec,
+        side,
+        &current,
+        fine_art,
+        u64::from(seed),
+    )
+    .into_iter()
+    .map(|page| LayoutOption {
+        template_id: page.template_id,
+        name: page.name,
+        tags: page.tags,
+        crop_loss: page.crop_loss,
+        design: page.design,
+    })
+    .collect()
 }
 
 #[derive(Serialize)]
@@ -1134,6 +1173,7 @@ fn main() {
             suggest_card_layouts,
             card_photo_counts,
             vary_spread_layout,
+            shuffle_page_layouts,
             save_album,
             open_album,
             relink_photos,
