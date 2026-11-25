@@ -1,5 +1,5 @@
 import { BringToFrontIcon, CropIcon, MousePointer2Icon, SendToBackIcon, Trash2Icon } from 'lucide-react';
-import { ShuffleIcon } from 'lucide-react';
+import type { ReactNode } from 'react';
 import {
   AlignCenterHorizontalIcon, AlignCenterVerticalIcon, AlignEndHorizontalIcon, AlignEndVerticalIcon,
   AlignStartHorizontalIcon, AlignStartVerticalIcon,
@@ -61,7 +61,7 @@ function inches(mm: number): string {
 
 export default function Designer({
   design, spec, photos, thresholds, paperColours, fonts, showOriginal, autoBusy, onChange, onSeal, onAuto,
-  onShowOriginal, onAddPhoto, onReplacePhoto, onAutoDesign, cards, onPhotoMenu,
+  onShowOriginal, onAddPhoto, onReplacePhoto, shuffle, cards, onPhotoMenu,
 }: {
   design: SpreadDesign;
   spec: ProjectSpec;
@@ -77,7 +77,8 @@ export default function Designer({
   onShowOriginal: (show: boolean) => void;
   onAddPhoto: (photoIds: string[], xMm: number, yMm: number) => void;
   onReplacePhoto: (frameId: string, photoId: string) => void;
-  onAutoDesign: () => void;
+  /** The Shuffle button and its page choice. */
+  shuffle: ReactNode;
   /** A card is one sheet, with no fold down the middle. */
   cards?: boolean;
   /** A right-click on a photo, for its menu. */
@@ -472,9 +473,7 @@ export default function Designer({
             </div>
           )}
           <span className="topbar-gap" />
-          <button type="button" className="btn-primary" title="Try a different layout for these photos" onClick={onAutoDesign}>
-            <ShuffleIcon aria-hidden="true" />Shuffle
-          </button>
+          {shuffle}
         </div>
 
         {/* The selection box can start outside the spread, since photos may cover all of it. */}

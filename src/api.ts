@@ -378,6 +378,26 @@ export const varyLayout = (
     seed,
   });
 
+export type PageSide = 'left' | 'right';
+
+/** New arrangements for one page, best first. Each design holds only that page's photos. */
+export const shufflePageLayouts = (
+  photos: PhotoInfo[],
+  spec: ProjectSpec,
+  side: PageSide,
+  current: Frame['rect_mm'][],
+  fineArt: boolean,
+  seed: number,
+) =>
+  invoke<LayoutOption[]>('shuffle_page_layouts', {
+    photos: photos.map((p) => ({ asset_id: p.id, aspect: p.width / p.height })),
+    spec,
+    side,
+    current,
+    fineArt,
+    seed,
+  });
+
 export type SelectionMatch = {
   photos: PhotoInfo[];
   changed: string[];

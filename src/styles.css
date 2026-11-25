@@ -287,6 +287,10 @@ legend { padding: 0; margin-bottom: 7px; font-size: 12px; font-weight: 600; widt
 .rail-nav.next { right: 8px; }
 .spread-caption { font-size: 11px; color: var(--ink-muted); }
 .spread-tools { flex: none; display: flex; align-items: center; gap: 8px; padding: 4px 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+.shuffle-side { flex: none; display: inline-flex; gap: 2px; padding: 2px; background: var(--canvas); border: 1px solid var(--line); border-radius: 8px; }
+.shuffle-side button { height: 26px; min-width: 28px; padding: 0 8px; border: 0; border-radius: 6px; background: none; font-size: 12px; font-weight: 600; color: var(--ink-mid); }
+.shuffle-side button:not(.on):hover { color: var(--ink); background: var(--panel-raised); }
+.shuffle-side button.on { background: var(--brand); color: #fff; }
 .tools-rule { width: 1px; align-self: stretch; margin: 4px 0; background: var(--line); }
 .tool { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 11px; border: 0; border-radius: 8px; background: none; font-size: 13px; font-weight: 600; transition: background 0.12s, transform 0.06s; }
 .tool svg { color: var(--ink-mid); }

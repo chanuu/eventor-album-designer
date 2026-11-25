@@ -1,4 +1,4 @@
-import { ArrowLeftIcon, ArrowRightIcon, BookOpenIcon, ChevronLeftIcon, ChevronRightIcon, DownloadIcon, FlipHorizontal2Icon, ImageMinusIcon, ImagePlusIcon, ImagesIcon, LayoutGridIcon, WandSparklesIcon, MessageSquareIcon, PaletteIcon, PanelRightIcon, PenToolIcon, PlusIcon, Redo2Icon, RotateCcwIcon, SaveIcon, SearchIcon, SendIcon, ShuffleIcon, Trash2Icon, Undo2Icon, UsersIcon, XIcon, ZapIcon } from 'lucide-react';
+import { ArrowLeftIcon, ArrowRightIcon, BookOpenIcon, ChevronLeftIcon, ChevronRightIcon, DownloadIcon, FlipHorizontal2Icon, ImageMinusIcon, ImagePlusIcon, ImagesIcon, LayoutGridIcon, WandSparklesIcon, MessageSquareIcon, PaletteIcon, PanelRightIcon, PenToolIcon, PlusIcon, Redo2Icon, RotateCcwIcon, SaveIcon, SearchIcon, SendIcon, Trash2Icon, Undo2Icon, UsersIcon, XIcon, ZapIcon } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { ask, open, save } from '@tauri-apps/plugin-dialog';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -21,7 +21,7 @@ import {
   suggestColour,
   findPhotoFaces,
   suggestLayouts,
-  varyLayout,
+  shufflePageLayouts, varyLayout, type PageSide,
   suggestRatings,
   analyzePhotos,
   type Adjustments,
@@ -57,6 +57,7 @@ import Designer from './Designer';
 import Retoucher, { type RetouchItem } from './Retoucher';
 import { currentStaff, listComments } from './eventor';
 import ExportDialog from './ExportDialog';
+import { pageShape, ShuffleControl, splitAtFold, withPage, type ShuffleSide } from './pageShuffle';
 import PublishDialog from './PublishDialog';
 import { useHistory } from './history';
 import { ALBUM_EXTENSION, ALBUM_FILTERS, rememberAlbum, toProject } from './project';
@@ -78,6 +79,8 @@ const AUTO_DESIGN_CHOICES = 12;
 const SHUFFLE_TRIES = 5;
 /** How many recent layouts it avoids repeating on the same spread. */
 const AUTO_DESIGN_MEMORY = 4;
+/** How many recent arrangements of one page it avoids repeating. */
+const PAGE_MEMORY = 10;
 const FINE_ART = 'fineart';
 
 type SaveStatus = 'saved' | 'unsaved' | 'saving' | 'failed';
@@ -174,8 +177,11 @@ export default function Workspace({ album }: { album: Album }) {
   const [showPreview, setShowPreview] = useState(false);
   const [showComments, setShowComments] = useState(false);
   const [openComments, setOpenComments] = useState(0);
+  // Which pages Shuffle changes. Both again on each spread, so no page is left out by surprise.
+  const [shuffleSide, setShuffleSide] = useState<ShuffleSide>('both');
   const autoDesignTicket = useRef(0);
   const recentLayouts = useRef(new Map<string, string[]>());
+  const recentPages = useRef(new Map<string, string[]>());
   const [ratings, setRatings] = useState<Record<string, Rating>>(album.ratings);
   const [suggested, setSuggested] = useState<Map<string, PhotoRating>>(new Map());
   const [reading, setReading] = useState(false);
@@ -243,6 +249,8 @@ export default function Workspace({ album }: { album: Album }) {
   const textBlock = current?.design.texts.find((t) => t.id === textId) ?? null;
 
   const usedIds = useMemo(() => new Set(spreads.flatMap((s) => s.photoIds)), [spreads]);
+
+  useEffect(() => setShuffleSide('both'), [currentId]);
 
   // Undo can remove the spread on screen, so fall back to one that still exists.
   useEffect(() => {
@@ -856,6 +864,68 @@ export default function Workspace({ album }: { album: Album }) {
     }
   }
 
+  /** Shuffle for one page. Nothing on the other page moves. */
+  async function shufflePage(side: PageSide) {
+    if (!saved) return;
+    const spreadId = saved.id;
+    const before = saved.design;
+    const ticket = ++autoDesignTicket.current;
+    const split = splitAtFold(before, side);
+    if (!split) {
+      setNotice('A photo runs across the fold, so one page cannot be shuffled alone. Choose Both, or move that photo onto one page.');
+      return;
+    }
+    const { page, rest } = split;
+    const list = page.flatMap((f) => (f.asset_id && byId.get(f.asset_id)) || []);
+    if (!list.length) {
+      setNotice(`There are no photos on the ${side} page to shuffle.`);
+      return;
+    }
+    try {
+      await loadFaces(list.map((p) => p.id));
+      const spread = upToDate(saved);
+      const fineArt = !!spread.options[spread.optionIndex]?.tags.includes(FINE_ART);
+      const [seed] = crypto.getRandomValues(new Uint32Array(1));
+      const turns = await shufflePageLayouts(list, spec, side, page.map((f) => f.rect_mm), fineArt, seed);
+      if (ticket !== autoDesignTicket.current) return;
+      if (!turns.length) {
+        setNotice('There is no other layout for this page.');
+        return;
+      }
+      for (let i = turns.length - 1; i > 0; i -= 1) {
+        const j = crypto.getRandomValues(new Uint32Array(1))[0] % (i + 1);
+        [turns[i], turns[j]] = [turns[j], turns[i]];
+      }
+      // Pages not shown lately come first, and of the rest the one shown longest ago.
+      const pageKey = `${spreadId} ${side}`;
+      const recent = recentPages.current.get(pageKey) ?? [];
+      const age = (t: LayoutOption) => {
+        const at = recent.indexOf(pageShape(t.design.frames));
+        return at < 0 ? Infinity : at;
+      };
+      const unseen = turns.filter((t) => age(t) === Infinity);
+      const seenBefore = turns.filter((t) => age(t) !== Infinity).sort((a, b) => age(b) - age(a));
+      const tries = (unseen.length ? unseen : seenBefore.slice(0, 1)).slice(0, SHUFFLE_TRIES).map((t) => {
+        const made = carry({ ...before, frames: page }, t.design);
+        return { made, cut: designCutsFaces(made, byId, faces.current) };
+      });
+      // The first that cuts no face, or the one that cuts least.
+      const pick = tries.find((t) => t.cut <= 0.01) ?? tries.reduce((a, b) => (b.cut < a.cut ? b : a));
+      const design = withPage(before, page, rest, pick.made.frames);
+      const shown = [pageShape(pick.made.frames), pageShape(page), ...recent];
+      recentPages.current.set(pageKey, [...new Set(shown)].slice(0, PAGE_MEMORY));
+      setNotice('');
+      setFrameId(null);
+      history.seal();
+      setSpreads((all) => all.map((s) => (s.id === spreadId && s.design === before ? { ...s, design } : s)));
+      history.seal();
+    } catch (e) {
+      setNotice(`Could not design a new layout: ${String(e)}`);
+    }
+  }
+
+  const shuffle = () => void (shuffleSide === 'both' ? autoDesign() : shufflePage(shuffleSide));
+
   const changeText = useCallback((id: string, change: Partial<TextBlock>) => {
     changeDesign(
       (d) => ({ ...d, texts: d.texts.map((t) => (t.id === id ? { ...t, ...change } : t)) }),
@@ -1196,7 +1266,7 @@ export default function Workspace({ album }: { album: Album }) {
           onShowOriginal={setShowOriginal}
           onAddPhoto={dropPhotosOnDesigner}
           onReplacePhoto={(frame, photo) => void replacePhotoInDesigner(frame, photo)}
-          onAutoDesign={() => void autoDesign()}
+          shuffle={<ShuffleControl side={shuffleSide} onSide={setShuffleSide} onShuffle={shuffle} className="btn-primary" pages={!cards} />}
           onPhotoMenu={(e, frameId, photoId) => photoMenu(e, photoId, frameId)}
           cards={cards}
         />
@@ -1208,6 +1278,7 @@ export default function Workspace({ album }: { album: Album }) {
             <div className="spread-tools" role="toolbar" aria-label="Spread">
               <span className="muted">Custom layout</span>
               <button type="button" className="tool" onClick={() => void relayout(current)}><LayoutGridIcon aria-hidden="true" />Choose a layout</button>
+              {!cards && <ShuffleControl side={shuffleSide} onSide={setShuffleSide} onShuffle={shuffle} className="tool accent" />}
               <button type="button" className="tool" onClick={() => setDesignerOpen(true)}><PenToolIcon aria-hidden="true" />Designer</button>
               <button type="button" className="tool danger" onClick={() => deleteSpread(current.id)}><Trash2Icon aria-hidden="true" />Delete</button>
             </div>
@@ -1228,14 +1299,7 @@ export default function Workspace({ album }: { album: Album }) {
               <button type="button" className="tool" onClick={() => { setFrameId(null); setDesignerOpen(true); }}><PenToolIcon aria-hidden="true" />Designer</button>
               {!cards && (
                 <>
-                  <button
-                    type="button"
-                    className="tool accent"
-                    title="Try a different layout for these photos. Click again for another."
-                    onClick={() => void autoDesign()}
-                  ><ShuffleIcon aria-hidden="true" />
-                    Shuffle
-                  </button>
+                  <ShuffleControl side={shuffleSide} onSide={setShuffleSide} onShuffle={shuffle} className="tool accent" />
                   <button
                     type="button"
                     className="tool"
