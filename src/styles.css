@@ -693,3 +693,19 @@ fieldset.plain > legend { font-size: 14px; color: var(--ink); margin-bottom: 4px
 .shades button.on { box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--brand); }
 .shade-own { position: relative; overflow: hidden; background: conic-gradient(red, yellow, lime, aqua, blue, magenta, red); }
 .shade-own input { position: absolute; inset: -6px; width: 40px; height: 40px; opacity: 0; cursor: pointer; }
+
+.home-body, .gate { display: flex; flex-direction: column; }
+.updates { display: contents; }
+/* Above everything else on the screen, however long the list of albums below it is. */
+.update-offer { order: -1; margin-bottom: 24px; }
+.update-offer { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 14px; padding: 14px 16px; background: var(--brand-soft); border: 1px solid var(--brand); border-radius: 12px; }
+.update-offer > svg { flex: none; width: 20px; height: 20px; color: var(--brand); }
+.update-offer > div:nth-child(2) { flex: 1 1 240px; min-width: 0; text-align: left; }
+.update-offer p { margin: 4px 0 0; }
+.update-notes { white-space: pre-line; max-height: 160px; overflow-y: auto; font-size: 13px; }
+.update-actions { display: flex; gap: 8px; }
+.update-foot { margin-top: 24px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; font-size: 12px; }
+.update-busy { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; background: rgb(0 0 0 / 70%); }
+.update-busy > div { width: 360px; padding: 24px; display: flex; flex-direction: column; gap: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; }
+.update-busy progress { width: 100%; accent-color: var(--brand); }
+.update-busy p { margin: 0; }

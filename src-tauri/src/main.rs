@@ -42,6 +42,7 @@ use tauri::http::{header, Response, StatusCode};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 mod device;
+mod update;
 
 const MM_PER_INCH: f64 = 25.4;
 
@@ -1116,6 +1117,8 @@ fn device_identity(app: AppHandle) -> Result<device::DeviceIdentity, String> {
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(update::FoundUpdate::default())
         .register_asynchronous_uri_scheme_protocol("album", |ctx, request, responder| {
             let state = ctx.app_handle().state::<AppState>();
             let photos = state.photos.clone();
@@ -1193,7 +1196,10 @@ fn main() {
             upload_music,
             match_customer_selection,
             upload_gallery_photo,
-            device_identity
+            device_identity,
+            update::app_version,
+            update::check_for_update,
+            update::install_update
         ])
         .run(tauri::generate_context!())
         .expect("the app window could not start");

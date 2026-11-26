@@ -4,6 +4,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 import type { Album } from './App';
 import type { Staff } from './eventor';
 import { LoaderScreen } from './Loader';
+import Updates from './Updates';
 import { ALBUM_FILTERS, loadAlbum, recentAlbums, type RecentAlbum } from './project';
 
 /** The first screen: what the studio has come here to do. */
@@ -111,6 +112,7 @@ export default function Home({
             <p className="muted">Albums and cards you save or open appear here.</p>
           )}
         </div>
+        <Updates />
       </section>
     </main>
   );

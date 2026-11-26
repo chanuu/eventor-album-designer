@@ -27,6 +27,13 @@
       "csp": "default-src 'self'; img-src 'self' blob: album: http://album.localhost; style-src 'self' 'unsafe-inline'; font-src 'self' data:; media-src 'self' blob:; connect-src ipc: http://ipc.localhost https://wvdtbhfxdqxeeubfwmur.supabase.co"
     }
   },
+  "plugins": {
+    "updater": {
+      "endpoints": ["https://github.com/chanuu/eventor-album-designer/releases/latest/download/latest.json"],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDAxMUY2MkExMjM4NDVDMjcKUldRblhJUWpvV0lmQVI1bllDMXBkM3VFMTFWSDNFTkg2RmdQU25ybCsrTTNiMi96OG5SKzFyOEkK",
+      "windows": { "installMode": "passive" }
+    }
+  },
   "bundle": {
     "active": true,
     "targets": ["nsis"],

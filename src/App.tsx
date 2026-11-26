@@ -11,6 +11,7 @@ import { hideSplash } from './splash';
 import NewAlbum from './NewAlbum';
 import NewCards from './NewCards';
 import RetouchFiles from './RetouchFiles';
+import Updates from './Updates';
 import Workspace from './Workspace';
 
 export type Album = {
@@ -107,6 +108,7 @@ export default function App() {
             )}
           </div>
         )}
+        <Updates />
       </main>
     );
   }
