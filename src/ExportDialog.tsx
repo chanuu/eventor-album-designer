@@ -1,3 +1,4 @@
+import { CheckIcon, DownloadIcon, XIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
@@ -95,7 +96,7 @@ export default function ExportDialog({
             <p className="muted">Saved in</p>
             <p className="export-path">{stage.result.folder}</p>
             <div className="modal-actions">
-              <button type="button" className="btn-primary" onClick={onClose}>Done</button>
+              <button type="button" className="btn-primary" onClick={onClose}><CheckIcon aria-hidden="true" />Done</button>
             </div>
           </>
         ) : (
@@ -139,13 +140,13 @@ export default function ExportDialog({
             {error && <p className="error">{error}</p>}
 
             <div className="modal-actions">
-              <button type="button" className="btn" disabled={exporting} onClick={onClose}>Cancel</button>
+              <button type="button" className="btn" disabled={exporting} onClick={onClose}><XIcon aria-hidden="true" />Cancel</button>
               <button
                 type="button"
                 className="btn-primary"
                 disabled={stage.name !== 'ready' || blockers.length > 0 || (!jpeg && !pdf)}
                 onClick={() => void start()}
-              >
+              ><DownloadIcon aria-hidden="true" />
                 {exporting ? 'Exporting…' : 'Choose folder and export'}
               </button>
             </div>

@@ -1,0 +1,15 @@
+{
+  "id": "eventor-essentials/6-lead-row-and-stack",
+  "name": "Lead and row + stacked",
+  "frame_count": 6,
+  "spread_aspect": "any",
+  "tags": ["clean"],
+  "frames": [
+    {"rect_pct":{"x":0,"y":0,"w":0.5,"h":0.64}},
+    {"rect_pct":{"x":0,"y":0.64,"w":0.1667,"h":0.36}},
+    {"rect_pct":{"x":0.1667,"y":0.64,"w":0.1666,"h":0.36}},
+    {"rect_pct":{"x":0.3333,"y":0.64,"w":0.1667,"h":0.36}},
+    {"rect_pct":{"x":0.5,"y":0,"w":0.5,"h":0.5}},
+    {"rect_pct":{"x":0.5,"y":0.5,"w":0.5,"h":0.5}}
+  ]
+}

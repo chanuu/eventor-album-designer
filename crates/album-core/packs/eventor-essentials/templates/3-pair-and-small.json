@@ -1,0 +1,12 @@
+{
+  "id": "eventor-essentials/3-pair-and-small",
+  "name": "Floating pair + small centred",
+  "frame_count": 3,
+  "spread_aspect": "any",
+  "tags": ["airy"],
+  "frames": [
+    {"rect_pct":{"x":0.04,"y":0.28,"w":0.2,"h":0.44}},
+    {"rect_pct":{"x":0.26,"y":0.28,"w":0.2,"h":0.44}},
+    {"rect_pct":{"x":0.62,"y":0.27,"w":0.26,"h":0.46}}
+  ]
+}

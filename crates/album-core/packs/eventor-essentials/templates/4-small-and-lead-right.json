@@ -1,0 +1,13 @@
+{
+  "id": "eventor-essentials/4-small-and-lead-right",
+  "name": "Small centred + lead right",
+  "frame_count": 4,
+  "spread_aspect": "any",
+  "tags": ["airy"],
+  "frames": [
+    {"rect_pct":{"x":0.12,"y":0.27,"w":0.26,"h":0.46}},
+    {"rect_pct":{"x":0.5,"y":0,"w":0.19,"h":0.5}},
+    {"rect_pct":{"x":0.5,"y":0.5,"w":0.19,"h":0.5}},
+    {"rect_pct":{"x":0.69,"y":0,"w":0.31,"h":1}}
+  ]
+}

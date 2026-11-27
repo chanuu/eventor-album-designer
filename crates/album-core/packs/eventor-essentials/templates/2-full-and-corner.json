@@ -1,0 +1,11 @@
+{
+  "id": "eventor-essentials/2-full-and-corner",
+  "name": "Full page + upper corner",
+  "frame_count": 2,
+  "spread_aspect": "any",
+  "tags": ["hero","airy"],
+  "frames": [
+    {"rect_pct":{"x":0,"y":0,"w":0.5,"h":1},"bleed":true},
+    {"rect_pct":{"x":0.55,"y":0.1,"w":0.29,"h":0.52}}
+  ]
+}

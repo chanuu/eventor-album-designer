@@ -1,0 +1,13 @@
+{
+  "id": "eventor-essentials/4-low-and-lead-top",
+  "name": "Low and wide + lead top",
+  "frame_count": 4,
+  "spread_aspect": "any",
+  "tags": ["airy"],
+  "frames": [
+    {"rect_pct":{"x":0.06,"y":0.46,"w":0.38,"h":0.42}},
+    {"rect_pct":{"x":0.5,"y":0,"w":0.5,"h":0.6}},
+    {"rect_pct":{"x":0.5,"y":0.6,"w":0.25,"h":0.4}},
+    {"rect_pct":{"x":0.75,"y":0.6,"w":0.25,"h":0.4}}
+  ]
+}

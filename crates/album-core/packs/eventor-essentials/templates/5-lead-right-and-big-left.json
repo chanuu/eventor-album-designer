@@ -1,0 +1,14 @@
+{
+  "id": "eventor-essentials/5-lead-right-and-big-left",
+  "name": "Lead right + big left",
+  "frame_count": 5,
+  "spread_aspect": "any",
+  "tags": ["clean"],
+  "frames": [
+    {"rect_pct":{"x":0,"y":0,"w":0.19,"h":0.5}},
+    {"rect_pct":{"x":0,"y":0.5,"w":0.19,"h":0.5}},
+    {"rect_pct":{"x":0.19,"y":0,"w":0.31,"h":1}},
+    {"rect_pct":{"x":0.5,"y":0,"w":0.32,"h":1}},
+    {"rect_pct":{"x":0.82,"y":0,"w":0.18,"h":1}}
+  ]
+}

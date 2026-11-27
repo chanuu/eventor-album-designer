@@ -1,0 +1,14 @@
+{
+  "id": "eventor-essentials/5-pair-and-columns",
+  "name": "Floating pair + three columns",
+  "frame_count": 5,
+  "spread_aspect": "any",
+  "tags": ["airy"],
+  "frames": [
+    {"rect_pct":{"x":0.04,"y":0.28,"w":0.2,"h":0.44}},
+    {"rect_pct":{"x":0.26,"y":0.28,"w":0.2,"h":0.44}},
+    {"rect_pct":{"x":0.5,"y":0,"w":0.1667,"h":1}},
+    {"rect_pct":{"x":0.6667,"y":0,"w":0.1666,"h":1}},
+    {"rect_pct":{"x":0.8333,"y":0,"w":0.1667,"h":1}}
+  ]
+}

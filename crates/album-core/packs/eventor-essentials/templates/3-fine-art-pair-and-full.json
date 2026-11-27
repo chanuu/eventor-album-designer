@@ -1,0 +1,12 @@
+{
+  "id": "eventor-essentials/3-fine-art-pair-and-full",
+  "name": "Pair beside a full page",
+  "frame_count": 3,
+  "spread_aspect": "any",
+  "tags": ["fineart"],
+  "frames": [
+    {"rect_pct":{"x":0.068,"y":0.13,"w":0.182,"h":0.74}},
+    {"rect_pct":{"x":0.25,"y":0.13,"w":0.182,"h":0.74}},
+    {"rect_pct":{"x":0.5,"y":0,"w":0.5,"h":1},"bleed":true}
+  ]
+}

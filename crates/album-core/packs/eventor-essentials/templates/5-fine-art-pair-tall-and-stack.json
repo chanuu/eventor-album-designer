@@ -1,0 +1,14 @@
+{
+  "id": "eventor-essentials/5-fine-art-pair-tall-and-stack",
+  "name": "Pair beside a tall and a stack",
+  "frame_count": 5,
+  "spread_aspect": "any",
+  "tags": ["fineart"],
+  "frames": [
+    {"rect_pct":{"x":0.068,"y":0.13,"w":0.182,"h":0.74}},
+    {"rect_pct":{"x":0.25,"y":0.13,"w":0.182,"h":0.74}},
+    {"rect_pct":{"x":0.52,"y":0.06,"w":0.23,"h":0.88}},
+    {"rect_pct":{"x":0.75,"y":0.06,"w":0.227,"h":0.44}},
+    {"rect_pct":{"x":0.75,"y":0.5,"w":0.227,"h":0.44}}
+  ]
+}

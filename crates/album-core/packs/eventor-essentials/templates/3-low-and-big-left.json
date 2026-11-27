@@ -1,0 +1,12 @@
+{
+  "id": "eventor-essentials/3-low-and-big-left",
+  "name": "Low and wide + big left",
+  "frame_count": 3,
+  "spread_aspect": "any",
+  "tags": ["airy"],
+  "frames": [
+    {"rect_pct":{"x":0.06,"y":0.46,"w":0.38,"h":0.42}},
+    {"rect_pct":{"x":0.5,"y":0,"w":0.32,"h":1}},
+    {"rect_pct":{"x":0.82,"y":0,"w":0.18,"h":1}}
+  ]
+}

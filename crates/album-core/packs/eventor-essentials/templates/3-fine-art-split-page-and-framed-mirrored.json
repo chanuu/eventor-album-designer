@@ -1,0 +1,12 @@
+{
+  "id": "eventor-essentials/3-fine-art-split-page-and-framed-mirrored",
+  "name": "Split page beside a framed photo (mirrored)",
+  "frame_count": 3,
+  "spread_aspect": "any",
+  "tags": ["fineart"],
+  "frames": [
+    {"rect_pct":{"x":0.134,"y":0.21,"w":0.236,"h":0.58}},
+    {"rect_pct":{"x":0.5,"y":0,"w":0.25,"h":1},"bleed":true},
+    {"rect_pct":{"x":0.75,"y":0,"w":0.25,"h":1},"bleed":true}
+  ]
+}

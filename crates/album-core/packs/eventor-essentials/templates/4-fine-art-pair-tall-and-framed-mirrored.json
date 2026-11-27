@@ -1,0 +1,13 @@
+{
+  "id": "eventor-essentials/4-fine-art-pair-tall-and-framed-mirrored",
+  "name": "Pair, tall across the fold and framed (mirrored)",
+  "frame_count": 4,
+  "spread_aspect": "any",
+  "tags": ["fineart","panorama"],
+  "frames": [
+    {"rect_pct":{"x":0.045,"y":0.21,"w":0.185,"h":0.585}},
+    {"rect_pct":{"x":0.23,"y":0,"w":0.358,"h":1},"bleed":true},
+    {"rect_pct":{"x":0.588,"y":0.21,"w":0.185,"h":0.585}},
+    {"rect_pct":{"x":0.773,"y":0.21,"w":0.185,"h":0.585}}
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "id": "eventor-essentials/7-floating-row-and-grid",
+  "name": "Floating row + four grid",
+  "frame_count": 7,
+  "spread_aspect": "any",
+  "tags": ["airy"],
+  "frames": [
+    {"rect_pct":{"x":0.03,"y":0.3,"w":0.14,"h":0.4}},
+    {"rect_pct":{"x":0.18,"y":0.3,"w":0.14,"h":0.4}},
+    {"rect_pct":{"x":0.33,"y":0.3,"w":0.14,"h":0.4}},
+    {"rect_pct":{"x":0.5,"y":0,"w":0.25,"h":0.5}},
+    {"rect_pct":{"x":0.75,"y":0,"w":0.25,"h":0.5}},
+    {"rect_pct":{"x":0.5,"y":0.5,"w":0.25,"h":0.5}},
+    {"rect_pct":{"x":0.75,"y":0.5,"w":0.25,"h":0.5}}
+  ]
+}

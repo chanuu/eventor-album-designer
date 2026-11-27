@@ -1,0 +1,15 @@
+{
+  "id": "eventor-essentials/6-fine-art-tall-and-mosaic-mirrored",
+  "name": "Tall beside a mosaic of five (mirrored)",
+  "frame_count": 6,
+  "spread_aspect": "any",
+  "tags": ["fineart"],
+  "frames": [
+    {"rect_pct":{"x":0.023,"y":0.06,"w":0.132,"h":0.44}},
+    {"rect_pct":{"x":0.023,"y":0.5,"w":0.132,"h":0.44}},
+    {"rect_pct":{"x":0.155,"y":0.06,"w":0.193,"h":0.88}},
+    {"rect_pct":{"x":0.348,"y":0.06,"w":0.132,"h":0.44}},
+    {"rect_pct":{"x":0.348,"y":0.5,"w":0.132,"h":0.44}},
+    {"rect_pct":{"x":0.742,"y":0.06,"w":0.235,"h":0.88}}
+  ]
+}

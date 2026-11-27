@@ -1,0 +1,12 @@
+{
+  "id": "eventor-essentials/3-fine-art-full-tall-and-square-mirrored",
+  "name": "Full page with a tall and a square (mirrored)",
+  "frame_count": 3,
+  "spread_aspect": "any",
+  "tags": ["fineart"],
+  "frames": [
+    {"rect_pct":{"x":0.023,"y":0.06,"w":0.227,"h":0.64}},
+    {"rect_pct":{"x":0.25,"y":0.06,"w":0.23,"h":0.88}},
+    {"rect_pct":{"x":0.5,"y":0,"w":0.5,"h":1},"bleed":true}
+  ]
+}

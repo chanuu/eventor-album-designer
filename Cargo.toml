@@ -10,3 +10,16 @@ publish = false
 # Decoding photos in an unoptimised build is painfully slow, even during development.
 [profile.dev.package."*"]
 opt-level = 2
+
+# The app's own picture work is just as slow unoptimised, and every preview runs through it.
+[profile.dev.package.album-core]
+opt-level = 3
+
+[profile.dev.package.album-media]
+opt-level = 3
+
+[profile.dev.package.album-export]
+opt-level = 3
+
+[profile.dev.package.album-text]
+opt-level = 3

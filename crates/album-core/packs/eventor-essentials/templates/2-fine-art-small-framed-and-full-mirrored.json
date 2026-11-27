@@ -1,0 +1,11 @@
+{
+  "id": "eventor-essentials/2-fine-art-small-framed-and-full-mirrored",
+  "name": "Small framed beside a full page (mirrored)",
+  "frame_count": 2,
+  "spread_aspect": "any",
+  "tags": ["fineart"],
+  "frames": [
+    {"rect_pct":{"x":0,"y":0,"w":0.5,"h":1},"bleed":true},
+    {"rect_pct":{"x":0.59,"y":0.19,"w":0.32,"h":0.62}}
+  ]
+}

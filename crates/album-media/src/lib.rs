@@ -8,6 +8,7 @@ use std::io::BufReader;
 use std::path::{Path, PathBuf};
 
 pub mod analyze;
+pub mod eyes;
 
 use album_core::adjust::Adjustments;
 use image::metadata::Orientation;

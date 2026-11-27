@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { publishSpread, type ProjectSpec, type PublishLink, type Project } from './api';
+import { deviceIdentity, musicDetails, publishSpread, uploadCover, uploadMusic, type ProjectSpec, type PublishLink, type Project } from './api';
+import { coverJpegs } from './cover';
 
 /**
  * The link to Eventor: who is signed in, their jobs, publishing and client comments.
@@ -73,7 +74,7 @@ export async function signOut(): Promise<void> {
   }
 }
 
-// ─── Whether this studio's package includes the tool ────────────────────────
+// â”€â”€â”€ Whether this studio's package includes the tool â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /** How long the tool keeps working with no connection since it last checked. */
 export const OFFLINE_DAYS = 7;
@@ -85,6 +86,7 @@ export type Access =
   | { state: 'allowed'; staff: Staff | null; canCreateGallery: boolean; offline: boolean }
   | { state: 'signed-out' }
   | { state: 'not-in-package' }
+  | { state: 'device-limit'; used: number; limit: number; devices: DesignerDevice[]; canRemove: boolean }
   | { state: 'offline-too-long' }
   | { state: 'problem'; message: string };
 
@@ -149,6 +151,14 @@ export async function checkAccess(): Promise<Access> {
       }
     }
 
+    const device = await registerDevice();
+    if (device.state !== 'allowed') {
+      if (device.state === 'offline') return fromMemory();
+      // A computer turned away must not keep working offline on an earlier answer.
+      localStorage.removeItem(ACCESS_KEY);
+      return device;
+    }
+
     try {
       localStorage.setItem(ACCESS_KEY, JSON.stringify({ checkedAt: Date.now(), canCreateGallery, staff }));
     } catch {
@@ -161,7 +171,67 @@ export async function checkAccess(): Promise<Access> {
   }
 }
 
-// ─── Jobs, galleries and what the customer selected ─────────────────────────
+// â”€â”€â”€ How many computers the plan allows â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+export type DesignerDevice = {
+  id: string;
+  name: string | null;
+  platform: string | null;
+  last_seen: string;
+};
+
+/** The database has no device limit yet, so nothing can be over it. */
+const NO_FUNCTION = new Set(['PGRST202', '42883']);
+
+type DeviceCheck =
+  | { state: 'allowed' }
+  | { state: 'offline' }
+  | Extract<Access, { state: 'device-limit' | 'problem' }>;
+
+/**
+ * Records this computer against the studio, or is turned away if the plan's limit is
+ * already used by others. A computer already registered always gets in.
+ */
+async function registerDevice(): Promise<DeviceCheck> {
+  const db = eventor();
+  const me = await deviceIdentity();
+  const { data, error } = await db.rpc('register_designer_device', {
+    p_device_id: me.id,
+    p_name: me.name,
+    p_platform: me.platform,
+  });
+  if (error) {
+    if (error.code && NO_FUNCTION.has(error.code)) return { state: 'allowed' };
+    return isConnectionProblem(error) ? { state: 'offline' } : { state: 'problem', message: error.message };
+  }
+  const answer = data as { allowed: boolean; used: number; limit: number | null };
+  if (answer.allowed || answer.limit === null) return { state: 'allowed' };
+
+  const [devices, canRemove] = await Promise.all([
+    db
+      .from('designer_devices')
+      .select('id, name, platform, last_seen')
+      .is('removed_at', null)
+      .order('last_seen', { ascending: false }),
+    db.rpc('has_permission', { p_key: 'settings.manage' }),
+  ]);
+  if (devices.error) return { state: 'problem', message: devices.error.message };
+  return {
+    state: 'device-limit',
+    used: answer.used,
+    limit: answer.limit,
+    devices: (devices.data ?? []) as DesignerDevice[],
+    canRemove: canRemove.data === true,
+  };
+}
+
+/** Frees a computer's place so another can be used. Needs "Manage studio settings". */
+export async function removeDevice(id: string): Promise<void> {
+  const { error } = await eventor().rpc('remove_designer_device', { p_id: id });
+  if (error) throw plainError(error);
+}
+
+// â”€â”€â”€ Jobs, galleries and what the customer selected â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export type JobGallery = {
   id: string;
@@ -325,16 +395,63 @@ export async function listJobs(staff: Staff, spreadIds: string[]): Promise<Event
   });
 }
 
-async function uploadAddress(albumId: string): Promise<string> {
+/** Asked for one at a time, since an address only lasts minutes and rendering takes time. */
+async function uploadTicket(
+  albumId: string,
+  kind: 'album' | 'album-music' = 'album',
+  ext = 'jpg',
+  contentType = 'image/jpeg',
+): Promise<Ticket> {
   const { data, error } = await eventor().functions.invoke('storage', {
-    body: { items: [{ kind: 'album', parentId: albumId, ext: 'jpg', contentType: 'image/jpeg' }] },
+    body: { items: [{ kind, parentId: albumId, ext, contentType }] },
   });
-  const payload = data as { error?: string; tickets?: { uploadUrl: string; publicUrl: string }[] } | null;
+  const payload = data as { error?: string; tickets?: Ticket[] } | null;
   if (error || payload?.error) throw new Error(payload?.error ?? error?.message ?? 'Could not prepare the upload.');
   const ticket = payload?.tickets?.[0];
   if (!ticket) throw new Error('Could not prepare the upload.');
-  // Asked for one at a time, since an address only lasts minutes and rendering takes time.
-  return JSON.stringify(ticket);
+  return ticket;
+}
+
+const MUSIC_NAME_LENGTH = 120;
+
+/**
+ * Uploads the cover and music chosen in this app, and returns the album columns to set.
+ *
+ * An album with neither changes nothing here, so a cover or track added in Eventor
+ * itself is left alone.
+ */
+async function uploadExtras(
+  albumId: string,
+  project: Project,
+): Promise<{ columns: Record<string, unknown>; music: PublishLink['music'] }> {
+  const columns: Record<string, unknown> = {};
+  if (project.cover) {
+    const { front, back } = await coverJpegs(project.cover, project.spec);
+    const frontAt = await uploadTicket(albumId);
+    await uploadCover(frontAt.uploadUrl, front);
+    const backAt = await uploadTicket(albumId);
+    await uploadCover(backAt.uploadUrl, back);
+    columns.cover_image_url = frontAt.publicUrl;
+    columns.back_image_url = backAt.publicUrl;
+  }
+
+  let music: PublishLink['music'] = null;
+  if (project.music) {
+    const file = await musicDetails(project.music.path);
+    const stamp = `${project.music.path}|${file.stamp}`;
+    const sent = project.publish?.album_id === albumId ? project.publish.music : null;
+    if (sent && sent.stamp === stamp) {
+      music = sent;
+    } else {
+      const ticket = await uploadTicket(albumId, 'album-music', file.ext, file.content_type);
+      await uploadMusic(project.music.path, ticket.uploadUrl);
+      music = { stamp, url: ticket.publicUrl };
+    }
+    columns.music_url = music.url;
+    columns.music_name = file.name.slice(0, MUSIC_NAME_LENGTH);
+    columns.music_enabled = true;
+  }
+  return { columns, music };
 }
 
 async function ensureAlbum(staff: Staff, job: EventorJob): Promise<string> {
@@ -383,7 +500,7 @@ export async function publishAlbum(
 
   const uploaded: { spreadId: string; url: string }[] = [];
   for (const spread of project.spreads) {
-    const ticket = JSON.parse(await uploadAddress(albumId)) as { uploadUrl: string; publicUrl: string };
+    const ticket = await uploadTicket(albumId);
     const used = new Set(spread.design.frames.map((f) => f.asset_id));
     await publishSpread(
       { ...project, spreads: [spread], photos: project.photos.filter((p) => used.has(p.id)) },
@@ -393,6 +510,7 @@ export async function publishAlbum(
     uploaded.push({ spreadId: spread.id, url: ticket.publicUrl });
     onProgress(uploaded.length, total);
   }
+  const extras = await uploadExtras(albumId, project);
 
   const db = eventor();
   const { data: existing, error: readError } = await db
@@ -428,14 +546,14 @@ export async function publishAlbum(
   // Row-level security reports a refusal as no rows changed, not as an error.
   const { data: published, error: publishError } = await db
     .from('albums')
-    .update({ ...printedSize(project.spec), status: 'published', published_at: new Date().toISOString() })
+    .update({ ...printedSize(project.spec), ...extras.columns, status: 'published', published_at: new Date().toISOString() })
     .eq('id', albumId)
     .eq('studio_id', staff.studio_id)
     .select('id');
   if (publishError) throw plainError(publishError);
   if (!published?.length) throw new Error('Your account is not allowed to publish albums.');
 
-  return { job_id: job.id, job_title: job.title, album_id: albumId };
+  return { job_id: job.id, job_title: job.title, album_id: albumId, ...(extras.music ? { music: extras.music } : {}) };
 }
 
 export type ClientComment = {

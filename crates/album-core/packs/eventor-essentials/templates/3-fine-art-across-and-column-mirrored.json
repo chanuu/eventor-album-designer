@@ -1,0 +1,12 @@
+{
+  "id": "eventor-essentials/3-fine-art-across-and-column-mirrored",
+  "name": "Across the fold with a column (mirrored)",
+  "frame_count": 3,
+  "spread_aspect": "any",
+  "tags": ["fineart","panorama"],
+  "frames": [
+    {"rect_pct":{"x":0.07,"y":0,"w":0.185,"h":0.47},"bleed":true},
+    {"rect_pct":{"x":0.07,"y":0.47,"w":0.185,"h":0.53},"bleed":true},
+    {"rect_pct":{"x":0.33,"y":0,"w":0.67,"h":1},"bleed":true}
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "id": "eventor-essentials/7-lead-right-and-grid",
+  "name": "Lead right + four grid",
+  "frame_count": 7,
+  "spread_aspect": "any",
+  "tags": ["clean"],
+  "frames": [
+    {"rect_pct":{"x":0,"y":0,"w":0.19,"h":0.5}},
+    {"rect_pct":{"x":0,"y":0.5,"w":0.19,"h":0.5}},
+    {"rect_pct":{"x":0.19,"y":0,"w":0.31,"h":1}},
+    {"rect_pct":{"x":0.5,"y":0,"w":0.25,"h":0.5}},
+    {"rect_pct":{"x":0.75,"y":0,"w":0.25,"h":0.5}},
+    {"rect_pct":{"x":0.5,"y":0.5,"w":0.25,"h":0.5}},
+    {"rect_pct":{"x":0.75,"y":0.5,"w":0.25,"h":0.5}}
+  ]
+}

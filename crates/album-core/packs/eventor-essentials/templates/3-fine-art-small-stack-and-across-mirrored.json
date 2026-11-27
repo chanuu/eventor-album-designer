@@ -1,0 +1,12 @@
+{
+  "id": "eventor-essentials/3-fine-art-small-stack-and-across-mirrored",
+  "name": "Small stack with a photo across the fold (mirrored)",
+  "frame_count": 3,
+  "spread_aspect": "any",
+  "tags": ["fineart","panorama"],
+  "frames": [
+    {"rect_pct":{"x":0,"y":0,"w":0.67,"h":1},"bleed":true},
+    {"rect_pct":{"x":0.75,"y":0.16,"w":0.17,"h":0.34}},
+    {"rect_pct":{"x":0.75,"y":0.5,"w":0.17,"h":0.34}}
+  ]
+}

@@ -27,6 +27,15 @@ export type Adjustments = {
   tint: number;
   saturation: number;
   black_and_white: boolean;
+  whites: number;
+  blacks: number;
+  vibrance: number;
+  hue: number;
+  lightness: number;
+  /** Per colour: red, orange, yellow, green, aqua, blue, purple, magenta. */
+  mix_hue: number[];
+  mix_saturation: number[];
+  mix_luminance: number[];
 };
 
 export type FrameStyle = { opacity: number; border_mm: number; border_colour: string };
@@ -106,7 +115,30 @@ export type PhotoRating = { id: string; rating: Rating; reasons: string[] };
 
 /** The Eventor job this album has been published to. */
 /** `album_id` is empty until it is first published, for an album started from a job's selection. */
-export type PublishLink = { job_id: string; job_title: string; album_id: string };
+export type PublishLink = {
+  job_id: string;
+  job_title: string;
+  album_id: string;
+  /** The music sent with it, so the same file is not uploaded again each time. */
+  music?: { stamp: string; url: string } | null;
+};
+
+/** The digital album's cover. The choices are listed in `cover.ts`. */
+export type Cover = {
+  material: string;
+  colour: string;
+  foil: string;
+  design: string;
+  first_name: string;
+  second_name: string;
+  date: string;
+  venue: string;
+};
+
+/** Music for the digital album: a file on this computer, sent when the album is published. */
+export type Music = { path: string; name: string };
+
+export const MUSIC_EXTENSIONS = ['mp3', 'm4a', 'aac', 'ogg', 'wav'];
 
 export type Project = {
   version: number;
@@ -117,6 +149,8 @@ export type Project = {
   spreads: SavedSpread[];
   ratings: Record<string, Rating>;
   publish?: PublishLink | null;
+  cover?: Cover | null;
+  music?: Music | null;
 };
 
 export type ScanResult = {
@@ -187,11 +221,32 @@ export const matchCustomerSelection = (
   wanted: { file_name: string; source_hash: string | null }[],
 ) => invoke<SelectionMatch>('match_customer_selection', { folder, wanted });
 
+export type DeviceIdentity = { id: string; name: string | null; platform: string };
+
+/** This computer's id for the plan's device limit. */
+export const deviceIdentity = () => invoke<DeviceIdentity>('device_identity');
+
 export const uploadGalleryPhoto = (photo: PhotoInfo, fullUrl: string, thumbUrl: string) =>
   invoke<string>('upload_gallery_photo', { photoId: photo.id, fullUrl, thumbUrl });
 
 export const publishSpread = (project: Project, spreadId: string, uploadUrl: string) =>
   invoke<number>('publish_spread', { project, spreadId, uploadUrl });
+
+export const uploadCover = (uploadUrl: string, jpeg: Uint8Array) =>
+  invoke<void>('upload_cover', { uploadUrl, jpeg: Array.from(jpeg) });
+
+export type MusicFile = { name: string; ext: string; content_type: string; stamp: string };
+
+/** Checks a file is music the digital album can play, and small enough to send. */
+export const musicDetails = (path: string) => invoke<MusicFile>('music_details', { path });
+
+export async function readMusic(path: string): Promise<Blob> {
+  const [file, bytes] = await Promise.all([musicDetails(path), invoke<ArrayBuffer>('read_music', { path })]);
+  return new Blob([bytes], { type: file.content_type });
+}
+
+export const uploadMusic = (path: string, uploadUrl: string) =>
+  invoke<void>('upload_music', { path, uploadUrl });
 
 export const suggestRatings = (ids: string[]) => invoke<PhotoRating[]>('suggest_ratings', { ids });
 
@@ -222,6 +277,10 @@ export type PlanOptions = {
   leave_out_blurry: boolean;
   leave_out_similar: boolean;
   keep: string[];
+  /** Open and close on a single photo, and give each long part of the day a feature spread. */
+  tell_story: boolean;
+  /** The most photos on one spread, for a style that keeps spreads quiet. */
+  max_per_spread?: number | null;
 };
 
 export type LeftOut = { id: string; reason: 'blurry' } | { id: string; reason: 'similar'; kept: string };
@@ -238,6 +297,11 @@ export type AlbumPlan = {
   max_spreads: number;
   suggested_spreads: number;
 };
+
+export type GalleryLeftOut = { id: string; reasons: string[] };
+
+/** Run after `analyzePhotos`, because it judges what that found. */
+export const checkForGallery = (ids: string[]) => invoke<GalleryLeftOut[]>('check_for_gallery', { ids });
 
 export const analyzePhotos = (ids: string[]) =>
   invoke<{ analyzed: number; unreadable: string[] }>('analyze_photos', { ids });
@@ -274,6 +338,8 @@ const PREVIEW_ORIGIN = navigator.userAgent.includes('Windows')
 export function previewUrl(photoId: string, width: number, adjust?: Adjustments): string {
   const base = `${PREVIEW_ORIGIN}/preview/${photoId}?w=${width}`;
   if (!adjust) return base;
+  // An album saved before the newer controls has none of them, which means no change.
+  const eight = (values: number[] | undefined) => Array.from({ length: 8 }, (_, i) => values?.[i] ?? 0);
   const values = [
     adjust.exposure,
     adjust.contrast,
@@ -283,6 +349,14 @@ export function previewUrl(photoId: string, width: number, adjust?: Adjustments)
     adjust.tint,
     adjust.saturation,
     adjust.black_and_white ? 1 : 0,
+    adjust.whites ?? 0,
+    adjust.blacks ?? 0,
+    adjust.vibrance ?? 0,
+    adjust.hue ?? 0,
+    adjust.lightness ?? 0,
+    ...eight(adjust.mix_hue),
+    ...eight(adjust.mix_saturation),
+    ...eight(adjust.mix_luminance),
   ];
   return values.every((v) => v === 0) ? base : `${base}&fx=${values.join(',')}`;
 }

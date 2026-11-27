@@ -1,0 +1,10 @@
+{
+  "id": "eventor-essentials/1-corner-on-right",
+  "name": "Upper corner on the right",
+  "frame_count": 1,
+  "spread_aspect": "any",
+  "tags": ["airy"],
+  "frames": [
+    {"rect_pct":{"x":0.55,"y":0.1,"w":0.29,"h":0.52}}
+  ]
+}

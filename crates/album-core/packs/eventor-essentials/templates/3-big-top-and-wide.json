@@ -1,0 +1,12 @@
+{
+  "id": "eventor-essentials/3-big-top-and-wide",
+  "name": "Big top + wide",
+  "frame_count": 3,
+  "spread_aspect": "any",
+  "tags": ["airy"],
+  "frames": [
+    {"rect_pct":{"x":0,"y":0,"w":0.5,"h":0.64}},
+    {"rect_pct":{"x":0,"y":0.64,"w":0.5,"h":0.36}},
+    {"rect_pct":{"x":0.54,"y":0.24,"w":0.42,"h":0.52}}
+  ]
+}

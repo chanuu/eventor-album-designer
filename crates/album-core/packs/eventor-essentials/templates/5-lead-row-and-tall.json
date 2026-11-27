@@ -1,0 +1,14 @@
+{
+  "id": "eventor-essentials/5-lead-row-and-tall",
+  "name": "Lead and row + tall",
+  "frame_count": 5,
+  "spread_aspect": "any",
+  "tags": ["airy"],
+  "frames": [
+    {"rect_pct":{"x":0,"y":0,"w":0.5,"h":0.64}},
+    {"rect_pct":{"x":0,"y":0.64,"w":0.1667,"h":0.36}},
+    {"rect_pct":{"x":0.1667,"y":0.64,"w":0.1666,"h":0.36}},
+    {"rect_pct":{"x":0.3333,"y":0.64,"w":0.1667,"h":0.36}},
+    {"rect_pct":{"x":0.6,"y":0.08,"w":0.3,"h":0.84}}
+  ]
+}

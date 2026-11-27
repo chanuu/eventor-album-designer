@@ -1,0 +1,13 @@
+{
+  "id": "eventor-essentials/4-pair-and-steps",
+  "name": "Floating pair + stepped",
+  "frame_count": 4,
+  "spread_aspect": "any",
+  "tags": ["airy"],
+  "frames": [
+    {"rect_pct":{"x":0.04,"y":0.28,"w":0.2,"h":0.44}},
+    {"rect_pct":{"x":0.26,"y":0.28,"w":0.2,"h":0.44}},
+    {"rect_pct":{"x":0.53,"y":0.08,"w":0.27,"h":0.48}},
+    {"rect_pct":{"x":0.7,"y":0.56,"w":0.27,"h":0.36}}
+  ]
+}
