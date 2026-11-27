@@ -5,7 +5,8 @@
 //! is what makes Sinhala and Tamil letters join correctly.
 //!
 //! Fonts come from this computer and end up as pixels in the output, so no font file is
-//! copied into an album or shipped to the lab.
+//! copied into an album or shipped to the lab. A few open-licence fonts come with the
+//! app as well, so a card template looks the same on every computer.
 
 use std::sync::{Mutex, OnceLock};
 
@@ -25,6 +26,24 @@ const INSET_MM: f64 = 1.0;
 /// Bigger than this and a single text block would hold a lot of memory.
 const MAX_SIDE_PIXELS: u32 = 12_000;
 
+/// Fonts that come with the app, each under the SIL Open Font Licence kept beside it.
+const BUNDLED_FONTS: [&[u8]; 5] = [
+    include_bytes!("../fonts/CormorantGaramond.ttf"),
+    include_bytes!("../fonts/GreatVibes-Regular.ttf"),
+    include_bytes!("../fonts/Jost.ttf"),
+    include_bytes!("../fonts/MrsSaintDelafield-Regular.ttf"),
+    include_bytes!("../fonts/PinyonScript-Regular.ttf"),
+];
+
+/// The families of the bundled fonts, as a font menu should offer them first.
+pub const BUNDLED_FAMILIES: [&str; 5] = [
+    "Cormorant Garamond",
+    "Great Vibes",
+    "Jost",
+    "Mrs Saint Delafield",
+    "Pinyon Script",
+];
+
 struct Engine {
     fonts: FontSystem,
     cache: SwashCache,
@@ -34,8 +53,12 @@ struct Engine {
 fn engine() -> &'static Mutex<Engine> {
     static ENGINE: OnceLock<Mutex<Engine>> = OnceLock::new();
     ENGINE.get_or_init(|| {
+        let mut fonts = FontSystem::new();
+        for font in BUNDLED_FONTS {
+            fonts.db_mut().load_font_data(font.to_vec());
+        }
         Mutex::new(Engine {
-            fonts: FontSystem::new(),
+            fonts,
             cache: SwashCache::new(),
         })
     })
@@ -82,7 +105,30 @@ pub struct RenderedText {
 }
 
 /// Draws one block with a transparent background, at the given resolution.
+///
+/// Text turned a quarter turn is set along the box's long side and then turned, so the
+/// picture that comes back always has the box's own shape.
 pub fn render_block(block: &TextBlock, dpi: f64) -> Result<RenderedText, String> {
+    let turned = block.rot_deg == 90.0 || block.rot_deg == 270.0;
+    if !turned {
+        return render_upright(block, dpi);
+    }
+    let mut lying = block.clone();
+    lying.rect_mm.w = block.rect_mm.h;
+    lying.rect_mm.h = block.rect_mm.w;
+    let drawn = render_upright(&lying, dpi)?;
+    let image = if block.rot_deg == 90.0 {
+        image::imageops::rotate90(&drawn.image)
+    } else {
+        image::imageops::rotate270(&drawn.image)
+    };
+    Ok(RenderedText {
+        image,
+        overflowed: drawn.overflowed,
+    })
+}
+
+fn render_upright(block: &TextBlock, dpi: f64) -> Result<RenderedText, String> {
     let mut engine = engine().lock().map_err(|e| e.to_string())?;
     let Engine { fonts, cache } = &mut *engine;
 
@@ -193,6 +239,8 @@ mod tests {
 
     fn block(text: &str) -> TextBlock {
         TextBlock {
+            role: None,
+            rot_deg: 0.0,
             id: "t1".to_string(),
             rect_mm: RectMm {
                 x: 0.0,
@@ -313,6 +361,8 @@ mod tests {
         let at = |align| {
             let drawn = render_block(
                 &TextBlock {
+                    role: None,
+                    rot_deg: 0.0,
                     align,
                     ..block("Hi")
                 },
@@ -334,6 +384,8 @@ mod tests {
         let normal = render_block(&block("Weight"), 300.0).unwrap();
         let bold = render_block(
             &TextBlock {
+                role: None,
+                rot_deg: 0.0,
                 bold: true,
                 ..block("Weight")
             },
@@ -357,6 +409,8 @@ mod tests {
     fn an_unknown_font_or_colour_does_not_fail() {
         let drawn = render_block(
             &TextBlock {
+                role: None,
+                rot_deg: 0.0,
                 font: "No Such Font".to_string(),
                 colour: "nonsense".to_string(),
                 ..block("Hi")
@@ -370,5 +424,47 @@ mod tests {
     #[test]
     fn this_computer_has_fonts_to_offer() {
         assert!(!font_families().is_empty());
+    }
+
+    #[test]
+    fn the_bundled_fonts_are_always_on_offer() {
+        let families = font_families();
+        for family in BUNDLED_FAMILIES {
+            assert!(families.iter().any(|f| f == family), "{family}");
+        }
+    }
+
+    #[test]
+    fn every_bundled_font_is_really_used_when_asked_for() {
+        // A family that is listed but cannot be matched falls back to the default
+        // without a word, so each one is drawn and compared with the others.
+        let mut drawn = vec![render_block(&block("Thank you"), 150.0).unwrap().image];
+        for family in BUNDLED_FAMILIES {
+            let mut asked = block("Thank you");
+            asked.font = family.into();
+            let image = render_block(&asked, 150.0).unwrap().image;
+            assert!(
+                drawn.iter().all(|other| other.as_raw() != image.as_raw()),
+                "{family} drew the same as another font"
+            );
+            drawn.push(image);
+        }
+    }
+
+    #[test]
+    fn turned_text_keeps_the_shape_of_its_box() {
+        let mut tall = block("Much love");
+        tall.rect_mm.w = 12.0;
+        tall.rect_mm.h = 70.0;
+        tall.size_pt = 12.0;
+        let upright = render_block(&tall, 150.0).unwrap();
+        tall.rot_deg = 270.0;
+        let turned = render_block(&tall, 150.0).unwrap();
+
+        assert_eq!(turned.image.dimensions(), upright.image.dimensions());
+        // Along the long side the words fit on one line.
+        assert!(!turned.overflowed);
+        assert_ne!(turned.image.as_raw(), upright.image.as_raw());
+        assert!(turned.image.pixels().any(|p| p.0[3] > 0));
     }
 }

@@ -1,0 +1,149 @@
+{
+  "id": "eventor-cards/5-grey-panel-collage",
+  "name": "Five overlapping photos with grey panels",
+  "frame_count": 5,
+  "spread_aspect": {
+    "min": 0.6,
+    "max": 0.85
+  },
+  "tags": [
+    "card"
+  ],
+  "frames": [
+    {
+      "rect_pct": {
+        "x": 0,
+        "y": 0,
+        "w": 0.392,
+        "h": 0.395
+      },
+      "bleed": true
+    },
+    {
+      "rect_pct": {
+        "x": 0.042,
+        "y": 0.324,
+        "w": 0.545,
+        "h": 0.233
+      },
+      "z": 1
+    },
+    {
+      "rect_pct": {
+        "x": 0.629,
+        "y": 0,
+        "w": 0.371,
+        "h": 0.353
+      },
+      "bleed": true
+    },
+    {
+      "rect_pct": {
+        "x": 0.689,
+        "y": 0.245,
+        "w": 0.251,
+        "h": 0.3
+      },
+      "z": 1
+    },
+    {
+      "rect_pct": {
+        "x": 0,
+        "y": 0.59,
+        "w": 1,
+        "h": 0.363
+      },
+      "bleed": true
+    }
+  ],
+  "panels": [
+    {
+      "rect_pct": {
+        "x": 0.392,
+        "y": 0,
+        "w": 0.236,
+        "h": 0.395
+      },
+      "colour": "#77757A"
+    },
+    {
+      "rect_pct": {
+        "x": 0.629,
+        "y": 0.353,
+        "w": 0.371,
+        "h": 0.237
+      },
+      "colour": "#3A3438"
+    }
+  ],
+  "texts": [
+    {
+      "rect_pct": {
+        "x": 0.41,
+        "y": 0.0432,
+        "w": 0.2,
+        "h": 0.0346
+      },
+      "text": "{FIRST} & {SECOND}",
+      "size": 0.012,
+      "font": "Jost",
+      "colour": "#FFFFFF",
+      "align": "center"
+    },
+    {
+      "rect_pct": {
+        "x": 0.41,
+        "y": 0.0716,
+        "w": 0.2,
+        "h": 0.0297
+      },
+      "text": "{date:MON dd yyyy}",
+      "size": 0.0085,
+      "font": "Jost",
+      "colour": "#FFFFFF",
+      "align": "center"
+    },
+    {
+      "rect_pct": {
+        "x": 0.42,
+        "y": 0.1393,
+        "w": 0.18,
+        "h": 0.1715
+      },
+      "text": "Thank\nyou",
+      "size": 0.045,
+      "font": "Mrs Saint Delafield",
+      "colour": "#FFFFFF",
+      "align": "center",
+      "line_height": 1.1
+    },
+    {
+      "rect_pct": {
+        "x": 0.25,
+        "y": 0.65,
+        "w": 0.5,
+        "h": 0.06
+      },
+      "text": "Write your message here",
+      "size": 0.01,
+      "font": "Jost",
+      "colour": "#FFFFFF",
+      "align": "center",
+      "message": true,
+      "line_height": 1.5
+    },
+    {
+      "rect_pct": {
+        "x": 0.04,
+        "y": 0.96,
+        "w": 0.92,
+        "h": 0.035
+      },
+      "text": "{STUDIO}  -  MUA | {MUA}",
+      "size": 0.011,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "left"
+    }
+  ]
+}

@@ -1,0 +1,89 @@
+{
+  "id": "eventor-cards/1-single-framed",
+  "name": "One photo, framed",
+  "frame_count": 1,
+  "spread_aspect": {
+    "min": 0.6,
+    "max": 0.85
+  },
+  "tags": [
+    "card"
+  ],
+  "frames": [
+    {
+      "rect_pct": {
+        "x": 0.12,
+        "y": 0.1,
+        "w": 0.757,
+        "h": 0.777
+      }
+    }
+  ],
+  "texts": [
+    {
+      "rect_pct": {
+        "x": 0.3,
+        "y": 0,
+        "w": 0.4,
+        "h": 0.111
+      },
+      "text": "Thank you",
+      "size": 0.05,
+      "font": "Mrs Saint Delafield",
+      "colour": "#2A2A2A",
+      "align": "center"
+    },
+    {
+      "rect_pct": {
+        "x": 0.3,
+        "y": 0.0545,
+        "w": 0.4,
+        "h": 0.029
+      },
+      "text": "FOR BEING WITH US",
+      "size": 0.008,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "center"
+    },
+    {
+      "rect_pct": {
+        "x": 0.2,
+        "y": 0.875,
+        "w": 0.6,
+        "h": 0.0401
+      },
+      "text": "{FIRST} & {SECOND}",
+      "size": 0.016,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "center"
+    },
+    {
+      "rect_pct": {
+        "x": 0.3,
+        "y": 0.8933,
+        "w": 0.4,
+        "h": 0.0373
+      },
+      "text": "{date:dd | mm | yy}",
+      "size": 0.014,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "center"
+    },
+    {
+      "rect_pct": {
+        "x": 0.15,
+        "y": 0.9383,
+        "w": 0.7,
+        "h": 0.0484
+      },
+      "text": "{STUDIO}\nMUA | {MUA}",
+      "size": 0.011,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "center"
+    }
+  ]
+}

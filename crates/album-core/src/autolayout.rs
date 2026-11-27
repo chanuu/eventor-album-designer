@@ -7,7 +7,8 @@
 use pathfinding::prelude::{kuhn_munkres, Matrix};
 
 use crate::document::{
-    Background, Fit, Frame, ProjectSpec, RectMm, SpreadDesign, DOCUMENT_VERSION,
+    Background, Fit, Frame, FrameStyle, ProjectSpec, RectMm, Shape, SpreadDesign, TextBlock,
+    DOCUMENT_VERSION,
 };
 use crate::pack::{RectPct, Template, TemplateFrame, TemplateRegistry};
 
@@ -28,6 +29,10 @@ const EMPTY_PAPER_WEIGHT: f64 = 0.35;
 
 /// Layouts with deliberate open space still come up, through a style or Auto design.
 const AIRY_PENALTY: f64 = 0.15;
+
+/// A page with nothing on it looks like a mistake. This is enough to put a full spread
+/// first for a photo that suits one, but not to crop an upright photo to a strip.
+const BLANK_PAGE_PENALTY: f64 = 0.12;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Photo {
@@ -113,7 +118,20 @@ pub(crate) fn layout_score(crop_loss: f64, template: &Template) -> f64 {
     } else {
         0.0
     };
-    crop_loss + EMPTY_PAPER_WEIGHT * (1.0 - covered.min(1.0)) + airy
+    let blank = if leaves_a_blank_page(template) {
+        BLANK_PAGE_PENALTY
+    } else {
+        0.0
+    };
+    crop_loss + EMPTY_PAPER_WEIGHT * (1.0 - covered.min(1.0)) + airy + blank
+}
+
+/// Whether the left or the right page has no photo on it.
+fn leaves_a_blank_page(template: &Template) -> bool {
+    const FOLD: f64 = 0.5;
+    const EDGE: f64 = 1e-6;
+    let rects = || template.frames.iter().map(|f| f.rect_pct);
+    !rects().any(|r| r.x < FOLD - EDGE) || !rects().any(|r| r.x + r.w > FOLD + EDGE)
 }
 
 /// Every layout that fits these photos and this album, best first.
@@ -206,6 +224,20 @@ pub fn rect_to_mm(frame: &TemplateFrame, spec: &ProjectSpec) -> RectMm {
     }
 }
 
+const MM_PER_INCH: f64 = 25.4;
+const POINTS_PER_INCH: f64 = 72.0;
+
+/// A share of the trimmed canvas in millimetres, with no margin or gap applied.
+fn plain_rect_mm(rect: &RectPct, spec: &ProjectSpec) -> RectMm {
+    let trim_w = spec.trim_w_mm * 2.0;
+    RectMm {
+        x: spec.bleed_mm + rect.x * trim_w,
+        y: spec.bleed_mm + rect.y * spec.trim_h_mm,
+        w: rect.w * trim_w,
+        h: rect.h * spec.trim_h_mm,
+    }
+}
+
 /// Writes a chosen layout as an ordinary document, which can then be edited by hand.
 pub fn apply_layout(
     template: &Template,
@@ -225,10 +257,64 @@ pub fn apply_layout(
     SpreadDesign {
         v: DOCUMENT_VERSION,
         template_id: Some(template.id.clone()),
-        texts: Vec::new(),
+        // A card's words keep the pattern they were made from as their role, so the
+        // couple's details can be filled in, and filled in again when they change.
+        texts: template
+            .texts
+            .iter()
+            .enumerate()
+            .map(|(i, text)| TextBlock {
+                id: format!("t{}", i + 1),
+                rect_mm: plain_rect_mm(&text.rect_pct, spec),
+                text: text.text.clone(),
+                font: text.font.clone(),
+                size_pt: text.size * spec.trim_h_mm / MM_PER_INCH * POINTS_PER_INCH,
+                colour: text.colour.clone(),
+                align: text.align,
+                bold: text.bold,
+                italic: text.italic,
+                line_height: text.line_height,
+                opacity: 1.0,
+                role: if text.message {
+                    Some("message".to_string())
+                } else if text.text.contains('{') {
+                    Some(text.text.clone())
+                } else {
+                    None
+                },
+                rot_deg: text.rot_deg,
+            })
+            .collect(),
+        // A panel that reaches the card's edge runs on into the bleed, as a photo does.
+        shapes: template
+            .panels
+            .iter()
+            .enumerate()
+            .map(|(i, panel)| Shape {
+                id: format!("p{}", i + 1),
+                rect_mm: rect_to_mm(
+                    &TemplateFrame {
+                        rect_pct: panel.rect_pct,
+                        bleed: true,
+                        z: 0,
+                        border: 0.0,
+                    },
+                    &ProjectSpec {
+                        gap_mm: 0.0,
+                        ..spec.clone()
+                    },
+                ),
+                colour: panel.colour.clone(),
+                opacity: panel.opacity,
+                z: panel.z,
+            })
+            .collect(),
         size_mm: spec.canvas_mm(),
         background: Background::Color {
-            value: spec.paper.clone(),
+            value: template
+                .background
+                .clone()
+                .unwrap_or_else(|| spec.paper.clone()),
         },
         frames: template
             .frames
@@ -239,7 +325,10 @@ pub fn apply_layout(
                 rect_mm: rect_to_mm(frame, spec),
                 corner_radius_mm: 0.0,
                 adjust: Default::default(),
-                style: Default::default(),
+                style: FrameStyle {
+                    border_mm: frame.border * spec.trim_h_mm,
+                    ..Default::default()
+                },
                 asset_id: photo_in_frame(i),
                 fit: Fit::default(),
                 z: frame.z,

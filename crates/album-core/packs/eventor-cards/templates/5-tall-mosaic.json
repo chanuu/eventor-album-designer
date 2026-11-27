@@ -1,0 +1,135 @@
+{
+  "id": "eventor-cards/5-tall-mosaic",
+  "name": "A wide photo over a mosaic with the names inside",
+  "frame_count": 5,
+  "spread_aspect": {
+    "min": 0.6,
+    "max": 0.68
+  },
+  "tags": [
+    "card"
+  ],
+  "frames": [
+    {
+      "rect_pct": {
+        "x": 0,
+        "y": 0,
+        "w": 1,
+        "h": 0.283
+      },
+      "bleed": true
+    },
+    {
+      "rect_pct": {
+        "x": 0.068,
+        "y": 0.385,
+        "w": 0.512,
+        "h": 0.203
+      }
+    },
+    {
+      "rect_pct": {
+        "x": 0.58,
+        "y": 0.385,
+        "w": 0.35,
+        "h": 0.292
+      }
+    },
+    {
+      "rect_pct": {
+        "x": 0.068,
+        "y": 0.588,
+        "w": 0.35,
+        "h": 0.294
+      }
+    },
+    {
+      "rect_pct": {
+        "x": 0.418,
+        "y": 0.677,
+        "w": 0.512,
+        "h": 0.205
+      }
+    }
+  ],
+  "panels": [
+    {
+      "rect_pct": {
+        "x": 0.418,
+        "y": 0.588,
+        "w": 0.162,
+        "h": 0.089
+      },
+      "colour": "#FFFFFF",
+      "z": 1
+    }
+  ],
+  "texts": [
+    {
+      "rect_pct": {
+        "x": 0.12,
+        "y": 0.3139,
+        "w": 0.28,
+        "h": 0.0242
+      },
+      "text": "WEDDING DAY !",
+      "size": 0.0045,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "center"
+    },
+    {
+      "rect_pct": {
+        "x": 0.12,
+        "y": 0.3219,
+        "w": 0.28,
+        "h": 0.0311
+      },
+      "text": "{date:dd MON yyyy}",
+      "size": 0.0095,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "center"
+    },
+    {
+      "rect_pct": {
+        "x": 0.6,
+        "y": 0.315,
+        "w": 0.3,
+        "h": 0.0401
+      },
+      "text": "THANK YOU",
+      "size": 0.016,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "center"
+    },
+    {
+      "rect_pct": {
+        "x": 0.425,
+        "y": 0.61,
+        "w": 0.15,
+        "h": 0.05
+      },
+      "text": "{FIRST}\n& {SECOND}",
+      "size": 0.011,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "center",
+      "line_height": 1.25
+    },
+    {
+      "rect_pct": {
+        "x": 0.15,
+        "y": 0.935,
+        "w": 0.7,
+        "h": 0.045
+      },
+      "text": "{STUDIO}\nMUA | {MUA}",
+      "size": 0.0095,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "center"
+    }
+  ]
+}

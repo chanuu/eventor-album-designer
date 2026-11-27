@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use album_core::adjust::Adjustments;
+use album_core::adjust::{neutralise, Adjustments};
 use album_core::autobuild::{
     gallery_left_out, plan_album, rate_photos, AlbumPlan, GalleryLeftOut, PhotoFacts, PhotoRating,
     PlanOptions,
@@ -19,15 +19,21 @@ use album_core::document::{
 };
 use album_core::layoutvary::vary_layout;
 use album_core::pack::{load_pack_dir, TemplateRegistry};
+use album_core::pagelayout::{page_layouts, PageSide};
+use album_core::retouch::{facing, RetouchEdits, SIDE_ON};
 use album_export::{
     check_album, export_album, is_upload_address, render_web_spread, ExportFormats, ExportResult,
     Issue,
 };
 use album_media::analyze::{analyze_photo, auto_adjust};
-use album_media::eyes::photo_has_closed_eyes;
+use album_media::eyes::{photo_faces, photo_has_closed_eyes};
+use album_media::live::{to_canvas_bytes, LivePreview};
+use album_media::retouched::{read_saved, save_retouched, SavedRetouch, RETOUCHED_FOLDER};
 use album_media::selection::{make_gallery_copies, match_selection, SelectionMatch, WantedPhoto};
+use album_media::skin::photo_skin;
 use album_media::{
-    adjusted_preview, ensure_preview, scan_folder, PhotoInfo, PreviewTier, ScanResult,
+    adjusted_preview, ensure_preview, read_photo_file, scan_folder, PhotoInfo, PreviewTier,
+    ScanResult,
 };
 use album_store::{load_project, music_type, save_project, Project, StoreError};
 use rayon::prelude::*;
@@ -36,6 +42,7 @@ use tauri::http::{header, Response, StatusCode};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 mod device;
+mod update;
 
 const MM_PER_INCH: f64 = 25.4;
 
@@ -59,7 +66,13 @@ struct AppState {
     /// used to read any other file on the computer.
     photos: Arc<Mutex<HashMap<String, PhotoInfo>>>,
     facts: Arc<Mutex<HashMap<String, PhotoFacts>>>,
+    /// The open album's retouch edits, by photo id, so every preview shows them.
+    retouches: Arc<Mutex<HashMap<String, RetouchEdits>>>,
+    /// The retoucher's picture, with its steps kept so that changes show at once.
+    live: Arc<Mutex<LivePreview>>,
     registry: TemplateRegistry,
+    /// Thank you card designs, kept apart so an album is never offered one.
+    cards: TemplateRegistry,
     preview_pool: Arc<rayon::ThreadPool>,
     cache_dir: PathBuf,
 }
@@ -139,6 +152,226 @@ async fn import_folder(path: String, state: State<'_, AppState>) -> Result<ScanR
     Ok(scan)
 }
 
+/// Tells the preview server the open album's retouch edits. Called when an album opens
+/// and whenever a photo is retouched; the whole set replaces the last one.
+#[tauri::command]
+fn set_retouches(
+    edits: HashMap<String, RetouchEdits>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let cleaned = edits
+        .into_iter()
+        .map(|(id, e)| (id, e.sanitized()))
+        .filter(|(_, e)| !e.is_empty())
+        .collect();
+    *state.retouches.lock().map_err(|e| e.to_string())? = cleaned;
+    Ok(())
+}
+
+/// A photo opened in the retoucher outside an album, with what was saved for it last time.
+#[derive(Serialize)]
+struct RetouchPhoto {
+    photo: PhotoInfo,
+    saved: Option<SavedRetouch>,
+}
+
+#[derive(Serialize)]
+struct OpenedToRetouch {
+    photos: Vec<RetouchPhoto>,
+    skipped: Vec<String>,
+}
+
+/// Whether a photo is one of the app's own retouched copies.
+fn is_retouched_copy(photo: &PhotoInfo) -> bool {
+    photo
+        .path
+        .parent()
+        .and_then(|d| d.file_name())
+        .is_some_and(|n| n == RETOUCHED_FOLDER)
+}
+
+/// Opens photos for retouching: each path is a photo or a folder of them. Photos that
+/// cannot be read are skipped and named.
+#[tauri::command]
+async fn open_to_retouch(
+    paths: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<OpenedToRetouch, String> {
+    let (found, skipped) = tauri::async_runtime::spawn_blocking(move || {
+        let mut found: Vec<PhotoInfo> = Vec::new();
+        let mut skipped: Vec<String> = Vec::new();
+        for path in paths.iter().map(PathBuf::from) {
+            if path.is_dir() {
+                match scan_folder(&path) {
+                    Ok(scan) => {
+                        // A folder's own retouched copies are not offered back for retouching.
+                        found.extend(scan.photos.into_iter().filter(|p| !is_retouched_copy(p)));
+                        skipped.extend(scan.skipped.into_iter().map(|s| s.file_name));
+                    }
+                    Err(e) => skipped.push(e.to_string()),
+                }
+            } else {
+                match read_photo_file(&path) {
+                    Ok(photo) => found.push(photo),
+                    Err(e) => skipped.push(e.to_string()),
+                }
+            }
+        }
+        (found, skipped)
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+    {
+        let mut photos = state.photos.lock().map_err(|e| e.to_string())?;
+        for photo in &found {
+            photos.insert(photo.id.clone(), photo.clone());
+        }
+    }
+    let photos = found
+        .into_iter()
+        .map(|photo| RetouchPhoto {
+            saved: read_saved(&photo),
+            photo,
+        })
+        .collect();
+    Ok(OpenedToRetouch { photos, skipped })
+}
+
+fn known_photo(state: &AppState, id: &str) -> Result<PhotoInfo, String> {
+    state
+        .photos
+        .lock()
+        .map_err(|e| e.to_string())?
+        .get(id)
+        .cloned()
+        .ok_or_else(|| "That photo is not open.".to_string())
+}
+
+/// The retoucher's picture: the editing preview with these edits and this colour.
+#[tauri::command]
+async fn retouch_preview(
+    photo_id: String,
+    edits: RetouchEdits,
+    adjust: Adjustments,
+    max_edge: Option<u32>,
+    state: State<'_, AppState>,
+) -> Result<tauri::ipc::Response, String> {
+    let photo = known_photo(&state, &photo_id)?;
+    let cache_dir = state.cache_dir.clone();
+    let live = Arc::clone(&state.live);
+    let bytes = tauri::async_runtime::spawn_blocking(move || {
+        let preview = ensure_preview(&photo, &cache_dir, PreviewTier::Edit)?;
+        let faces = if edits.needs_faces() {
+            Some(photo_skin(&photo, &cache_dir)?)
+        } else {
+            None
+        };
+        live.lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .draw(&preview, &adjust, &edits, faces.as_ref(), max_edge)
+            .map(|image| to_canvas_bytes(&image))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e: album_media::MediaError| e.to_string())?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+/// White balance from a spot that should be grey or white: the Temperature and Tint that
+/// make it neutral. `x` and `y` are shares of the photo; a small patch is averaged so
+/// one noisy pixel cannot throw it off.
+#[tauri::command]
+async fn neutral_at(
+    photo_id: String,
+    x: f64,
+    y: f64,
+    state: State<'_, AppState>,
+) -> Result<(f64, f64), String> {
+    let photo = known_photo(&state, &photo_id)?;
+    let cache_dir = state.cache_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let preview =
+            ensure_preview(&photo, &cache_dir, PreviewTier::Edit).map_err(|e| e.to_string())?;
+        let image = image::open(preview).map_err(|e| e.to_string())?.into_rgb8();
+        let (w, h) = image.dimensions();
+        let cx = (x.clamp(0.0, 1.0) * f64::from(w - 1)).round() as i64;
+        let cy = (y.clamp(0.0, 1.0) * f64::from(h - 1)).round() as i64;
+        let mut sum = [0.0f64; 3];
+        let mut n = 0.0f64;
+        for dy in -2..=2 {
+            for dx in -2..=2 {
+                let (px, py) = (cx + dx, cy + dy);
+                if px < 0 || py < 0 || px >= i64::from(w) || py >= i64::from(h) {
+                    continue;
+                }
+                let p = image.get_pixel(px as u32, py as u32);
+                for k in 0..3 {
+                    sum[k] += f64::from(p[k]) / 255.0;
+                }
+                n += 1.0;
+            }
+        }
+        Ok(neutralise(sum.map(|v| v / n.max(1.0))))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// A face that can be chosen in the retoucher.
+#[derive(Serialize)]
+struct RetouchFace {
+    /// Its middle, which is how edits name it.
+    at: [f64; 2],
+    /// Left, top, width and height. All are shares of the photo.
+    bounds: [f64; 4],
+    /// Too far turned for makeup to be put on.
+    side_on: bool,
+}
+
+/// Finds the faces in a photo for Magic skin and makeup, ahead of time, left to right.
+#[tauri::command]
+async fn prepare_skin(
+    photo_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<RetouchFace>, String> {
+    let photo = known_photo(&state, &photo_id)?;
+    let aspect = f64::from(photo.width) / f64::from(photo.height.max(1));
+    let cache_dir = state.cache_dir.clone();
+    let map = tauri::async_runtime::spawn_blocking(move || photo_skin(&photo, &cache_dir))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+    Ok(map
+        .faces
+        .iter()
+        .map(|face| RetouchFace {
+            at: face.middle(),
+            bounds: face.bounds(),
+            side_on: facing(&face.points, aspect) < SIDE_ON,
+        })
+        .collect())
+}
+
+/// Saves a full-size retouched copy beside the original. Returns where it went.
+#[tauri::command]
+async fn save_retouched_photo(
+    photo_id: String,
+    saved: SavedRetouch,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let photo = known_photo(&state, &photo_id)?;
+    let saved = SavedRetouch {
+        edits: saved.edits.sanitized(),
+        adjust: saved.adjust.sanitized(),
+    };
+    tauri::async_runtime::spawn_blocking(move || save_retouched(&photo, &saved))
+        .await
+        .map_err(|e| e.to_string())?
+        .map(|path| path.display().to_string())
+        .map_err(|e| e.to_string())
+}
+
 #[derive(Deserialize)]
 struct PhotoInput {
     asset_id: String,
@@ -171,6 +404,44 @@ fn vary_spread_layout(
         crop_loss: layout.crop_loss,
         design: apply_layout(&made, &photos, &layout, &spec),
     })
+}
+
+/// New arrangements for one page, leaving the other as it is. Each holds only that page.
+#[tauri::command]
+fn shuffle_page_layouts(
+    photos: Vec<PhotoInput>,
+    spec: ProjectSpec,
+    side: PageSide,
+    current: Vec<RectMm>,
+    fine_art: bool,
+    seed: u32,
+    state: State<'_, AppState>,
+) -> Vec<LayoutOption> {
+    let photos: Vec<Photo> = photos
+        .into_iter()
+        .map(|p| Photo {
+            asset_id: p.asset_id,
+            aspect: p.aspect,
+        })
+        .collect();
+    page_layouts(
+        &state.registry,
+        &photos,
+        &spec,
+        side,
+        &current,
+        fine_art,
+        u64::from(seed),
+    )
+    .into_iter()
+    .map(|page| LayoutOption {
+        template_id: page.template_id,
+        name: page.name,
+        tags: page.tags,
+        crop_loss: page.crop_loss,
+        design: page.design,
+    })
+    .collect()
 }
 
 #[derive(Serialize)]
@@ -212,6 +483,50 @@ fn suggest_layouts(
         .collect()
 }
 
+/// Every card design for these photos and this card's shape, best first.
+#[tauri::command]
+fn suggest_card_layouts(
+    photos: Vec<PhotoInput>,
+    spec: ProjectSpec,
+    state: State<'_, AppState>,
+) -> Vec<LayoutOption> {
+    let photos: Vec<Photo> = photos
+        .into_iter()
+        .map(|p| Photo {
+            asset_id: p.asset_id,
+            aspect: p.aspect,
+        })
+        .collect();
+
+    rank_layouts(&state.cards, &photos, &spec)
+        .into_iter()
+        .filter_map(|layout| {
+            let template = state.cards.get(&layout.template_id)?;
+            Some(LayoutOption {
+                template_id: layout.template_id.clone(),
+                name: template.name.clone(),
+                tags: template.tags.clone(),
+                crop_loss: layout.crop_loss,
+                design: apply_layout(template, &photos, &layout, &spec),
+            })
+        })
+        .collect()
+}
+
+/// How many photos each card design takes, so the app can say what to select.
+#[tauri::command]
+fn card_photo_counts(spec: ProjectSpec, state: State<'_, AppState>) -> Vec<usize> {
+    let aspect = spec.spread_aspect();
+    (1..=album_core::pack::MAX_FRAMES_PER_TEMPLATE)
+        .filter(|&count| {
+            state
+                .cards
+                .with_frame_count(count)
+                .any(|t| t.spread_aspect.contains(aspect))
+        })
+        .collect()
+}
+
 #[derive(Serialize)]
 struct AnalysisSummary {
     analyzed: usize,
@@ -243,6 +558,8 @@ async fn analyze_photos(
                 .par_iter()
                 .map(|photo| {
                     let facts = analyze_photo(photo, &cache_dir).ok();
+                    // Found now, under the progress bar, so that building need not wait.
+                    let _ = photo_faces(photo, &cache_dir);
                     let finished = done.fetch_add(1, Ordering::Relaxed) + 1;
                     if let Ok(mut last) = last_update.try_lock() {
                         if last.elapsed() >= PROGRESS_INTERVAL {
@@ -339,6 +656,36 @@ async fn check_for_gallery(
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// Where the faces are in these photos, by photo id, for crops that keep them in view. A
+/// photo that cannot be looked at has none.
+#[tauri::command]
+async fn find_photo_faces(
+    ids: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<HashMap<String, Vec<[f64; 4]>>, String> {
+    let photos: Vec<PhotoInfo> = {
+        let known = state.photos.lock().map_err(|e| e.to_string())?;
+        ids.iter().filter_map(|id| known.get(id).cloned()).collect()
+    };
+    let cache_dir = state.cache_dir.clone();
+    let pool = state.preview_pool.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        pool.install(|| {
+            photos
+                .par_iter()
+                .map(|p| {
+                    (
+                        p.id.clone(),
+                        photo_faces(p, &cache_dir).unwrap_or_default(),
+                    )
+                })
+                .collect()
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 /// Suggested white balance and levels for one photo.
@@ -720,30 +1067,39 @@ fn requested_adjustments(query: Option<&str>) -> Adjustments {
 
 fn serve_preview(
     photos: &Mutex<HashMap<String, PhotoInfo>>,
+    retouches: &Mutex<HashMap<String, RetouchEdits>>,
     cache_dir: &std::path::Path,
     id: &str,
     width: u32,
     adjust: &Adjustments,
 ) -> Response<Vec<u8>> {
     let photo = photos.lock().ok().and_then(|map| map.get(id).cloned());
+    let retouch = retouches.lock().ok().and_then(|map| map.get(id).cloned());
     let Some(photo) = photo else {
         return plain_response(StatusCode::NOT_FOUND, "unknown photo");
+    };
+    // Magic skin needs the photo's faces; finding them is kept, so it happens once.
+    let faces = match &retouch {
+        Some(edits) if edits.needs_faces() => photo_skin(&photo, cache_dir).ok(),
+        _ => None,
     };
 
     let bytes = ensure_preview(&photo, cache_dir, PreviewTier::from_width(width))
         .map_err(|e| e.to_string())
         .and_then(|path| {
-            if adjust.is_identity() {
+            if adjust.is_identity() && retouch.is_none() {
                 fs::read(path).map_err(|e| e.to_string())
             } else {
-                adjusted_preview(&path, adjust).map_err(|e| e.to_string())
+                adjusted_preview(&path, adjust, retouch.as_ref(), faces.as_ref(), None)
+                    .map_err(|e| e.to_string())
             }
         });
     match bytes {
         Ok(bytes) => Response::builder()
             .status(StatusCode::OK)
             .header(header::CONTENT_TYPE, "image/jpeg")
-            // The id changes when the file changes, so a preview never goes stale.
+            // The id changes when the file changes, and the address carries a stamp of
+            // the photo's retouch edits, so a preview never goes stale.
             .header(header::CACHE_CONTROL, "max-age=31536000, immutable")
             .body(bytes)
             .unwrap_or_default(),
@@ -761,9 +1117,12 @@ fn device_identity(app: AppHandle) -> Result<device::DeviceIdentity, String> {
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(update::FoundUpdate::default())
         .register_asynchronous_uri_scheme_protocol("album", |ctx, request, responder| {
             let state = ctx.app_handle().state::<AppState>();
             let photos = state.photos.clone();
+            let retouches = state.retouches.clone();
             let cache_dir = state.cache_dir.clone();
             let pool = state.preview_pool.clone();
             let id = request
@@ -775,7 +1134,9 @@ fn main() {
             let width = requested_width(request.uri().query());
             let adjust = requested_adjustments(request.uri().query());
             pool.spawn(move || {
-                responder.respond(serve_preview(&photos, &cache_dir, &id, width, &adjust));
+                responder.respond(serve_preview(
+                    &photos, &retouches, &cache_dir, &id, width, &adjust,
+                ));
             });
         })
         .setup(|app| {
@@ -787,7 +1148,10 @@ fn main() {
             app.manage(AppState {
                 photos: Arc::new(Mutex::new(HashMap::new())),
                 facts: Arc::new(Mutex::new(HashMap::new())),
+                retouches: Arc::new(Mutex::new(HashMap::new())),
+                live: Arc::new(Mutex::new(LivePreview::default())),
                 registry: load_registry(&packs_dir),
+                cards: TemplateRegistry::with_cards(),
                 preview_pool: Arc::new(
                     rayon::ThreadPoolBuilder::new()
                         .num_threads(workers)
@@ -801,8 +1165,18 @@ fn main() {
             print_options,
             make_spec,
             import_folder,
+            set_retouches,
+            open_to_retouch,
+            retouch_preview,
+            prepare_skin,
+            find_photo_faces,
+            neutral_at,
+            save_retouched_photo,
             suggest_layouts,
+            suggest_card_layouts,
+            card_photo_counts,
             vary_spread_layout,
+            shuffle_page_layouts,
             save_album,
             open_album,
             relink_photos,
@@ -822,7 +1196,10 @@ fn main() {
             upload_music,
             match_customer_selection,
             upload_gallery_photo,
-            device_identity
+            device_identity,
+            update::app_version,
+            update::check_for_update,
+            update::install_update
         ])
         .run(tauri::generate_context!())
         .expect("the app window could not start");

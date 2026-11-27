@@ -58,6 +58,8 @@ export default function ExportDialog({
   const blockers = issues.filter((i) => i.severity === 'blocker');
   const warnings = issues.filter((i) => i.severity === 'warning');
   const { spec } = project;
+  const cards = project.kind === 'cards';
+  const noun = cards ? 'card' : 'spread';
   const pixels = (mm: number) => Math.round((mm / MM_PER_INCH) * spec.target_dpi);
   const width = pixels(spec.trim_w_mm * 2 + spec.bleed_mm * 2);
   const height = pixels(spec.trim_h_mm + spec.bleed_mm * 2);
@@ -102,14 +104,14 @@ export default function ExportDialog({
         ) : (
           <>
             <p className="muted">
-              {project.spreads.length} spread{project.spreads.length === 1 ? '' : 's'} · {width} × {height} px
+              {project.spreads.length} {noun}{project.spreads.length === 1 ? '' : 's'} · {width} × {height} px
               at {spec.target_dpi} DPI · {spec.bleed_mm} mm bleed
             </p>
 
             <div className="export-formats">
               <label className="toggle">
                 <input type="checkbox" checked={jpeg} disabled={exporting} onChange={(e) => setJpeg(e.target.checked)} />
-                JPG for each spread
+                JPG for each {noun}
               </label>
               <label className="toggle">
                 <input type="checkbox" checked={pdf} disabled={exporting} onChange={(e) => setPdf(e.target.checked)} />
@@ -117,23 +119,23 @@ export default function ExportDialog({
               </label>
             </div>
 
-            {stage.name === 'checking' && <p className="muted">Checking the album…</p>}
+            {stage.name === 'checking' && <p className="muted">Checking the {cards ? 'cards' : 'album'}…</p>}
 
             {stage.name !== 'checking' && !issues.length && !error && (
               <p className="export-clear">No print problems found.</p>
             )}
 
             {blockers.length > 0 && (
-              <IssueList title="Fix these before exporting" items={blockers} className="error" />
+              <IssueList title="Fix these before exporting" items={blockers} className="error" label={cards ? 'Card' : 'Spread'} />
             )}
             {warnings.length > 0 && (
-              <IssueList title="Worth checking" items={warnings} className="warn" />
+              <IssueList title="Worth checking" items={warnings} className="warn" label={cards ? 'Card' : 'Spread'} />
             )}
 
             {exporting && (
               <div className="export-progress" role="status">
                 <progress value={stage.done} max={stage.total} />
-                <span>Rendered {stage.done} of {stage.total} spreads from the originals…</span>
+                <span>Rendered {stage.done} of {stage.total} {noun}s from the originals…</span>
               </div>
             )}
 
@@ -158,9 +160,10 @@ export default function ExportDialog({
 }
 
 function IssueList({
-  title, items, className,
+  title, items, className, label,
 }: {
   title: string;
+  label: string;
   items: ExportIssue[];
   className: string;
 }) {
@@ -170,7 +173,7 @@ function IssueList({
       <ul>
         {items.map((issue, i) => (
           <li key={i}>
-            {issue.spread !== null && <strong>Spread {issue.spread}: </strong>}
+            {issue.spread !== null && <strong>{label} {issue.spread}: </strong>}
             {issue.message}
           </li>
         ))}

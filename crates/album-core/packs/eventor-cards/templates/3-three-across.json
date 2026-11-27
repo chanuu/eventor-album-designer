@@ -1,0 +1,94 @@
+{
+  "id": "eventor-cards/3-three-across",
+  "name": "Three across",
+  "frame_count": 3,
+  "spread_aspect": {
+    "min": 1.2,
+    "max": 1.7
+  },
+  "tags": [
+    "card"
+  ],
+  "frames": [
+    {
+      "rect_pct": {
+        "x": 0,
+        "y": 0.157,
+        "w": 0.317,
+        "h": 0.635
+      },
+      "bleed": true
+    },
+    {
+      "rect_pct": {
+        "x": 0.319,
+        "y": 0.157,
+        "w": 0.362,
+        "h": 0.635
+      }
+    },
+    {
+      "rect_pct": {
+        "x": 0.683,
+        "y": 0.157,
+        "w": 0.317,
+        "h": 0.635
+      },
+      "bleed": true
+    }
+  ],
+  "texts": [
+    {
+      "rect_pct": {
+        "x": 0.07,
+        "y": 0.0019,
+        "w": 0.35,
+        "h": 0.1761
+      },
+      "text": "Thank You",
+      "size": 0.085,
+      "font": "Mrs Saint Delafield",
+      "colour": "#2A2A2A",
+      "align": "left"
+    },
+    {
+      "rect_pct": {
+        "x": 0.07,
+        "y": 0.8569,
+        "w": 0.43,
+        "h": 0.0511
+      },
+      "text": "{FIRST} | {SECOND}",
+      "size": 0.024,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "left"
+    },
+    {
+      "rect_pct": {
+        "x": 0.6,
+        "y": 0.8569,
+        "w": 0.33,
+        "h": 0.0511
+      },
+      "text": "{date:dd | mm | yy}",
+      "size": 0.024,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "right"
+    },
+    {
+      "rect_pct": {
+        "x": 0.2,
+        "y": 0.915,
+        "w": 0.6,
+        "h": 0.06
+      },
+      "text": "{STUDIO}\nMUA | {MUA}",
+      "size": 0.014,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "center"
+    }
+  ]
+}

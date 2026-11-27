@@ -1,5 +1,5 @@
 import { BringToFrontIcon, CropIcon, MousePointer2Icon, SendToBackIcon, Trash2Icon } from 'lucide-react';
-import { SparklesIcon } from 'lucide-react';
+import type { ReactNode } from 'react';
 import {
   AlignCenterHorizontalIcon, AlignCenterVerticalIcon, AlignEndHorizontalIcon, AlignEndVerticalIcon,
   AlignStartHorizontalIcon, AlignStartVerticalIcon,
@@ -22,7 +22,7 @@ import {
 } from './designerGeometry';
 import EffectsPanel, { NO_ADJUSTMENTS } from './EffectsPanel';
 import { visibleArea } from './crop';
-import { DRAG_PHOTOS, foldStyle, FrameBorder, FramedPhoto, frameStyle, percent, useTextImage } from './spreadParts';
+import { DRAG_PHOTOS, foldStyle, FrameBorder, FramedPhoto, frameStyle, Panels, percent, useTextImage } from './spreadParts';
 import TextPanel from './TextPanel';
 import { TEXT_TEMPLATES, type TextTemplate } from './textTemplates';
 
@@ -61,7 +61,7 @@ function inches(mm: number): string {
 
 export default function Designer({
   design, spec, photos, thresholds, paperColours, fonts, showOriginal, autoBusy, onChange, onSeal, onAuto,
-  onShowOriginal, onAddPhoto, onReplacePhoto, onAutoDesign,
+  onShowOriginal, onAddPhoto, onReplacePhoto, shuffle, cards, onPhotoMenu,
 }: {
   design: SpreadDesign;
   spec: ProjectSpec;
@@ -77,7 +77,12 @@ export default function Designer({
   onShowOriginal: (show: boolean) => void;
   onAddPhoto: (photoIds: string[], xMm: number, yMm: number) => void;
   onReplacePhoto: (frameId: string, photoId: string) => void;
-  onAutoDesign: () => void;
+  /** The Shuffle button and its page choice. */
+  shuffle: ReactNode;
+  /** A card is one sheet, with no fold down the middle. */
+  cards?: boolean;
+  /** A right-click on a photo, for its menu. */
+  onPhotoMenu?: (e: React.MouseEvent, frameId: string, photoId: string) => void;
 }) {
   const { w, h } = design.size_mm;
   const canvas = useRef<HTMLDivElement>(null);
@@ -468,9 +473,7 @@ export default function Designer({
             </div>
           )}
           <span className="topbar-gap" />
-          <button type="button" className="btn-primary" title="Try a different layout for these photos" onClick={onAutoDesign}>
-            <SparklesIcon aria-hidden="true" />Auto design
-          </button>
+          {shuffle}
         </div>
 
         {/* The selection box can start outside the spread, since photos may cover all of it. */}
@@ -488,6 +491,7 @@ export default function Designer({
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => drop(e, null)}
           >
+            <Panels design={design} />
             {design.frames.map((frame) => {
               const photo = frame.asset_id ? photos.get(frame.asset_id) : undefined;
               return (
@@ -507,6 +511,7 @@ export default function Designer({
                     setSelected(new Set([frame.id]));
                   }}
                   onWheel={(e) => wheel(e, frame)}
+                  onContextMenu={(e) => { if (photo && onPhotoMenu) onPhotoMenu(e, frame.id, photo.id); }}
                   onDragOver={(e) => e.preventDefault()}
                   onDrop={(e) => drop(e, frame.id)}
                 >
@@ -529,7 +534,7 @@ export default function Designer({
 
             <span className="guide trim" style={{ left: percent(spec.bleed_mm, w), right: percent(spec.bleed_mm, w), top: percent(spec.bleed_mm, h), bottom: percent(spec.bleed_mm, h) }} />
             <span className="guide safe" style={{ left: percent(inset, w), right: percent(inset, w), top: percent(inset, h), bottom: percent(inset, h) }} />
-            <span className="fold" style={foldStyle(spec.binding, w)} />
+            {!cards && <span className="fold" style={foldStyle(spec.binding, w)} />}
 
             {[...frames, ...texts].map((item) => (
               <span

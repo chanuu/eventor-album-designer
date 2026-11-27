@@ -3,6 +3,7 @@
 //! The preview and the exporter both run this one function, so a change on screen is
 //! the change that prints. It works on raw RGB bytes, using lookup tables for speed.
 
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
 const MAX_EXPOSURE_STOPS: f64 = 2.0;
@@ -20,6 +21,44 @@ pub const MIX_BANDS: [f64; 8] = [0.0, 30.0, 60.0, 120.0, 180.0, 240.0, 270.0, 30
 
 // Rec. 709 weights: how bright each channel looks to the eye.
 const LUMA: [f64; 3] = [0.2126, 0.7152, 0.0722];
+
+/// One colour wheel of colour grading: a tint for shadows, midtones or highlights.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Grade {
+    /// Degrees round the colour wheel.
+    pub hue: f64,
+    /// How much of that colour, 0 to 1.
+    pub saturation: f64,
+    /// Lighter or darker, -1 to 1.
+    pub luminance: f64,
+}
+
+impl Grade {
+    fn sanitized(&self) -> Self {
+        Self {
+            hue: if self.hue.is_finite() {
+                self.hue.rem_euclid(360.0)
+            } else {
+                0.0
+            },
+            saturation: if self.saturation.is_finite() {
+                self.saturation.clamp(0.0, 1.0)
+            } else {
+                0.0
+            },
+            luminance: limited(self.luminance, 1.0),
+        }
+    }
+
+    fn is_none(&self) -> bool {
+        self.saturation == 0.0 && self.luminance == 0.0
+    }
+}
+
+/// How strongly a full-saturation grade tints, and a full luminance lifts, of 1.
+const GRADE_TINT: f64 = 0.22;
+const GRADE_LIFT: f64 = 0.2;
 
 /// All sliders run from -1 to 1 with 0 meaning no change, except exposure, in stops.
 /// Anything missing from an older album file means no change.
@@ -45,6 +84,14 @@ pub struct Adjustments {
     pub mix_hue: [f64; 8],
     pub mix_saturation: [f64; 8],
     pub mix_luminance: [f64; 8],
+    /// Colour grading, as in Lightroom: a tint for each tonal range.
+    pub grade_shadows: Grade,
+    pub grade_midtones: Grade,
+    pub grade_highlights: Grade,
+    /// How much the three ranges overlap: 0 is Lightroom's 50, -1 hard edges, 1 soft.
+    pub grade_blending: f64,
+    /// Moves the split between shadows and highlights: above 0 favours highlights.
+    pub grade_balance: f64,
 }
 
 fn limited(value: f64, limit: f64) -> f64 {
@@ -62,6 +109,7 @@ fn limited_all(values: [f64; 8]) -> [f64; 8] {
 /// How many numbers the preview address carries, old and new.
 const QUERY_BASIC: usize = 8;
 const QUERY_FULL: usize = 8 + 5 + 24;
+const QUERY_GRADED: usize = QUERY_FULL + 9 + 2;
 
 impl Adjustments {
     /// Keeps values from a file or a request inside their ranges.
@@ -83,6 +131,11 @@ impl Adjustments {
             mix_hue: limited_all(self.mix_hue),
             mix_saturation: limited_all(self.mix_saturation),
             mix_luminance: limited_all(self.mix_luminance),
+            grade_shadows: self.grade_shadows.sanitized(),
+            grade_midtones: self.grade_midtones.sanitized(),
+            grade_highlights: self.grade_highlights.sanitized(),
+            grade_blending: limited(self.grade_blending, 1.0),
+            grade_balance: limited(self.grade_balance, 1.0),
         }
     }
 
@@ -96,7 +149,7 @@ impl Adjustments {
             .split(',')
             .map(|part| part.parse().unwrap_or(0.0))
             .collect();
-        if parts.len() != QUERY_BASIC && parts.len() != QUERY_FULL {
+        if ![QUERY_BASIC, QUERY_FULL, QUERY_GRADED].contains(&parts.len()) {
             return Self::default();
         }
         let at = |i: usize| parts.get(i).copied().unwrap_or(0.0);
@@ -118,6 +171,23 @@ impl Adjustments {
             mix_hue: eight(13),
             mix_saturation: eight(21),
             mix_luminance: eight(29),
+            grade_shadows: Grade {
+                hue: at(37),
+                saturation: at(38),
+                luminance: at(39),
+            },
+            grade_midtones: Grade {
+                hue: at(40),
+                saturation: at(41),
+                luminance: at(42),
+            },
+            grade_highlights: Grade {
+                hue: at(43),
+                saturation: at(44),
+                luminance: at(45),
+            },
+            grade_blending: at(46),
+            grade_balance: at(47),
         }
         .sanitized()
     }
@@ -187,6 +257,45 @@ impl Adjustments {
         from_hsl(new_hue, sat.clamp(0.0, 1.0), light.clamp(0.0, 1.0))
     }
 
+    fn grades(&self) -> bool {
+        !(self.grade_shadows.is_none()
+            && self.grade_midtones.is_none()
+            && self.grade_highlights.is_none())
+    }
+
+    /// Colour grading for one pixel, 0 to 255. Each range's tint has no brightness of its
+    /// own, so a tint changes colour and only Luminance changes light.
+    fn grade(&self, rgb: [f64; 3]) -> [f64; 3] {
+        let l = (LUMA[0] * rgb[0] + LUMA[1] * rgb[1] + LUMA[2] * rgb[2]) / 255.0;
+        let soft = 0.18 + 0.14 * (self.grade_blending + 1.0);
+        let (low, high) = (
+            0.33 - 0.15 * self.grade_balance,
+            0.67 - 0.15 * self.grade_balance,
+        );
+        let shadows = 1.0 - smoothstep(low - soft / 2.0, low + soft / 2.0, l);
+        let highlights = smoothstep(high - soft / 2.0, high + soft / 2.0, l);
+        let midtones = (1.0 - shadows - highlights).max(0.0);
+        let mut out = rgb;
+        for (grade, weight) in [
+            (self.grade_shadows, shadows),
+            (self.grade_midtones, midtones),
+            (self.grade_highlights, highlights),
+        ] {
+            if weight <= 0.0 || grade.is_none() {
+                continue;
+            }
+            let pure = from_hsl(grade.hue, 1.0, 0.5);
+            let pure_luma = LUMA[0] * pure[0] + LUMA[1] * pure[1] + LUMA[2] * pure[2];
+            for (k, v) in out.iter_mut().enumerate() {
+                *v += 255.0
+                    * weight
+                    * (grade.saturation * GRADE_TINT * (pure[k] - pure_luma)
+                        + grade.luminance * GRADE_LIFT);
+            }
+        }
+        out
+    }
+
     /// Applies the adjustments to tightly packed RGB bytes.
     pub fn apply_rgb(&self, pixels: &mut [u8]) {
         let settings = self.sanitized();
@@ -195,13 +304,14 @@ impl Adjustments {
         }
         let tables = settings.lookup_tables();
         let hue_work = settings.works_on_hue();
+        let grading = settings.grades();
         let colour = if settings.black_and_white {
             0.0
         } else {
             1.0 + settings.saturation
         };
 
-        for pixel in pixels.as_chunks_mut::<3>().0 {
+        let each = |pixel: &mut [u8; 3]| {
             let mut mapped = [
                 f64::from(tables[0][usize::from(pixel[0])]),
                 f64::from(tables[1][usize::from(pixel[1])]),
@@ -211,12 +321,37 @@ impl Adjustments {
                 let shifted = settings.shift_colour(mapped.map(|v| v / 255.0));
                 mapped = shifted.map(|v| v * 255.0);
             }
+            if grading {
+                mapped = settings.grade(mapped);
+            }
             let luma = LUMA[0] * mapped[0] + LUMA[1] * mapped[1] + LUMA[2] * mapped[2];
             for (out, value) in pixel.iter_mut().zip(mapped) {
                 *out = (luma + (value - luma) * colour).clamp(0.0, 255.0).round() as u8;
             }
-        }
+        };
+        pixels
+            .as_chunks_mut::<3>()
+            .0
+            .par_chunks_mut(8192)
+            .for_each(|block| block.iter_mut().for_each(each));
     }
+}
+
+fn smoothstep(a: f64, b: f64, x: f64) -> f64 {
+    let t = ((x - a) / (b - a).max(1e-9)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// The Temperature and Tint that make a colour neutral grey: for a white-balance
+/// eyedropper. `rgb` is 0 to 1, and the answer is limited to the sliders' range.
+pub fn neutralise(rgb: [f64; 3]) -> (f64, f64) {
+    let [r, g, b] = rgb.map(|v| v.max(1e-4));
+    // Temperature scales red up and blue down by the same amount: solve red = blue.
+    let temperature = ((b - r) / (TEMPERATURE_STRENGTH * (r + b))).clamp(-1.0, 1.0);
+    let target = r * (1.0 + TEMPERATURE_STRENGTH * temperature);
+    // Tint scales green: solve green = that.
+    let tint = ((1.0 - target / g) / TINT_STRENGTH).clamp(-1.0, 1.0);
+    (temperature, tint)
 }
 
 /// How much a hue belongs to each of the mixer's colours. Neighbouring colours share the
@@ -635,6 +770,72 @@ mod tests {
         assert_eq!(read.mix_hue[2], -0.5);
         assert_eq!(read.mix_luminance[7], 1.0);
         assert!(Adjustments::from_query(&vec!["0"; 20].join(",")).is_identity());
+    }
+
+    #[test]
+    fn no_grading_changes_nothing_and_a_shadow_tint_spares_white() {
+        let blue_shadows = Adjustments {
+            grade_shadows: Grade {
+                hue: 220.0,
+                saturation: 1.0,
+                luminance: 0.0,
+            },
+            ..Default::default()
+        };
+        let dark = apply(blue_shadows, [40, 40, 40]);
+        assert!(dark[2] > dark[0] + 10, "shadows not tinted: {dark:?}");
+        assert_eq!(apply(blue_shadows, [250, 250, 250]), [250, 250, 250]);
+        // A tint changes colour, not light.
+        let luma = |p: [u8; 3]| {
+            LUMA[0] * f64::from(p[0]) + LUMA[1] * f64::from(p[1]) + LUMA[2] * f64::from(p[2])
+        };
+        assert!((luma(dark) - 40.0).abs() < 2.0, "{dark:?}");
+    }
+
+    #[test]
+    fn a_highlight_tint_spares_black_and_luminance_lifts_its_range() {
+        let warm = Adjustments {
+            grade_highlights: Grade {
+                hue: 35.0,
+                saturation: 1.0,
+                luminance: 0.0,
+            },
+            ..Default::default()
+        };
+        let bright = apply(warm, [220, 220, 220]);
+        assert!(bright[0] > bright[2] + 10, "{bright:?}");
+        assert_eq!(apply(warm, [10, 10, 10]), [10, 10, 10]);
+        let mut lift = Adjustments::default();
+        lift.grade_midtones.luminance = 1.0;
+        assert!(apply(lift, [128, 128, 128])[1] > 150);
+    }
+
+    #[test]
+    fn the_eyedropper_makes_a_tinted_grey_neutral() {
+        let warm_grey = [140u8, 125, 105];
+        let (temperature, tint) = neutralise(warm_grey.map(|v| f64::from(v) / 255.0));
+        let fixed = apply(
+            Adjustments {
+                temperature,
+                tint,
+                ..Default::default()
+            },
+            warm_grey,
+        );
+        let spread = fixed.iter().max().unwrap() - fixed.iter().min().unwrap();
+        assert!(spread <= 3, "{fixed:?} from {temperature} {tint}");
+    }
+
+    #[test]
+    fn the_graded_preview_address_is_read() {
+        let mut parts = vec!["0"; QUERY_GRADED];
+        parts[37] = "200";
+        parts[38] = "0.5";
+        parts[47] = "-0.3";
+        let read = Adjustments::from_query(&parts.join(","));
+        assert_eq!(read.grade_shadows.hue, 200.0);
+        assert_eq!(read.grade_shadows.saturation, 0.5);
+        assert_eq!(read.grade_balance, -0.3);
     }
 
     #[test]

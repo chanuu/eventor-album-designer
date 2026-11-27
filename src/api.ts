@@ -36,7 +36,16 @@ export type Adjustments = {
   mix_hue: number[];
   mix_saturation: number[];
   mix_luminance: number[];
+  /** Colour grading. Absent in albums saved before it existed, meaning none. */
+  grade_shadows?: Grade;
+  grade_midtones?: Grade;
+  grade_highlights?: Grade;
+  grade_blending?: number;
+  grade_balance?: number;
 };
+
+/** One colour-grading wheel: hue in degrees, saturation 0 to 1, luminance -1 to 1. */
+export type Grade = { hue: number; saturation: number; luminance: number };
 
 export type FrameStyle = { opacity: number; border_mm: number; border_colour: string };
 
@@ -63,6 +72,19 @@ export type TextBlock = {
   italic: boolean;
   line_height: number;
   opacity: number;
+  /** On a card: the pattern these words were made from, or "message" for a placeholder. */
+  role?: string | null;
+  /** 0, 90 or 270. The box keeps its place; the words turn in it. */
+  rot_deg?: number;
+};
+
+/** A flat panel of colour, such as the block a card's message sits on. */
+export type Shape = {
+  id: string;
+  rect_mm: { x: number; y: number; w: number; h: number };
+  colour: string;
+  opacity: number;
+  z: number;
 };
 
 export type SpreadDesign = {
@@ -73,6 +95,7 @@ export type SpreadDesign = {
   background: { type: 'color'; value: string };
   frames: Frame[];
   texts: TextBlock[];
+  shapes?: Shape[];
 };
 
 export type LayoutOption = {
@@ -140,8 +163,21 @@ export type Music = { path: string; name: string };
 
 export const MUSIC_EXTENSIONS = ['mp3', 'm4a', 'aac', 'ogg', 'wav'];
 
+/** Who a set of thank you cards is for. It fills in the cards' words. */
+export type CardDetails = {
+  first_name: string;
+  second_name: string;
+  date: string;
+  venue: string;
+  mua: string;
+  studio: string;
+};
+
 export type Project = {
   version: number;
+  /** Absent for an album. */
+  kind?: 'album' | 'cards';
+  details?: CardDetails | null;
   name: string;
   size_label: string;
   spec: ProjectSpec;
@@ -151,7 +187,60 @@ export type Project = {
   publish?: PublishLink | null;
   cover?: Cover | null;
   music?: Music | null;
+  /** Retouch edits by photo id. Absent when nothing has been retouched. */
+  retouch?: Record<string, RetouchEdits>;
 };
+
+export type RetouchTool = 'heal' | 'clone' | 'smooth' | 'brighten' | 'darken' | 'whiten' | 'red_eye';
+
+/** One brush stroke. Positions are shares of the photo; the radius is a share of its long edge. */
+export type Stroke = {
+  tool: RetouchTool;
+  points: [number, number][];
+  radius: number;
+  softness: number;
+  strength: number;
+  /** Clone stamp only: where to copy from, as an offset from the stroke. */
+  source?: [number, number];
+};
+
+/** Magic skin, 0 to 1 each. */
+export type SkinSettings = { smooth: number; brighten: number; even: number };
+
+export const NO_SKIN: SkinSettings = { smooth: 0, brighten: 0, even: 0 };
+
+export type Rgb = [number, number, number];
+
+/** What is put on one face. Each amount is 0 to 1. */
+export type Makeup = { lip_rgb: Rgb; lip: number; gloss: number; blush_rgb: Rgb; blush: number; contour: number; highlight: number };
+
+export const NO_MAKEUP: Makeup = { lip_rgb: [178, 62, 84], lip: 0, gloss: 0, blush_rgb: [226, 110, 120], blush: 0, contour: 0, highlight: 0 };
+
+/** A face found in a photo. Everything is a share of the photo. */
+export type RetouchFace = { at: [number, number]; bounds: [number, number, number, number]; side_on: boolean };
+
+export type RetouchEdits = {
+  strokes: Stroke[];
+  skin?: SkinSettings;
+  /** The middles of faces Magic skin leaves alone. */
+  skin_skip?: [number, number][];
+  /** Makeup, each on the face whose middle is at this spot. */
+  makeup?: { at: [number, number]; makeup: Makeup }[];
+};
+
+export const NO_RETOUCH: RetouchEdits = { strokes: [] };
+
+/** Whether an edit list does anything. */
+export function hasRetouch(edits: RetouchEdits | undefined): boolean {
+  if (!edits) return false;
+  const skin = edits.skin ?? NO_SKIN;
+  return edits.strokes.length > 0 || skin.smooth > 0 || skin.brighten > 0 || skin.even > 0 || !!edits.makeup?.length;
+}
+
+/** What the retoucher keeps for one photo outside an album. */
+export type SavedRetouch = { edits: RetouchEdits; adjust: Adjustments };
+
+export type RetouchPhoto = { photo: PhotoInfo; saved: SavedRetouch | null };
 
 export type ScanResult = {
   photos: PhotoInfo[];
@@ -187,11 +276,91 @@ export const makeSpec = (settings: NewAlbumSettings) =>
 
 export const importFolder = (path: string) => invoke<ScanResult>('import_folder', { path });
 
+/**
+ * A stamp of each photo's retouch edits, added to its preview address so a retouched
+ * photo is fetched afresh and an unchanged one comes from the browser's cache.
+ */
+let retouchStamps: Record<string, string> = {};
+let retouchVersion = 0;
+const retouchListeners = new Set<() => void>();
+
+/** For useSyncExternalStore: redraw when retouching changes what previews show. */
+export function subscribeRetouches(listener: () => void): () => void {
+  retouchListeners.add(listener);
+  return () => { retouchListeners.delete(listener); };
+}
+
+/** Changes whenever any photo's retouching does. */
+export const retouchesVersion = () => retouchVersion;
+
+function stampOf(edits: RetouchEdits): string {
+  // A short hash of the edits; any change gives a new address.
+  const text = JSON.stringify(edits);
+  let hash = 2166136261;
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+/** Tells the preview server the open album's retouch edits, which every preview then shows. */
+export async function setRetouches(edits: Record<string, RetouchEdits>): Promise<void> {
+  await invoke('set_retouches', { edits });
+  // Only now that the preview server has the edits do previews ask for them, so a
+  // stale picture is never fetched under a new address and kept.
+  retouchStamps = Object.fromEntries(
+    Object.entries(edits)
+      .filter(([, e]) => hasRetouch(e))
+      .map(([id, e]) => [id, stampOf(e)]),
+  );
+  retouchVersion += 1;
+  retouchListeners.forEach((listener) => listener());
+}
+
+export const openToRetouch = (paths: string[]) =>
+  invoke<{ photos: RetouchPhoto[]; skipped: string[] }>('open_to_retouch', { paths });
+
+/** The retoucher's picture, drawn by the same code that prints. */
+export async function retouchPreview(photoId: string, edits: RetouchEdits, adjust: Adjustments, maxEdge?: number): Promise<ImageData> {
+  const buffer = await invoke<ArrayBuffer>('retouch_preview', { photoId, edits, adjust, maxEdge: maxEdge ?? null });
+  // Width and height, then the pixels as a canvas takes them.
+  const [w, h] = new Uint32Array(buffer, 0, 2);
+  return new ImageData(new Uint8ClampedArray(buffer, 8), w, h);
+}
+
+/** A face as left, top, width and height, each a share of the photo. */
+export type FaceBox = [number, number, number, number];
+
+/** Where the faces are, by photo id, for crops that keep them in view. */
+export const findPhotoFaces = (ids: string[]) => invoke<Record<string, FaceBox[]>>('find_photo_faces', { ids });
+
+/** Finds the faces in a photo for Magic skin and makeup, left to right. */
+export const prepareSkin = (photoId: string) => invoke<RetouchFace[]>('prepare_skin', { photoId });
+
+/** The Temperature and Tint that make the spot at x, y (shares of the photo) neutral. */
+export const neutralAt = (photoId: string, x: number, y: number) =>
+  invoke<[number, number]>('neutral_at', { photoId, x, y });
+
+/** Writes a full-size retouched copy beside the original. Resolves to where it went. */
+export const saveRetouchedPhoto = (photoId: string, saved: SavedRetouch) =>
+  invoke<string>('save_retouched_photo', { photoId, saved });
+
 export const suggestLayouts = (photos: PhotoInfo[], spec: ProjectSpec) =>
   invoke<LayoutOption[]>('suggest_layouts', {
     photos: photos.map((p) => ({ asset_id: p.id, aspect: p.width / p.height })),
     spec,
   });
+
+/** Every thank you card design for these photos and this card, best first. */
+export const suggestCardLayouts = (photos: PhotoInfo[], spec: ProjectSpec) =>
+  invoke<LayoutOption[]>('suggest_card_layouts', {
+    photos: photos.map((p) => ({ asset_id: p.id, aspect: p.width / p.height })),
+    spec,
+  });
+
+/** How many photos the card designs for this shape of card take. */
+export const cardPhotoCounts = (spec: ProjectSpec) => invoke<number[]>('card_photo_counts', { spec });
 
 /** A new arrangement in this layout's style, or null if the style has nothing to move. */
 export const varyLayout = (
@@ -206,6 +375,26 @@ export const varyLayout = (
     photos: photos.map((p) => ({ asset_id: p.id, aspect: p.width / p.height })),
     spec,
     current,
+    seed,
+  });
+
+export type PageSide = 'left' | 'right';
+
+/** New arrangements for one page, best first. Each design holds only that page's photos. */
+export const shufflePageLayouts = (
+  photos: PhotoInfo[],
+  spec: ProjectSpec,
+  side: PageSide,
+  current: Frame['rect_mm'][],
+  fineArt: boolean,
+  seed: number,
+) =>
+  invoke<LayoutOption[]>('shuffle_page_layouts', {
+    photos: photos.map((p) => ({ asset_id: p.id, aspect: p.width / p.height })),
+    spec,
+    side,
+    current,
+    fineArt,
     seed,
   });
 
@@ -336,7 +525,8 @@ const PREVIEW_ORIGIN = navigator.userAgent.includes('Windows')
   : 'album://localhost';
 
 export function previewUrl(photoId: string, width: number, adjust?: Adjustments): string {
-  const base = `${PREVIEW_ORIGIN}/preview/${photoId}?w=${width}`;
+  const stamp = retouchStamps[photoId];
+  const base = `${PREVIEW_ORIGIN}/preview/${photoId}?w=${width}${stamp ? `&rt=${stamp}` : ''}`;
   if (!adjust) return base;
   // An album saved before the newer controls has none of them, which means no change.
   const eight = (values: number[] | undefined) => Array.from({ length: 8 }, (_, i) => values?.[i] ?? 0);
@@ -357,6 +547,9 @@ export function previewUrl(photoId: string, width: number, adjust?: Adjustments)
     ...eight(adjust.mix_hue),
     ...eight(adjust.mix_saturation),
     ...eight(adjust.mix_luminance),
+    ...[adjust.grade_shadows, adjust.grade_midtones, adjust.grade_highlights].flatMap((g) => [g?.hue ?? 0, g?.saturation ?? 0, g?.luminance ?? 0]),
+    adjust.grade_blending ?? 0,
+    adjust.grade_balance ?? 0,
   ];
   return values.every((v) => v === 0) ? base : `${base}&fx=${values.join(',')}`;
 }

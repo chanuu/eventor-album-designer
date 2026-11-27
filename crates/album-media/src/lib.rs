@@ -9,8 +9,12 @@ use std::path::{Path, PathBuf};
 
 pub mod analyze;
 pub mod eyes;
+pub mod live;
+pub mod retouched;
+pub mod skin;
 
 use album_core::adjust::Adjustments;
+use album_core::retouch::{apply_retouch, RetouchEdits, SkinMap};
 use image::metadata::Orientation;
 use image::{DynamicImage, ImageReader};
 use rayon::prelude::*;
@@ -107,6 +111,20 @@ fn read_orientation(path: &Path) -> u8 {
         .and_then(|value| u8::try_from(value).ok())
         .filter(|value| (1..=8).contains(value))
         .unwrap_or(1)
+}
+
+/// One photo file, as a scan would find it: for opening single photos to retouch.
+pub fn read_photo_file(path: &Path) -> Result<PhotoInfo, MediaError> {
+    if !is_photo(path) {
+        return Err(MediaError::Read {
+            path: path.display().to_string(),
+            reason: "not a photo the app can open".to_string(),
+        });
+    }
+    read_photo(path).map_err(|reason| MediaError::Read {
+        path: path.display().to_string(),
+        reason,
+    })
 }
 
 /// Reads only the file header, which keeps a large folder quick.
@@ -277,17 +295,39 @@ pub fn ensure_preview(
     result.map(|()| target)
 }
 
-/// A preview with adjustments applied, as JPEG bytes.
+/// A preview's pixels, at most `max_edge` on the long side. Every edit is sized as a share
+/// of the photo, so a smaller picture looks the same, only less sharp.
+pub(crate) fn open_at(
+    preview: &Path,
+    max_edge: Option<u32>,
+) -> Result<image::RgbImage, MediaError> {
+    let mut opened = image::open(preview).map_err(|e| MediaError::Read {
+        path: preview.display().to_string(),
+        reason: e.to_string(),
+    })?;
+    if let Some(edge) = max_edge.filter(|e| *e >= 64 && *e < opened.width().max(opened.height())) {
+        opened = opened.resize(edge, edge, image::imageops::FilterType::Triangle);
+    }
+    Ok(opened.into_rgb8())
+}
+
+/// A preview with retouching and adjustments applied, as JPEG bytes.
 ///
 /// Not cached, because it changes with every slider movement and starts from a preview
-/// that already is. This runs the same function as the exporter, so it shows what prints.
-pub fn adjusted_preview(preview: &Path, adjust: &Adjustments) -> Result<Vec<u8>, MediaError> {
-    let mut image = image::open(preview)
-        .map_err(|e| MediaError::Read {
-            path: preview.display().to_string(),
-            reason: e.to_string(),
-        })?
-        .into_rgb8();
+/// that already is. This runs the same functions as the exporter, in the same order, so
+/// it shows what prints.
+pub fn adjusted_preview(
+    preview: &Path,
+    adjust: &Adjustments,
+    retouch: Option<&RetouchEdits>,
+    faces: Option<&SkinMap>,
+    max_edge: Option<u32>,
+) -> Result<Vec<u8>, MediaError> {
+    let mut image = open_at(preview, max_edge)?;
+    if let Some(edits) = retouch {
+        let (w, h) = (image.width() as usize, image.height() as usize);
+        apply_retouch(&mut image, w, h, edits, faces);
+    }
     adjust.apply_rgb(&mut image);
 
     let mut bytes = Vec::new();

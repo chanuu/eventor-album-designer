@@ -1,0 +1,92 @@
+{
+  "id": "eventor-cards/1-half-photo-light",
+  "name": "One photo beside a white message page",
+  "frame_count": 1,
+  "spread_aspect": {
+    "min": 1.2,
+    "max": 1.7
+  },
+  "tags": [
+    "card"
+  ],
+  "frames": [
+    {
+      "rect_pct": {
+        "x": 0,
+        "y": 0,
+        "w": 0.5,
+        "h": 1
+      },
+      "bleed": true
+    }
+  ],
+  "texts": [
+    {
+      "rect_pct": {
+        "x": 0.58,
+        "y": 0.0873,
+        "w": 0.34,
+        "h": 0.1854
+      },
+      "text": "Thank you",
+      "size": 0.09,
+      "font": "Mrs Saint Delafield",
+      "colour": "#2A2A2A",
+      "align": "center"
+    },
+    {
+      "rect_pct": {
+        "x": 0.54,
+        "y": 0.32,
+        "w": 0.42,
+        "h": 0.14
+      },
+      "text": "Write your message here",
+      "size": 0.016,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "center",
+      "message": true,
+      "line_height": 1.6
+    },
+    {
+      "rect_pct": {
+        "x": 0.6,
+        "y": 0.64,
+        "w": 0.3,
+        "h": 0.07
+      },
+      "text": "{First} + {Second}",
+      "size": 0.03,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "center"
+    },
+    {
+      "rect_pct": {
+        "x": 0.6,
+        "y": 0.7593,
+        "w": 0.3,
+        "h": 0.0415
+      },
+      "text": "{date:dd.mm.yy}",
+      "size": 0.017,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "center"
+    },
+    {
+      "rect_pct": {
+        "x": 0.54,
+        "y": 0.86,
+        "w": 0.42,
+        "h": 0.07
+      },
+      "text": "{STUDIO}\nMUA | {MUA}",
+      "size": 0.015,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "center"
+    }
+  ]
+}

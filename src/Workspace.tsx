@@ -1,8 +1,9 @@
-import { ArrowLeftIcon, ArrowRightIcon, BookOpenIcon, ChevronLeftIcon, ChevronRightIcon, DownloadIcon, FlipHorizontal2Icon, ImageMinusIcon, ImagePlusIcon, ImagesIcon, LayoutGridIcon, MessageSquareIcon, PaletteIcon, PanelRightIcon, PenToolIcon, PlusIcon, Redo2Icon, RotateCcwIcon, SaveIcon, SearchIcon, SendIcon, SparklesIcon, Trash2Icon, Undo2Icon, XIcon, ZapIcon } from 'lucide-react';
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowLeftIcon, ArrowRightIcon, BookOpenIcon, ChevronLeftIcon, ChevronRightIcon, DownloadIcon, FlipHorizontal2Icon, ImageMinusIcon, ImagePlusIcon, ImagesIcon, LayoutGridIcon, WandSparklesIcon, MessageSquareIcon, PaletteIcon, PanelRightIcon, PenToolIcon, PlusIcon, Redo2Icon, RotateCcwIcon, SaveIcon, SearchIcon, SendIcon, Trash2Icon, Undo2Icon, UsersIcon, XIcon, ZapIcon } from 'lucide-react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { ask, open, save } from '@tauri-apps/plugin-dialog';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
+  cardPhotoCounts,
   EDIT_PREVIEW,
   GRID_PREVIEW,
   importFolder,
@@ -11,15 +12,24 @@ import {
   printOptions,
   relinkPhotos,
   saveAlbum,
+  setRetouches,
+  hasRetouch,
+  subscribeRetouches,
+  retouchesVersion,
+  NO_RETOUCH,
+  suggestCardLayouts,
   suggestColour,
+  findPhotoFaces,
   suggestLayouts,
-  varyLayout,
+  shufflePageLayouts, varyLayout, type PageSide,
   suggestRatings,
   analyzePhotos,
   type Adjustments,
+  type CardDetails,
   type Cover,
   type Frame,
   type FrameStyle,
+  type FaceBox,
   type LayoutOption,
   type Music,
   type Project,
@@ -27,6 +37,7 @@ import {
   type PhotoInfo,
   type PhotoRating,
   type Rating,
+  type RetouchEdits,
   type Spread,
   type SpreadDesign,
   type TextBlock,
@@ -34,17 +45,23 @@ import {
 import AlbumPreview from './AlbumPreview';
 import type { Album } from './App';
 import AutoBuild from './AutoBuild';
+import CardDetailsDialog from './CardDetailsDialog';
+import { changeCardDesign, fillOptions, listCounts, NO_DETAILS, refillCards } from './cards';
 import CoverDesigner from './CoverDesigner';
+import { designCutsFaces, faceFit, focusFaces } from './faceFit';
 import { effectiveDpi, visibleArea, cropShare } from './crop';
 import EffectsPanel, { NO_ADJUSTMENTS } from './EffectsPanel';
 import CommentsDialog from './CommentsDialog';
+import ContextMenu, { type MenuAt } from './ContextMenu';
 import Designer from './Designer';
+import Retoucher, { type RetouchItem } from './Retoucher';
 import { currentStaff, listComments } from './eventor';
 import ExportDialog from './ExportDialog';
+import { pageShape, ShuffleControl, splitAtFold, withPage, type ShuffleSide } from './pageShuffle';
 import PublishDialog from './PublishDialog';
 import { useHistory } from './history';
 import { ALBUM_EXTENSION, ALBUM_FILTERS, rememberAlbum, toProject } from './project';
-import { DRAG_PHOTOS, foldStyle, FrameBorder, FramedPhoto, frameStyle, percent, TextOnSpread, ThumbText } from './spreadParts';
+import { DRAG_PHOTOS, foldStyle, FrameBorder, FramedPhoto, frameStyle, Panels, percent, TextOnSpread, ThumbText } from './spreadParts';
 import { useSpreadRail } from './spreadRail';
 import TextPanel from './TextPanel';
 
@@ -56,10 +73,14 @@ const MAX_ZOOM = 3;
 /** How long after the last change an already-saved album saves itself. */
 const AUTOSAVE_DELAY_MS = 1500;
 
-/** Auto design chooses among this many of the layouts that suit the photos best. */
+/** Shuffle chooses among this many of the layouts that suit the photos best. */
 const AUTO_DESIGN_CHOICES = 12;
+/** How many arrangements it tries before settling for one that cuts a face. */
+const SHUFFLE_TRIES = 5;
 /** How many recent layouts it avoids repeating on the same spread. */
 const AUTO_DESIGN_MEMORY = 4;
+/** How many recent arrangements of one page it avoids repeating. */
+const PAGE_MEMORY = 10;
 const FINE_ART = 'fineart';
 
 type SaveStatus = 'saved' | 'unsaved' | 'saving' | 'failed';
@@ -82,6 +103,20 @@ function carryOver(from: SpreadDesign, to: SpreadDesign): SpreadDesign {
   };
 }
 
+/**
+ * Whether a spread's layouts are for other photos than it has now. The designer adds,
+ * removes and replaces photos without laying the spread out again.
+ */
+function layoutsAreOld(spread: Spread): boolean {
+  const made = spread.options[0]?.design.frames.flatMap((f) => (f.asset_id ? [f.asset_id] : [])) ?? [];
+  return made.length !== spread.photoIds.length || [...made].sort().join() !== [...spread.photoIds].sort().join();
+}
+
+/** A spread with these layouts, and the place among them of the one it uses, or -1. */
+function withLayouts(spread: Spread, options: LayoutOption[]): Spread {
+  return { ...spread, options, optionIndex: options.findIndex((o) => o.template_id === spread.design.template_id) };
+}
+
 function mirrored(design: SpreadDesign): SpreadDesign {
   return {
     ...design,
@@ -98,6 +133,13 @@ function mirrored(design: SpreadDesign): SpreadDesign {
 
 export default function Workspace({ album }: { album: Album }) {
   const { spec } = album;
+  // A set of thank you cards is worked on like an album whose spreads are the cards.
+  const cards = album.kind === 'cards';
+  const noun = cards ? 'card' : 'spread';
+  const Noun = cards ? 'Card' : 'Spread';
+  const [details, setDetails] = useState<CardDetails | null>(cards ? album.details ?? NO_DETAILS : null);
+  const [showDetails, setShowDetails] = useState(false);
+  const [cardCounts, setCardCounts] = useState<number[]>([]);
   const [photos, setPhotos] = useState<PhotoInfo[]>(album.photos);
   const history = useHistory<Spread[]>(album.spreads);
   const spreads = history.present;
@@ -135,8 +177,11 @@ export default function Workspace({ album }: { album: Album }) {
   const [showPreview, setShowPreview] = useState(false);
   const [showComments, setShowComments] = useState(false);
   const [openComments, setOpenComments] = useState(0);
+  // Which pages Shuffle changes. Both again on each spread, so no page is left out by surprise.
+  const [shuffleSide, setShuffleSide] = useState<ShuffleSide>('both');
   const autoDesignTicket = useRef(0);
   const recentLayouts = useRef(new Map<string, string[]>());
+  const recentPages = useRef(new Map<string, string[]>());
   const [ratings, setRatings] = useState<Record<string, Rating>>(album.ratings);
   const [suggested, setSuggested] = useState<Map<string, PhotoRating>>(new Map());
   const [reading, setReading] = useState(false);
@@ -144,6 +189,11 @@ export default function Workspace({ album }: { album: Album }) {
   const [autoBusy, setAutoBusy] = useState(false);
   const [thresholds, setThresholds] = useState<Thresholds>({ warn: 0, tooLow: 0 });
   const [paperColours, setPaperColours] = useState<string[]>([]);
+  const [retouch, setRetouch] = useState<Record<string, RetouchEdits>>(album.retouch ?? {});
+  const [retouching, setRetouching] = useState<{ item: RetouchItem; startAdjust: string } | null>(null);
+  const [menu, setMenu] = useState<MenuAt | null>(null);
+  // The photo list's thumbnails redraw when a photo is retouched.
+  useSyncExternalStore(subscribeRetouches, retouchesVersion);
 
   /** Selecting text and selecting a photo rule each other out. */
   const setTextId = useCallback((id: string | null) => {
@@ -156,6 +206,10 @@ export default function Workspace({ album }: { album: Album }) {
   }, []);
 
   useEffect(() => {
+    if (cards) cardPhotoCounts(spec).then(setCardCounts).catch(() => setCardCounts([]));
+  }, [cards, spec]);
+
+  useEffect(() => {
     printOptions()
       .then((o) => {
         setThresholds({ warn: o.dpi_warn, tooLow: o.dpi_too_low });
@@ -165,29 +219,87 @@ export default function Workspace({ album }: { album: Album }) {
   }, []);
 
   const byId = useMemo(() => new Map(photos.map((p) => [p.id, p])), [photos]);
-  const current = spreads.find((s) => s.id === currentId) ?? null;
-  const currentIndex = current ? spreads.indexOf(current) : -1;
+  // Where each photo's faces are, once looked for. A ref, since only layouts use it.
+  const faces = useRef<Map<string, FaceBox[]>>(new Map());
+  const loadFaces = useCallback(async (ids: string[]) => {
+    const wanted = [...new Set(ids)].filter((id) => !faces.current.has(id));
+    if (!wanted.length) return;
+    try {
+      for (const [id, found] of Object.entries(await findPhotoFaces(wanted))) faces.current.set(id, found);
+    } catch {
+      // Without faces a crop is simply centred, which must not stop a layout.
+    }
+  }, []);
+  /** A new layout for a spread, keeping what was done to its photos, with faces in view. */
+  const carry = useCallback((from: SpreadDesign, to: SpreadDesign) => focusFaces(
+    (cards ? changeCardDesign : carryOver)(from, to), byId, faces.current, from,
+  ), [cards, byId]);
+  const saved = spreads.find((s) => s.id === currentId) ?? null;
+  // Layouts made for the photos a spread has now. Kept out of the undo history, since
+  // finding them changes nothing the photographer did.
+  const [freshLayouts, setFreshLayouts] = useState<Map<string, LayoutOption[]>>(new Map());
+  const layoutsKey = useCallback((s: Spread) => JSON.stringify([s.photoIds, details]), [details]);
+  const upToDate = useCallback(
+    (s: Spread) => (layoutsAreOld(s) ? withLayouts(s, freshLayouts.get(layoutsKey(s)) ?? []) : s),
+    [freshLayouts, layoutsKey],
+  );
+  const current = useMemo(() => (saved ? upToDate(saved) : null), [saved, upToDate]);
+  const currentIndex = current ? spreads.findIndex((s) => s.id === current.id) : -1;
   const frame = current?.design.frames.find((f) => f.id === frameId) ?? null;
   const textBlock = current?.design.texts.find((t) => t.id === textId) ?? null;
 
   const usedIds = useMemo(() => new Set(spreads.flatMap((s) => s.photoIds)), [spreads]);
+
+  useEffect(() => setShuffleSide('both'), [currentId]);
 
   // Undo can remove the spread on screen, so fall back to one that still exists.
   useEffect(() => {
     if (!spreads.some((s) => s.id === currentId)) setCurrentId(spreads[0]?.id ?? null);
   }, [spreads, currentId]);
 
-  const latest = useRef({ photos, spreads, ratings, publishLink, cover, music, path, dirty: false });
+  const latest = useRef({ photos, spreads, ratings, publishLink, cover, music, details, retouch, path, dirty: false });
   latest.current.path = path;
   useEffect(() => {
     const was = latest.current;
     if (
       was.photos === photos && was.spreads === spreads && was.ratings === ratings
       && was.publishLink === publishLink && was.cover === cover && was.music === music
+      && was.details === details && was.retouch === retouch
     ) return;
-    latest.current = { ...was, photos, spreads, ratings, publishLink, cover, music, dirty: true };
+    latest.current = { ...was, photos, spreads, ratings, publishLink, cover, music, details, retouch, dirty: true };
     setSaveStatus('unsaved');
-  }, [photos, spreads, ratings, publishLink, cover, music]);
+  }, [photos, spreads, ratings, publishLink, cover, music, details, retouch]);
+
+  // Every preview of a retouched photo shows its retouching.
+  useEffect(() => {
+    setRetouches(retouch).catch((e) => setNotice(`Could not show the retouching: ${String(e)}`));
+  }, [retouch]);
+
+  /** Opens a photo in Magic Retouch, with the colour of the frame it was picked from. */
+  const openRetouch = useCallback((photoId: string, frameId?: string) => {
+    const photo = byId.get(photoId);
+    if (!photo) return;
+    if (missing.has(photoId)) {
+      setNotice(`${photo.file_name} cannot be found, so it cannot be retouched. Find the photos first.`);
+      return;
+    }
+    const frames = spreads.flatMap((s) => s.design.frames);
+    const from = frames.find((f) => f.id === frameId) ?? frames.find((f) => f.asset_id === photoId);
+    const adjust = { ...NO_ADJUSTMENTS, ...(from?.adjust ?? {}) };
+    setRetouching({
+      item: { photo, edits: retouch[photoId] ?? NO_RETOUCH, adjust },
+      startAdjust: JSON.stringify(adjust),
+    });
+  }, [byId, missing, spreads, retouch]);
+
+  const photoMenu = useCallback((e: React.MouseEvent, photoId: string, frameId?: string) => {
+    e.preventDefault();
+    setMenu({
+      x: e.clientX,
+      y: e.clientY,
+      items: [{ label: 'Open in Magic Retouch', icon: <WandSparklesIcon aria-hidden="true" />, onSelect: () => openRetouch(photoId, frameId) }],
+    });
+  }, [openRetouch]);
 
   // Shows how many comments are waiting, once this album is linked to a job.
   useEffect(() => {
@@ -233,7 +345,7 @@ export default function Workspace({ album }: { album: Album }) {
       const snapshot = latest.current;
       setSaveStatus('saving');
       try {
-        await saveAlbum(target, toProject(album, snapshot.photos, snapshot.spreads, snapshot.ratings, snapshot.publishLink, snapshot.cover, snapshot.music));
+        await saveAlbum(target, toProject(album, snapshot.photos, snapshot.spreads, snapshot.ratings, snapshot.publishLink, snapshot.cover, snapshot.music, snapshot.details, snapshot.retouch));
         if (latest.current === snapshot) {
           latest.current.dirty = false;
           setSaveStatus('saved');
@@ -254,7 +366,7 @@ export default function Workspace({ album }: { album: Album }) {
 
   const saveAs = useCallback(async () => {
     const chosen = await save({
-      title: 'Save album',
+      title: cards ? 'Save cards' : 'Save album',
       defaultPath: `${album.name}.${ALBUM_EXTENSION}`,
       filters: ALBUM_FILTERS,
     });
@@ -265,7 +377,7 @@ export default function Workspace({ album }: { album: Album }) {
       rememberAlbum(chosen, album.name);
     }
     return ok;
-  }, [album.name, writeTo]);
+  }, [album.name, cards, writeTo]);
 
   const saveNow = useCallback(
     () => (latest.current.path ? writeTo(latest.current.path) : saveAs()),
@@ -288,7 +400,7 @@ export default function Workspace({ album }: { album: Album }) {
       if (savedAt && (await writeTo(savedAt))) return;
       event.preventDefault();
       try {
-        const discard = await ask('This album has unsaved changes. Close without saving?', {
+        const discard = await ask(`${cards ? 'These cards have' : 'This album has'} unsaved changes. Close without saving?`, {
           title: 'Unsaved changes',
           kind: 'warning',
         });
@@ -300,7 +412,7 @@ export default function Workspace({ album }: { album: Album }) {
     return () => {
       void stop.then((unlisten) => unlisten());
     };
-  }, [writeTo]);
+  }, [cards, writeTo]);
 
   const shown = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -405,7 +517,16 @@ export default function Workspace({ album }: { album: Album }) {
   /** The best layouts for a set of photos, or null with a message if none fits. */
   const layoutFor = useCallback(
     async (photoIds: string[]) => {
+      await loadFaces(photoIds);
       const list = photoIds.flatMap((id) => byId.get(id) ?? []);
+      if (cards) {
+        const designs = fillOptions(await suggestCardLayouts(list, spec), details ?? NO_DETAILS);
+        if (!designs.length) {
+          setNotice(`No card design takes ${list.length} photo${list.length === 1 ? '' : 's'}. Select ${listCounts(cardCounts)} photos for one card.`);
+          return null;
+        }
+        return designs;
+      }
       const options = await suggestLayouts(list, spec);
       if (!options.length) {
         setNotice(`There is no layout for ${list.length} photos on one spread yet. Try fewer.`);
@@ -413,8 +534,28 @@ export default function Workspace({ album }: { album: Album }) {
       }
       return options;
     },
-    [byId, spec],
+    [byId, spec, cards, details, cardCounts, loadFaces],
   );
+
+  // Looked for as soon as a spread is opened, so that changing its layout is instant.
+  const photosHere = saved?.photoIds.join() ?? '';
+  useEffect(() => { if (photosHere) void loadFaces(photosHere.split(',')); }, [photosHere, loadFaces]);
+
+  // The layouts offered follow the photos, however those came to be on the spread.
+  useEffect(() => {
+    if (!saved?.photoIds.length || !layoutsAreOld(saved)) return undefined;
+    const key = layoutsKey(saved);
+    if (freshLayouts.has(key)) return undefined;
+    let live = true;
+    const list = saved.photoIds.flatMap((id) => byId.get(id) ?? []);
+    const asked = cards
+      ? suggestCardLayouts(list, spec).then((found) => fillOptions(found, details ?? NO_DETAILS))
+      : suggestLayouts(list, spec);
+    asked
+      .then((options) => { if (live) setFreshLayouts((all) => new Map(all).set(key, options)); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [saved, freshLayouts, layoutsKey, byId, cards, details, spec]);
 
   /** Adds photos to a spread, or starts a new one, and picks the layout automatically. */
   async function addPhotos(ids: string[], spreadId: string | null) {
@@ -430,12 +571,27 @@ export default function Workspace({ album }: { album: Album }) {
     if (target) {
       setSpreads((all) => all.map((s) => (
         s.id === target.id
-          ? { ...s, photoIds, options, optionIndex: 0, design: carryOver(s.design, options[0].design) }
+          ? { ...s, photoIds, options, optionIndex: 0, design: carry(s.design, options[0].design) }
           : s
       )));
+    } else if (cards) {
+      // Every design that takes these photos becomes its own card, best first,
+      // so the studio sees them all at once and deletes the ones it does not want.
+      const made = options.map((option, i) => ({
+        id: crypto.randomUUID(),
+        photoIds,
+        options,
+        optionIndex: i,
+        design: focusFaces(option.design, byId, faces.current),
+      }));
+      setSpreads((all) => [...all, ...made]);
+      setCurrentId(made[0].id);
+      if (made.length > 1) {
+        setNotice(`Made ${made.length} cards, one in each design that takes ${photoIds.length} photo${photoIds.length === 1 ? '' : 's'}. Delete the ones you do not want.`);
+      }
     } else {
       const id = crypto.randomUUID();
-      setSpreads((all) => [...all, { id, photoIds, options, optionIndex: 0, design: options[0].design }]);
+      setSpreads((all) => [...all, { id, photoIds, options, optionIndex: 0, design: focusFaces(options[0].design, byId, faces.current) }]);
       setCurrentId(id);
     }
   }
@@ -452,7 +608,7 @@ export default function Workspace({ album }: { album: Album }) {
     setSpreads((all) =>
       all.map((s) => (
         s.id === spread.id
-          ? { ...s, photoIds, options, optionIndex: 0, design: carryOver(s.design, options[0].design) }
+          ? { ...s, photoIds, options, optionIndex: 0, design: carry(s.design, options[0].design) }
           : s
       )),
     );
@@ -514,14 +670,16 @@ export default function Workspace({ album }: { album: Album }) {
   const chooseLayout = useCallback((pick: (s: Spread) => number) => {
     setFrameId(null);
     setSpreads((all) =>
-      all.map((s) => {
-        if (s.id !== currentId || !s.options.length) return s;
+      all.map((kept) => {
+        if (kept.id !== currentId) return kept;
+        const s = upToDate(kept);
+        if (!s.options.length) return kept;
         const optionIndex = pick(s);
-        if (optionIndex === s.optionIndex) return s;
-        return { ...s, optionIndex, design: carryOver(s.design, s.options[optionIndex].design) };
+        if (optionIndex === s.optionIndex) return kept;
+        return { ...s, optionIndex, design: carry(s.design, s.options[optionIndex].design) };
       }),
     );
-  }, [currentId, setSpreads]);
+  }, [currentId, setSpreads, carry, upToDate]);
 
   const cycleLayout = useCallback((step: -1 | 1) => {
     chooseLayout((s) => (s.optionIndex + step + s.options.length) % s.options.length);
@@ -576,11 +734,19 @@ export default function Workspace({ album }: { album: Album }) {
     changeFromDesigner((d) => ({ ...d, template_id: null, frames: [...d.frames, ...made] }));
   }
 
-  function replacePhotoInDesigner(frameId: string, photoId: string) {
+  /** A photo's crop when it is put in a frame. */
+  function fitFor(photoId: string, frame: Frame): Frame['fit'] {
+    const photo = byId.get(photoId);
+    const aspect = photo ? photo.width / photo.height : 1;
+    return faceFit(aspect, frame.rect_mm.w / frame.rect_mm.h, faces.current.get(photoId));
+  }
+
+  async function replacePhotoInDesigner(frameId: string, photoId: string) {
+    await loadFaces([photoId]);
     history.seal();
     changeFromDesigner((d) => ({
       ...d,
-      frames: d.frames.map((f) => (f.id === frameId ? { ...f, asset_id: photoId, fit: { scale: 1, cx: 0.5, cy: 0.5, rot_deg: 0 } } : f)),
+      frames: d.frames.map((f) => (f.id === frameId ? { ...f, asset_id: photoId, fit: fitFor(photoId, f) } : f)),
     }));
   }
 
@@ -589,7 +755,7 @@ export default function Workspace({ album }: { album: Album }) {
     const options = await layoutFor(spread.photoIds);
     if (!options) return;
     setSpreads((all) => all.map((s) => (
-      s.id === spread.id ? { ...s, options, optionIndex: 0, design: carryOver(s.design, options[0].design) } : s
+      s.id === spread.id ? { ...s, options, optionIndex: 0, design: carry(s.design, options[0].design) } : s
     )));
   }
 
@@ -621,9 +787,17 @@ export default function Workspace({ album }: { album: Album }) {
    * photos, chosen from the best, and then rearranged so that no two clicks look alike.
    */
   async function autoDesign() {
-    if (!current || !current.options.length) return;
-    const spreadId = current.id;
+    if (!saved) return;
+    const spreadId = saved.id;
     const ticket = ++autoDesignTicket.current;
+    // Every photo on the spread now takes part, also those added in the designer.
+    let current = upToDate(saved);
+    if (!current.options.length) {
+      const options = await layoutFor(saved.photoIds).catch(() => null);
+      if (!options || ticket !== autoDesignTicket.current) return;
+      current = withLayouts(saved, options);
+    }
+    const { photoIds, options } = current;
     const recent = recentLayouts.current.get(spreadId) ?? [];
     const ranked = current.options.map((option, index) => ({ option, index }));
     // A fine art spread stays fine art: its layouts sit low in the ranking, behind fuller ones.
@@ -637,19 +811,41 @@ export default function Workspace({ album }: { album: Album }) {
     const fresh = best.filter(({ option, index }) => index !== current.optionIndex && !recent.includes(option.template_id));
     const others = best.filter(({ index }) => index !== current.optionIndex);
     const pool = fresh.length ? fresh : others.length ? others : best;
-    const [roll, seed] = crypto.getRandomValues(new Uint32Array(2));
-    const { option, index } = pool[roll % pool.length];
-    const list = current.photoIds.flatMap((id) => byId.get(id) ?? []);
+    const list = photoIds.flatMap((id) => byId.get(id) ?? []);
+    const before = current.design;
     try {
-      // A fine art layout is used as drawn. Moving its lines would undo its margins.
-      const made = staysFineArt
-        ? null
-        : await varyLayout(option.template_id, list, spec, option.design.frames.map((f) => f.rect_mm), seed);
+      await loadFaces(photoIds);
+      let option = pool[0].option;
+      let index = pool[0].index;
+      let design = before;
+      let least = Infinity;
+      // Every layout is tried before one is used twice.
+      const turns = [...pool];
+      for (let i = turns.length - 1; i > 0; i -= 1) {
+        const j = crypto.getRandomValues(new Uint32Array(1))[0] % (i + 1);
+        [turns[i], turns[j]] = [turns[j], turns[i]];
+      }
+      for (let attempt = 0; attempt < SHUFFLE_TRIES && least > 0.01; attempt += 1) {
+        const turn = turns[attempt % turns.length];
+        const [seed] = crypto.getRandomValues(new Uint32Array(1));
+        // A fine art layout is used as drawn. Moving its lines would undo its margins.
+        const made = staysFineArt
+          ? null
+          : await varyLayout(turn.option.template_id, list, spec, turn.option.design.frames.map((f) => f.rect_mm), seed);
+        const tried = carry(before, (made ?? turn.option).design);
+        const cut = designCutsFaces(tried, byId, faces.current);
+        if (cut < least) {
+          ({ option, index } = turn);
+          design = tried;
+          least = cut;
+        }
+        if (staysFineArt && attempt + 1 >= turns.length) break;
+      }
       // Only the latest click counts, when they come quicker than the answers.
       if (ticket !== autoDesignTicket.current) return;
       // Fine art layouts come round only after all the others have been shown.
       const remembered = staysFineArt ? best.length - 1 : AUTO_DESIGN_MEMORY;
-      // The layout being left counts as shown, even if Auto design did not choose it.
+      // The layout being left counts as shown, even if Shuffle did not choose it.
       const shown = [option.template_id, current.options[current.optionIndex]?.template_id, ...recent]
         .filter((id): id is string => !!id);
       recentLayouts.current.set(spreadId, [...new Set(shown)].slice(0, remembered));
@@ -657,13 +853,78 @@ export default function Workspace({ album }: { album: Album }) {
       setFrameId(null);
       history.seal();
       setSpreads((all) => all.map((s) => (
-        s.id === spreadId ? { ...s, optionIndex: index, design: carryOver(s.design, (made ?? option).design) } : s
+        // Photos changed meanwhile are not undone by a layout made without them.
+        s.id === spreadId && s.photoIds.join() === photoIds.join()
+          ? { ...s, options, optionIndex: index, design: s.design === before ? design : carry(s.design, design) }
+          : s
       )));
       history.seal();
     } catch (e) {
       setNotice(`Could not design a new layout: ${String(e)}`);
     }
   }
+
+  /** Shuffle for one page. Nothing on the other page moves. */
+  async function shufflePage(side: PageSide) {
+    if (!saved) return;
+    const spreadId = saved.id;
+    const before = saved.design;
+    const ticket = ++autoDesignTicket.current;
+    const split = splitAtFold(before, side);
+    if (!split) {
+      setNotice('A photo runs across the fold, so one page cannot be shuffled alone. Choose Both, or move that photo onto one page.');
+      return;
+    }
+    const { page, rest } = split;
+    const list = page.flatMap((f) => (f.asset_id && byId.get(f.asset_id)) || []);
+    if (!list.length) {
+      setNotice(`There are no photos on the ${side} page to shuffle.`);
+      return;
+    }
+    try {
+      await loadFaces(list.map((p) => p.id));
+      const spread = upToDate(saved);
+      const fineArt = !!spread.options[spread.optionIndex]?.tags.includes(FINE_ART);
+      const [seed] = crypto.getRandomValues(new Uint32Array(1));
+      const turns = await shufflePageLayouts(list, spec, side, page.map((f) => f.rect_mm), fineArt, seed);
+      if (ticket !== autoDesignTicket.current) return;
+      if (!turns.length) {
+        setNotice('There is no other layout for this page.');
+        return;
+      }
+      for (let i = turns.length - 1; i > 0; i -= 1) {
+        const j = crypto.getRandomValues(new Uint32Array(1))[0] % (i + 1);
+        [turns[i], turns[j]] = [turns[j], turns[i]];
+      }
+      // Pages not shown lately come first, and of the rest the one shown longest ago.
+      const pageKey = `${spreadId} ${side}`;
+      const recent = recentPages.current.get(pageKey) ?? [];
+      const age = (t: LayoutOption) => {
+        const at = recent.indexOf(pageShape(t.design.frames));
+        return at < 0 ? Infinity : at;
+      };
+      const unseen = turns.filter((t) => age(t) === Infinity);
+      const seenBefore = turns.filter((t) => age(t) !== Infinity).sort((a, b) => age(b) - age(a));
+      const tries = (unseen.length ? unseen : seenBefore.slice(0, 1)).slice(0, SHUFFLE_TRIES).map((t) => {
+        const made = carry({ ...before, frames: page }, t.design);
+        return { made, cut: designCutsFaces(made, byId, faces.current) };
+      });
+      // The first that cuts no face, or the one that cuts least.
+      const pick = tries.find((t) => t.cut <= 0.01) ?? tries.reduce((a, b) => (b.cut < a.cut ? b : a));
+      const design = withPage(before, page, rest, pick.made.frames);
+      const shown = [pageShape(pick.made.frames), pageShape(page), ...recent];
+      recentPages.current.set(pageKey, [...new Set(shown)].slice(0, PAGE_MEMORY));
+      setNotice('');
+      setFrameId(null);
+      history.seal();
+      setSpreads((all) => all.map((s) => (s.id === spreadId && s.design === before ? { ...s, design } : s)));
+      history.seal();
+    } catch (e) {
+      setNotice(`Could not design a new layout: ${String(e)}`);
+    }
+  }
+
+  const shuffle = () => void (shuffleSide === 'both' ? autoDesign() : shufflePage(shuffleSide));
 
   const changeText = useCallback((id: string, change: Partial<TextBlock>) => {
     changeDesign(
@@ -693,10 +954,15 @@ export default function Workspace({ album }: { album: Album }) {
       const source = frames.find((f) => f.id === sourceId);
       const target = frames.find((f) => f.id === targetId);
       if (!source || !target) return frames;
-      const contents = (f: Frame) => ({ asset_id: f.asset_id, fit: f.fit, adjust: f.adjust });
+      if (!current) return frames;
+      // The other frame has another shape, so the crop is chosen again for it.
+      const refocused = (from: Frame, to: Frame): Frame => focusFaces(
+        { ...current.design, frames: [{ ...to, asset_id: from.asset_id, fit: from.fit, adjust: from.adjust }] },
+        byId, faces.current, { ...current.design, frames: [from] },
+      ).frames[0];
       return frames.map((f) => {
-        if (f.id === sourceId) return { ...f, ...contents(target) };
-        if (f.id === targetId) return { ...f, ...contents(source) };
+        if (f.id === sourceId) return refocused(target, f);
+        if (f.id === targetId) return refocused(source, f);
         return f;
       });
     });
@@ -761,26 +1027,42 @@ export default function Workspace({ album }: { album: Album }) {
   }
 
   const option = current?.options[current.optionIndex];
+  /** The designer works on one spread, so with none there is only the album. */
+  const designing = designerOpen && current !== null;
   const framePhoto = frame?.asset_id ? byId.get(frame.asset_id) : undefined;
   const frameDpi = frame && framePhoto ? Math.round(effectiveDpi(framePhoto, frame)) : null;
   const effectsValue = frame?.adjust ?? current?.design.frames[0]?.adjust ?? NO_ADJUSTMENTS;
   const paperNow = current?.design.background.value;
 
   return (
-    <div className="workspace">
+    <div className={`workspace ${designing ? 'designing' : ''}`}>
       <header className="topbar">
-        {designerOpen ? (
-          <button type="button" className="btn" onClick={() => setDesignerOpen(false)}><ChevronLeftIcon aria-hidden="true" />Back to album</button>
-        ) : (
-          <span className="brand-mark small" aria-hidden="true">E</span>
-        )}
+        <span className="brand-mark small" aria-hidden="true">E</span>
+        {/* Always in the same place, so the way back is where the way in was. */}
+        <div className="view-switch" role="group" aria-label="View">
+          <button
+            type="button"
+            aria-pressed={!designing}
+            className={designing ? '' : 'on'}
+            title={`See every ${noun}`}
+            onClick={() => setDesignerOpen(false)}
+          ><BookOpenIcon aria-hidden="true" />{cards ? 'Cards view' : 'Album view'}</button>
+          <button
+            type="button"
+            aria-pressed={designing}
+            className={designing ? 'on' : ''}
+            disabled={!current}
+            title={current ? `Design this ${noun} by hand` : `Add a ${noun} to design it`}
+            onClick={() => { if (!designing) { setFrameId(null); setDesignerOpen(true); } }}
+          ><PenToolIcon aria-hidden="true" />Design view</button>
+        </div>
         <div className="title">
           <strong>{album.name}</strong>
           <span>
-            {album.sizeLabel} · {spec.binding === 'layflat' ? 'Lay-flat' : 'Magazine'} ·{' '}
-            {designerOpen && current
-              ? `designing spread ${currentIndex + 1} of ${spreads.length}`
-              : `${spreads.length} spread${spreads.length === 1 ? '' : 's'}`}
+            {album.sizeLabel} · {cards ? 'Thank you cards' : spec.binding === 'layflat' ? 'Lay-flat' : 'Magazine'} ·{' '}
+            {designing
+              ? `designing ${noun} ${currentIndex + 1} of ${spreads.length}`
+              : `${spreads.length} ${noun}${spreads.length === 1 ? '' : 's'}`}
           </span>
         </div>
         <span className={`save-status ${saveStatus === 'failed' ? 'failed' : ''}`} role="status">
@@ -791,7 +1073,7 @@ export default function Workspace({ album }: { album: Album }) {
             failed: 'Could not save',
           }[saveStatus]}
         </span>
-        <button type="button" className="btn" onClick={() => void saveNow()}><SaveIcon aria-hidden="true" />Save</button>
+        <button type="button" className="btn" title="Save (Ctrl+S)" onClick={() => void saveNow()}><SaveIcon aria-hidden="true" />Save</button>
         <button type="button" className="btn icon-btn" aria-label="Undo" title="Undo (Ctrl+Z)" disabled={!history.canUndo} onClick={() => { setFrameId(null); undo(); }}><Undo2Icon aria-hidden="true" /></button>
         <button type="button" className="btn icon-btn" aria-label="Redo" title="Redo (Ctrl+Y)" disabled={!history.canRedo} onClick={() => { setFrameId(null); redo(); }}><Redo2Icon aria-hidden="true" /></button>
         <span className="topbar-gap" />
@@ -799,31 +1081,38 @@ export default function Workspace({ album }: { album: Album }) {
           <input type="checkbox" checked={guides} onChange={(e) => setGuides(e.target.checked)} />
           Print guides
         </label>
-        <button type="button" className={`btn pane-btn ${showBrowser ? 'active' : ''}`} aria-pressed={showBrowser} onClick={() => setShowBrowser(!showBrowser)}><ImagesIcon aria-hidden="true" />Photos</button>
+        <button type="button" className={`btn pane-btn ${showBrowser ? 'active' : ''}`} aria-pressed={showBrowser} title="Photos" onClick={() => setShowBrowser(!showBrowser)}><ImagesIcon aria-hidden="true" />Photos</button>
         {!designerOpen && (
-          <button type="button" className={`btn pane-btn ${showSide ? 'active' : ''}`} aria-pressed={showSide} onClick={() => setShowSide(!showSide)}><PanelRightIcon aria-hidden="true" />Panel</button>
+          <button type="button" className={`btn pane-btn ${showSide ? 'active' : ''}`} aria-pressed={showSide} title="Panel" onClick={() => setShowSide(!showSide)}><PanelRightIcon aria-hidden="true" />Panel</button>
         )}
-        {publishLink?.album_id && (
-          <button type="button" className="btn" onClick={() => setShowComments(true)}><MessageSquareIcon aria-hidden="true" />
+        {cards && (
+          <button type="button" className="btn" title="The couple's names, date, venue and your studio line" onClick={() => setShowDetails(true)}><UsersIcon aria-hidden="true" />Details</button>
+        )}
+        {!cards && publishLink?.album_id && (
+          <button type="button" className="btn" title="Comments" onClick={() => setShowComments(true)}><MessageSquareIcon aria-hidden="true" />
             Comments{openComments > 0 && <span className="count-badge">{openComments}</span>}
           </button>
         )}
-        <button type="button" className="btn" title="The digital album's cover and music" onClick={() => setShowCover(true)}><PaletteIcon aria-hidden="true" />Cover</button>
-        <button type="button" className="btn" disabled={!spreads.length} title="Leaf through the album as the client will" onClick={() => setShowPreview(true)}><BookOpenIcon aria-hidden="true" />Preview</button>
-        <button
-          type="button"
-          className="btn"
-          disabled={!spreads.length}
-          title="Publish as the client's digital album in Eventor"
-          onClick={() => setPublishProject(toProject(album, photos, spreads, ratings, publishLink, cover, music))}
-        ><SendIcon aria-hidden="true" />
-          Publish
-        </button>
+        {!cards && (
+          <>
+            <button type="button" className="btn" title="The digital album's cover and music" onClick={() => setShowCover(true)}><PaletteIcon aria-hidden="true" />Cover</button>
+            <button type="button" className="btn" disabled={!spreads.length} title="Leaf through the album as the client will" onClick={() => setShowPreview(true)}><BookOpenIcon aria-hidden="true" />Preview</button>
+            <button
+              type="button"
+              className="btn"
+              disabled={!spreads.length}
+              title="Publish as the client's digital album in Eventor"
+              onClick={() => setPublishProject(toProject(album, photos, spreads, ratings, publishLink, cover, music, null, retouch))}
+            ><SendIcon aria-hidden="true" />
+              Publish
+            </button>
+          </>
+        )}
         <button
           type="button"
           className="btn-primary"
           disabled={!spreads.length}
-          onClick={() => setExportProject(toProject(album, photos, spreads, ratings, publishLink, cover, music))}
+          onClick={() => setExportProject(toProject(album, photos, spreads, ratings, publishLink, cover, music, details, retouch))}
         ><DownloadIcon aria-hidden="true" />
           Export
         </button>
@@ -844,8 +1133,50 @@ export default function Workspace({ album }: { album: Album }) {
         </p>
       )}
 
+      {menu && <ContextMenu at={menu} onClose={() => setMenu(null)} />}
+
+      {retouching && (
+        <Retoucher
+          mode="album"
+          items={[retouching.item]}
+          onClose={() => setRetouching(null)}
+          onSave={async ({ photo, edits, adjust }) => {
+            setRetouch((all) => {
+              const next = { ...all };
+              if (hasRetouch(edits)) next[photo.id] = edits;
+              else delete next[photo.id];
+              return next;
+            });
+            // Colour belongs to frames. Only when it was changed here is it given to every
+            // frame showing this photo, so colour set frame by frame is otherwise kept.
+            if (JSON.stringify(adjust) !== retouching.startAdjust) {
+              history.seal();
+              setSpreads((all) => all.map((s) => (
+                s.design.frames.some((f) => f.asset_id === photo.id)
+                  ? { ...s, design: { ...s.design, frames: s.design.frames.map((f) => (f.asset_id === photo.id ? { ...f, adjust } : f)) } }
+                  : s
+              )));
+            }
+            return `Retouched ${photo.file_name}.`;
+          }}
+        />
+      )}
+
       {exportProject && (
         <ExportDialog project={exportProject} onClose={() => setExportProject(null)} />
+      )}
+
+      {showDetails && details && (
+        <CardDetailsDialog
+          value={details}
+          onClose={() => setShowDetails(false)}
+          onSave={(next) => {
+            history.seal();
+            setSpreads((all) => refillCards(all, details, next));
+            setDetails(next);
+            setShowDetails(false);
+          }}
+        />
       )}
 
       {showPreview && (
@@ -918,7 +1249,7 @@ export default function Workspace({ album }: { album: Album }) {
         />
       )}
 
-      {designerOpen && current ? (
+      {current && designing ? (
         <Designer
           key={current.id}
           design={current.design}
@@ -934,8 +1265,10 @@ export default function Workspace({ album }: { album: Album }) {
           onAuto={(chosen) => void autoColour(chosen)}
           onShowOriginal={setShowOriginal}
           onAddPhoto={dropPhotosOnDesigner}
-          onReplacePhoto={replacePhotoInDesigner}
-          onAutoDesign={() => void autoDesign()}
+          onReplacePhoto={(frame, photo) => void replacePhotoInDesigner(frame, photo)}
+          shuffle={<ShuffleControl side={shuffleSide} onSide={setShuffleSide} onShuffle={shuffle} className="btn-primary" pages={!cards} />}
+          onPhotoMenu={(e, frameId, photoId) => photoMenu(e, photoId, frameId)}
+          cards={cards}
         />
       ) : (
       <>
@@ -945,6 +1278,7 @@ export default function Workspace({ album }: { album: Album }) {
             <div className="spread-tools" role="toolbar" aria-label="Spread">
               <span className="muted">Custom layout</span>
               <button type="button" className="tool" onClick={() => void relayout(current)}><LayoutGridIcon aria-hidden="true" />Choose a layout</button>
+              {!cards && <ShuffleControl side={shuffleSide} onSide={setShuffleSide} onShuffle={shuffle} className="tool accent" />}
               <button type="button" className="tool" onClick={() => setDesignerOpen(true)}><PenToolIcon aria-hidden="true" />Designer</button>
               <button type="button" className="tool danger" onClick={() => deleteSpread(current.id)}><Trash2Icon aria-hidden="true" />Delete</button>
             </div>
@@ -954,7 +1288,7 @@ export default function Workspace({ album }: { album: Album }) {
               <div className="cycler">
                 <button type="button" aria-label="Previous layout" title="Previous layout ( [ )" onClick={() => cycleLayout(-1)}><ChevronLeftIcon aria-hidden="true" /></button>
                 <div>
-                  <strong>{current.design.template_id ? option.name : 'Custom layout'}</strong>
+                  <strong>{current.design.template_id ? option.name : cards ? 'Custom design' : 'Custom layout'}</strong>
                   <span>
                     {current.optionIndex + 1} of {current.options.length} · {Math.round(cropShare(current.design, byId) * 100)}% cropped
                   </span>
@@ -963,22 +1297,19 @@ export default function Workspace({ album }: { album: Album }) {
               </div>
               <span className="tools-rule" />
               <button type="button" className="tool" onClick={() => { setFrameId(null); setDesignerOpen(true); }}><PenToolIcon aria-hidden="true" />Designer</button>
-              <button
-                type="button"
-                className="tool accent"
-                title="Try a different layout for these photos. Click again for another."
-                onClick={() => void autoDesign()}
-              ><SparklesIcon aria-hidden="true" />
-                Auto design
-              </button>
-              <button
-                type="button"
-                className="tool"
-                title="Swap the left and right sides"
-                onClick={() => { setFrameId(null); changeDesign(mirrored); }}
-              ><FlipHorizontal2Icon aria-hidden="true" />
-                Mirror
-              </button>
+              {!cards && (
+                <>
+                  <ShuffleControl side={shuffleSide} onSide={setShuffleSide} onShuffle={shuffle} className="tool accent" />
+                  <button
+                    type="button"
+                    className="tool"
+                    title="Swap the left and right sides"
+                    onClick={() => { setFrameId(null); changeDesign(mirrored); }}
+                  ><FlipHorizontal2Icon aria-hidden="true" />
+                    Mirror
+                  </button>
+                </>
+              )}
               <button
                 type="button"
                 className="tool danger"
@@ -993,7 +1324,7 @@ export default function Workspace({ album }: { album: Album }) {
           <section
             ref={rail.setRail}
             className={`canvas-area ${current ? 'rail' : ''} ${rail.sliding ? 'sliding' : ''}`}
-            aria-label="All spreads"
+            aria-label={cards ? 'All cards' : 'All spreads'}
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => {
               e.preventDefault();
@@ -1032,6 +1363,8 @@ export default function Workspace({ album }: { album: Album }) {
                         onSelectText={setTextId}
                         onChangeText={changeText}
                         onOverflow={noteOverflow}
+                        onPhotoMenu={photoMenu}
+                        cards={cards}
                       />
                     ) : (
                       <SpreadPeek
@@ -1042,6 +1375,7 @@ export default function Workspace({ album }: { album: Album }) {
                         previewWidth={peekDetail(Math.abs(i - currentIndex))}
                         onPick={pickSpread}
                         onOpen={openSpreadInDesigner}
+                        cards={cards}
                       />
                     )}
                   </div>
@@ -1051,41 +1385,48 @@ export default function Workspace({ album }: { album: Album }) {
             ) : (
               <div className="empty-stage">
                 <span className="empty-book" aria-hidden="true"><i /><i /></span>
-                <h2>{photos.length ? 'Build the album, or drag photos here' : 'Start by importing photos'}</h2>
+                <h2>{!photos.length ? 'Start by importing photos' : cards ? 'Select photos, then make a card' : 'Build the album, or drag photos here'}</h2>
                 <p>
-                  {photos.length
-                    ? 'Auto Build lays out everything. Or select a few photos and drop them here.'
-                    : 'Your originals stay where they are and are never changed.'}
+                  {!photos.length
+                    ? 'Your originals stay where they are and are never changed.'
+                    : cards
+                      ? `Select ${listCounts(cardCounts)} photos below with Ctrl+click, then press New card or drop them here. You get one card in every design that takes them.`
+                      : 'Auto Build lays out everything. Or select a few photos and drop them here.'}
                 </p>
                 <div className="empty-actions">
                   <button type="button" className={photos.length ? 'btn' : 'btn-primary'} disabled={importing} onClick={() => void chooseFolder()}><ImagePlusIcon aria-hidden="true" />
                     {importing ? 'Reading photos…' : 'Import photos'}
                   </button>
-                  {photos.length > 0 && (
+                  {photos.length > 0 && !cards && (
                     <button type="button" className="btn-primary" onClick={() => setShowBuild(true)}><ZapIcon aria-hidden="true" />Auto Build</button>
+                  )}
+                  {photos.length > 0 && cards && (
+                    <button type="button" className="btn-primary" disabled={!selectedIds.length} onClick={() => void addPhotos(selectedIds, null)}><PlusIcon aria-hidden="true" />New card</button>
                   )}
                 </div>
               </div>
             )}
           </section>
           {current && currentIndex > 0 && (
-            <button type="button" className="rail-nav prev" aria-label="Previous spread" onClick={() => goToSpread(-1)}><ChevronLeftIcon aria-hidden="true" /></button>
+            <button type="button" className="rail-nav prev" aria-label={`Previous ${noun}`} onClick={() => goToSpread(-1)}><ChevronLeftIcon aria-hidden="true" /></button>
           )}
           {current && currentIndex < spreads.length - 1 && (
-            <button type="button" className="rail-nav next" aria-label="Next spread" onClick={() => goToSpread(1)}><ChevronRightIcon aria-hidden="true" /></button>
+            <button type="button" className="rail-nav next" aria-label={`Next ${noun}`} onClick={() => goToSpread(1)}><ChevronRightIcon aria-hidden="true" /></button>
           )}
           </div>
 
           {current && (
             <p className="spread-caption">
-              Spread {currentIndex + 1} of {spreads.length} · pages {currentIndex * 2 + 1}–{currentIndex * 2 + 2}
+              {cards
+                ? `Card ${currentIndex + 1} of ${spreads.length}`
+                : `Spread ${currentIndex + 1} of ${spreads.length} · pages ${currentIndex * 2 + 1}–${currentIndex * 2 + 2}`}
             </p>
           )}
         </div>
 
         {showSide && (
           <aside className="side">
-            {!current && <p className="muted">Select a spread to change its layout and effects.</p>}
+            {!current && <p className="muted">Select a {noun} to change its {cards ? 'design' : 'layout'} and effects.</p>}
 
             {textBlock && (
               <TextPanel
@@ -1125,7 +1466,7 @@ export default function Workspace({ album }: { album: Album }) {
                     Reset crop
                   </button>
                   <button type="button" className="btn" onClick={() => void removeFromSpread(current, framePhoto.id)}><ImageMinusIcon aria-hidden="true" />
-                    Remove from spread
+                    Remove from {noun}
                   </button>
                 </div>
               </section>
@@ -1133,8 +1474,8 @@ export default function Workspace({ album }: { album: Album }) {
 
             {current && (
               <EffectsPanel
-                title={frame ? 'Effects for this photo' : 'Effects for this spread'}
-                hint={frame ? 'Press Esc to adjust the whole spread.' : 'Every photo on the spread. Click a photo to change only that one.'}
+                title={frame ? 'Effects for this photo' : `Effects for this ${noun}`}
+                hint={frame ? `Press Esc to adjust the whole ${noun}.` : `Every photo on the ${noun}. Click a photo to change only that one.`}
                 value={effectsValue}
                 onChange={changeEffects}
                 onGestureStart={history.seal}
@@ -1147,13 +1488,14 @@ export default function Workspace({ album }: { album: Album }) {
 
             {current && current.options.length > 0 && (
               <section>
-                <h3>Layouts for {current.photoIds.length} photo{current.photoIds.length === 1 ? '' : 's'}</h3>
+                <h3>{cards ? 'Designs' : 'Layouts'} for {current.photoIds.length} photo{current.photoIds.length === 1 ? '' : 's'}</h3>
                 <div className="layout-grid">
                   {current.options.map((o, i) => (
                     <LayoutThumb
                       key={o.template_id}
                       option={o}
                       on={i === current.optionIndex}
+                      cards={cards}
                       onClick={() => chooseLayout(() => i)}
                     />
                   ))}
@@ -1163,7 +1505,7 @@ export default function Workspace({ album }: { album: Album }) {
 
             {current && paperColours.length > 0 && (
               <section>
-                <h3>Paper for this spread</h3>
+                <h3>Paper for this {noun}</h3>
                 <div className="swatches">
                   {paperColours.map((colour) => (
                     <button
@@ -1183,12 +1525,12 @@ export default function Workspace({ album }: { album: Album }) {
         )}
       </div>
 
-      <section ref={timeline} className="timeline" aria-label="Spreads">
+      <section ref={timeline} className={`timeline ${cards ? 'cards' : ''}`} aria-label={cards ? 'Cards' : 'Spreads'}>
         {spreads.map((s, i) => (
           <div key={s.id} className="spread-item">
             <button
               type="button"
-              aria-label={`Spread ${i + 1}`}
+              aria-label={`${Noun} ${i + 1}`}
               aria-current={s.id === currentId}
               className={`spread-thumb ${s.id === currentId ? 'on' : ''}`}
               style={{ aspectRatio: String(s.design.size_mm.w / s.design.size_mm.h), background: s.design.background.value }}
@@ -1202,6 +1544,7 @@ export default function Workspace({ album }: { album: Album }) {
                 if (ids.length) void addPhotos(ids, s.id);
               }}
             >
+              <Panels design={s.design} />
               {s.design.frames.map((f) => {
                 const photo = f.asset_id ? byId.get(f.asset_id) : undefined;
                 return (
@@ -1215,9 +1558,9 @@ export default function Workspace({ album }: { album: Album }) {
             </button>
             <div className="spread-actions">
               <span>{String(i + 1).padStart(2, '0')}</span>
-              <button type="button" aria-label={`Move spread ${i + 1} earlier`} disabled={i === 0} onClick={() => moveSpread(s.id, -1)}><ArrowLeftIcon aria-hidden="true" /></button>
-              <button type="button" aria-label={`Move spread ${i + 1} later`} disabled={i === spreads.length - 1} onClick={() => moveSpread(s.id, 1)}><ArrowRightIcon aria-hidden="true" /></button>
-              <button type="button" aria-label={`Delete spread ${i + 1}`} onClick={() => deleteSpread(s.id)}><XIcon aria-hidden="true" /></button>
+              <button type="button" aria-label={`Move ${noun} ${i + 1} earlier`} disabled={i === 0} onClick={() => moveSpread(s.id, -1)}><ArrowLeftIcon aria-hidden="true" /></button>
+              <button type="button" aria-label={`Move ${noun} ${i + 1} later`} disabled={i === spreads.length - 1} onClick={() => moveSpread(s.id, 1)}><ArrowRightIcon aria-hidden="true" /></button>
+              <button type="button" aria-label={`Delete ${noun} ${i + 1}`} onClick={() => deleteSpread(s.id)}><XIcon aria-hidden="true" /></button>
             </div>
           </div>
         ))}
@@ -1225,7 +1568,7 @@ export default function Workspace({ album }: { album: Album }) {
           type="button"
           className="add-spread"
           disabled={!selectedIds.length}
-          title={selectedIds.length ? 'Make a new spread from the selected photos' : 'Select photos first'}
+          title={selectedIds.length ? `Make a new ${noun} from the selected photos` : 'Select photos first'}
           onClick={() => void addPhotos(selectedIds, null)}
           onDragOver={(e) => e.preventDefault()}
           onDrop={(e) => {
@@ -1234,7 +1577,7 @@ export default function Workspace({ album }: { album: Album }) {
             const ids = droppedPhotos(e);
             if (ids.length) void addPhotos(ids, null);
           }}
-        ><PlusIcon aria-hidden="true" />New spread</button>
+        ><PlusIcon aria-hidden="true" />New {noun}</button>
       </section>
 
       </>
@@ -1246,7 +1589,7 @@ export default function Workspace({ album }: { album: Album }) {
             <button type="button" className="btn" disabled={importing} onClick={() => void chooseFolder()}><ImagePlusIcon aria-hidden="true" />
               {importing ? 'Reading photos…' : 'Import photos'}
             </button>
-            <button type="button" className="btn" disabled={!photos.length} onClick={() => setShowBuild(true)}><ZapIcon aria-hidden="true" />Auto Build</button>
+            {!cards && <button type="button" className="btn" disabled={!photos.length} onClick={() => setShowBuild(true)}><ZapIcon aria-hidden="true" />Auto Build</button>}
             <strong className="muted">{usedIds.size} of {photos.length} used</strong>
             <select className="input" aria-label="Show photos" value={filter} onChange={(e) => setFilter(e.target.value as PhotoFilter)}>
               <option value="all">All photos</option>
@@ -1274,7 +1617,7 @@ export default function Workspace({ album }: { album: Album }) {
             />
             {selectedIds.length > 0 && current && (
               <button type="button" className="btn" onClick={() => void addPhotos(selectedIds, current.id)}><PlusIcon aria-hidden="true" />
-                Add {selectedIds.length} to this spread
+                Add {selectedIds.length} to this {noun}
               </button>
             )}
             <span className="muted hint">Ctrl+click to select several</span>
@@ -1289,6 +1632,7 @@ export default function Workspace({ album }: { album: Album }) {
                 aria-pressed={selected.has(photo.id)}
                 className={`photo ${selected.has(photo.id) ? 'on' : ''} ${usedIds.has(photo.id) ? 'used' : ''}`}
                 onClick={(e) => clickPhoto(e, photo.id)}
+                onContextMenu={(e) => photoMenu(e, photo.id)}
                 onDragStart={(e) => {
                   const ids = selected.has(photo.id) ? selectedIds : [photo.id];
                   e.dataTransfer.setData(DRAG_PHOTOS, JSON.stringify(ids));
@@ -1331,10 +1675,11 @@ export default function Workspace({ album }: { album: Album }) {
 }
 
 function LayoutThumb({
-  option, on, onClick,
+  option, on, cards, onClick,
 }: {
   option: LayoutOption;
   on: boolean;
+  cards?: boolean;
   onClick: () => void;
 }) {
   const { design } = option;
@@ -1344,11 +1689,28 @@ function LayoutThumb({
       aria-pressed={on}
       aria-label={option.name}
       title={`${option.name} · ${Math.round(option.crop_loss * 100)}% cropped`}
-      className={`layout-thumb ${on ? 'on' : ''}`}
-      style={{ aspectRatio: String(design.size_mm.w / design.size_mm.h) }}
+      className={`layout-thumb ${cards ? 'card' : ''} ${on ? 'on' : ''}`}
+      style={{
+        aspectRatio: String(design.size_mm.w / design.size_mm.h),
+        ...(cards ? { background: design.background.value } : {}),
+      }}
       onClick={onClick}
     >
+      {cards && <Panels design={design} />}
       {design.frames.map((f) => <i key={f.id} style={frameStyle(f, design)} />)}
+      {/* A card's words, as a line where each block sits. */}
+      {cards && design.texts.map((t) => (
+        <u
+          key={t.id}
+          style={{
+            left: percent(t.rect_mm.x, design.size_mm.w),
+            right: percent(design.size_mm.w - t.rect_mm.x - t.rect_mm.w, design.size_mm.w),
+            top: percent(t.rect_mm.y + t.rect_mm.h / 2, design.size_mm.h),
+            color: t.colour,
+            zIndex: 5,
+          }}
+        />
+      ))}
     </button>
   );
 }
@@ -1367,7 +1729,7 @@ function peekDetail(distance: number): number | null {
 
 /** A spread beside the current one. It can only be looked at, until it is clicked. */
 const SpreadPeek = memo(function SpreadPeek({
-  id, index, design, photos, previewWidth, onPick, onOpen,
+  id, index, design, photos, previewWidth, onPick, onOpen, cards,
 }: {
   id: string;
   index: number;
@@ -1376,17 +1738,19 @@ const SpreadPeek = memo(function SpreadPeek({
   previewWidth: number | null;
   onPick: (id: string) => void;
   onOpen: (id: string) => void;
+  cards?: boolean;
 }) {
   const { w, h } = design.size_mm;
   return (
     <button
       type="button"
-      className="spread-peek"
-      aria-label={`Go to spread ${index + 1}`}
+      className={`spread-peek ${cards ? 'card' : ''}`}
+      aria-label={`Go to ${cards ? 'card' : 'spread'} ${index + 1}`}
       style={{ width: spreadWidth(design), aspectRatio: String(w / h), background: design.background.value }}
       onClick={() => onPick(id)}
       onDoubleClick={() => onOpen(id)}
     >
+      {previewWidth !== null && <Panels design={design} />}
       {previewWidth !== null && design.frames.map((frame) => {
         const photo = frame.asset_id ? photos.get(frame.asset_id) : undefined;
         return (
@@ -1403,8 +1767,10 @@ const SpreadPeek = memo(function SpreadPeek({
 
 function SpreadCanvas({
   design, spec, photos, guides, thresholds, selectedId, onSelect, onFit, onSwap, onGestureStart,
-  showOriginal, onOpenDesigner, textId, onSelectText, onChangeText, onOverflow,
+  showOriginal, onOpenDesigner, textId, onSelectText, onChangeText, onOverflow, cards, onPhotoMenu,
 }: {
+  cards?: boolean;
+  onPhotoMenu?: (e: React.MouseEvent, photoId: string, frameId?: string) => void;
   design: SpreadDesign;
   spec: Album['spec'];
   photos: Map<string, PhotoInfo>;
@@ -1440,6 +1806,7 @@ function SpreadCanvas({
       onPointerDown={(e) => { if (e.target === e.currentTarget) onSelect(null); }}
       onDoubleClick={onOpenDesigner}
     >
+      <Panels design={design} />
       {design.frames.map((frame) => {
         const photo = frame.asset_id ? photos.get(frame.asset_id) : undefined;
         const selected = frame.id === selectedId;
@@ -1460,6 +1827,7 @@ function SpreadCanvas({
             onClick={() => onSelect(frame.id)}
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(frame.id); } }}
             onDragStart={(e) => e.dataTransfer.setData(DRAG_FRAME, frame.id)}
+            onContextMenu={(e) => { if (photo && onPhotoMenu) onPhotoMenu(e, photo.id, frame.id); }}
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => {
               const source = e.dataTransfer.getData(DRAG_FRAME);
@@ -1530,7 +1898,7 @@ function SpreadCanvas({
           <span className="guide safe" style={{ left: percent(safe, w), right: percent(safe, w), top: percent(safe, h), bottom: percent(safe, h) }} />
         </>
       )}
-      <span className="fold" style={foldStyle(spec.binding, w)} />
+      {!cards && <span className="fold" style={foldStyle(spec.binding, w)} />}
     </div>
   );
 }

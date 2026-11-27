@@ -195,6 +195,7 @@ fn crop_never_leaves_the_photo_or_distorts_it() {
 
 fn frame(x: f64, y: f64, w: f64, h: f64, bleed: bool) -> TemplateFrame {
     TemplateFrame {
+        border: 0.0,
         rect_pct: RectPct { x, y, w, h },
         bleed,
         z: 0,
@@ -773,4 +774,108 @@ fn a_gallery_leaves_out_photos_where_someone_blinked() {
     assert_eq!(left.len(), 1);
     assert_eq!(left[0].id, "p2");
     assert_eq!(left[0].reasons, ["Eyes closed"]);
+}
+
+fn card_spec(width_in: f64, height_in: f64) -> ProjectSpec {
+    ProjectSpec {
+        margin_mm: 0.0,
+        gap_mm: 0.0,
+        ..ProjectSpec::from_open_inches(width_in, height_in)
+    }
+}
+
+#[test]
+fn every_card_design_is_valid_and_fits_a_card_shape() {
+    let pack = album_core::pack::cards_pack();
+    assert!(pack.templates.len() >= 6);
+    for template in &pack.templates {
+        let portrait = template.spread_aspect.contains(6.0 / 8.0)
+            || template.spread_aspect.contains(5.0 / 8.0);
+        let landscape = template.spread_aspect.contains(8.0 / 6.0);
+        assert!(portrait != landscape, "{} suits one way up", template.id);
+        assert!(!template.texts.is_empty(), "{} has words", template.id);
+    }
+}
+
+#[test]
+fn album_layouts_and_card_designs_are_never_offered_for_each_other() {
+    let albums = TemplateRegistry::with_builtin();
+    let cards = TemplateRegistry::with_cards();
+    let three = photos(&[PORTRAIT, PORTRAIT, PORTRAIT]);
+
+    let for_card = rank_layouts(&cards, &three, &card_spec(8.0, 6.0));
+    assert!(!for_card.is_empty());
+    assert!(for_card
+        .iter()
+        .all(|l| l.template_id.starts_with("eventor-cards/")));
+
+    let for_album = rank_layouts(&albums, &three, &spec());
+    assert!(for_album
+        .iter()
+        .all(|l| !l.template_id.starts_with("eventor-cards/")));
+}
+
+#[test]
+fn a_card_design_brings_its_words_panels_and_paper() {
+    let cards = TemplateRegistry::with_cards();
+    let spec = card_spec(6.0, 8.0);
+    let two = photos(&[PORTRAIT, PORTRAIT]);
+    let layout = rank_layouts(&cards, &two, &spec)
+        .into_iter()
+        .find(|l| l.template_id == "eventor-cards/2-two-with-message-panels")
+        .expect("the design suits a portrait card");
+    let template = cards.get(&layout.template_id).unwrap();
+    let design = apply_layout(template, &two, &layout, &spec);
+
+    // The canvas is the card plus bleed all round.
+    assert!((design.size_mm.w - (6.0 * 25.4 + 6.0)).abs() < 1e-6);
+    assert!((design.size_mm.h - (8.0 * 25.4 + 6.0)).abs() < 1e-6);
+    assert_eq!(design.shapes.len(), 2);
+    assert_eq!(design.frames.len(), 2);
+
+    // Words made from the couple's details keep their pattern; a message is marked.
+    let names = design
+        .texts
+        .iter()
+        .find(|t| t.text.contains("{FIRST}"))
+        .unwrap();
+    assert_eq!(names.role.as_deref(), Some(names.text.as_str()));
+    assert!(design
+        .texts
+        .iter()
+        .any(|t| t.role.as_deref() == Some("message")));
+    let heading = design
+        .texts
+        .iter()
+        .find(|t| t.text.starts_with("Beyond"))
+        .unwrap();
+    assert_eq!(heading.role, None);
+
+    // Letter size follows the card's height: the same design on a bigger card is bigger.
+    let bigger = apply_layout(template, &two, &layout, &card_spec(7.5, 10.0));
+    assert!(bigger.texts[0].size_pt > design.texts[0].size_pt * 1.2);
+}
+
+#[test]
+fn a_dark_card_design_sets_its_own_paper() {
+    let cards = TemplateRegistry::with_cards();
+    let spec = card_spec(6.0, 8.0);
+    let five = photos(&[PORTRAIT, PORTRAIT, LANDSCAPE, PORTRAIT, PORTRAIT]);
+    let layout = rank_layouts(&cards, &five, &spec)
+        .into_iter()
+        .find(|l| l.template_id == "eventor-cards/5-dark-stagger")
+        .unwrap();
+    let design = apply_layout(
+        cards.get(&layout.template_id).unwrap(),
+        &five,
+        &layout,
+        &spec,
+    );
+    assert_eq!(
+        design.background,
+        album_core::document::Background::Color {
+            value: "#0B0B0B".into()
+        }
+    );
+    assert!(design.texts.iter().any(|t| t.rot_deg == 270.0));
 }

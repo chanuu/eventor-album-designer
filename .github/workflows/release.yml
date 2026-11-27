@@ -1,0 +1,87 @@
+# Builds a release for Windows and Mac, signs its updates, and leaves it as a draft.
+#
+# It only runs when started by hand. Nothing reaches a studio until the draft is published
+# on the Releases page. See docs/releasing.md.
+
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      notes:
+        description: What is new, in plain words. Studios see this before they update.
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    strategy:
+      fail-fast: true
+      # One at a time, since each adds itself to the same latest.json.
+      max-parallel: 1
+      matrix:
+        include:
+          - os: windows-latest
+            args: --bundles nsis
+            targets: ''
+          - os: macos-latest
+            args: --target universal-apple-darwin --bundles app,dmg
+            targets: aarch64-apple-darwin,x86_64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    env:
+      VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+      VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
+      # Ad-hoc signing until there is an Apple Developer ID.
+      APPLE_SIGNING_IDENTITY: '-'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the secrets are set
+        shell: bash
+        run: |
+          for name in VITE_SUPABASE_URL VITE_SUPABASE_ANON_KEY TAURI_SIGNING_PRIVATE_KEY; do
+            if [ -z "${!name}" ]; then echo "::error::Set the $name repository secret."; exit 1; fi
+          done
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.targets }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.os }}
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Test the photo and layout code
+        run: cargo test --workspace --exclude eventor-album-designer --quiet
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: v__VERSION__
+          releaseName: Eventor Studio Manager __VERSION__
+          releaseBody: ${{ inputs.notes }}
+          releaseDraft: true
+          prerelease: false
+          tauriScript: pnpm tauri
+          args: ${{ matrix.args }} --config src-tauri/tauri.release.conf.json

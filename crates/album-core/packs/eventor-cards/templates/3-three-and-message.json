@@ -1,0 +1,131 @@
+{
+  "id": "eventor-cards/3-three-and-message",
+  "name": "Three photos and a message panel",
+  "frame_count": 3,
+  "spread_aspect": {
+    "min": 0.6,
+    "max": 0.85
+  },
+  "tags": [
+    "card"
+  ],
+  "frames": [
+    {
+      "rect_pct": {
+        "x": 0.11,
+        "y": 0.08,
+        "w": 0.387,
+        "h": 0.415
+      }
+    },
+    {
+      "rect_pct": {
+        "x": 0.505,
+        "y": 0.08,
+        "w": 0.388,
+        "h": 0.415
+      }
+    },
+    {
+      "rect_pct": {
+        "x": 0.505,
+        "y": 0.501,
+        "w": 0.388,
+        "h": 0.414
+      }
+    }
+  ],
+  "panels": [
+    {
+      "rect_pct": {
+        "x": 0.11,
+        "y": 0.501,
+        "w": 0.387,
+        "h": 0.414
+      },
+      "colour": "#DEDDDE"
+    }
+  ],
+  "texts": [
+    {
+      "rect_pct": {
+        "x": 0.13,
+        "y": 0.5388,
+        "w": 0.347,
+        "h": 0.0924
+      },
+      "text": "Much Love",
+      "size": 0.04,
+      "font": "Mrs Saint Delafield",
+      "colour": "#2A2A2A",
+      "align": "center"
+    },
+    {
+      "rect_pct": {
+        "x": 0.13,
+        "y": 0.64,
+        "w": 0.347,
+        "h": 0.09
+      },
+      "text": "Write your message here",
+      "size": 0.007,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "center",
+      "message": true,
+      "line_height": 1.9
+    },
+    {
+      "rect_pct": {
+        "x": 0.13,
+        "y": 0.7507,
+        "w": 0.347,
+        "h": 0.0256
+      },
+      "text": "SINCERELY,",
+      "size": 0.0055,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "center"
+    },
+    {
+      "rect_pct": {
+        "x": 0.13,
+        "y": 0.8043,
+        "w": 0.347,
+        "h": 0.0415
+      },
+      "text": "{FIRST} + {SECOND}",
+      "size": 0.017,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "center"
+    },
+    {
+      "rect_pct": {
+        "x": 0.13,
+        "y": 0.8327,
+        "w": 0.347,
+        "h": 0.0346
+      },
+      "text": "{date:dd | mm | yy}",
+      "size": 0.012,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "center"
+    },
+    {
+      "rect_pct": {
+        "x": 0.15,
+        "y": 0.935,
+        "w": 0.7,
+        "h": 0.05
+      },
+      "text": "{STUDIO}\nMUA | {MUA}",
+      "size": 0.0105,
+      "font": "Jost",
+      "colour": "#2A2A2A",
+      "align": "center"
+    }
+  ]
+}

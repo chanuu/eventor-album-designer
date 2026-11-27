@@ -126,6 +126,30 @@ pub struct TextBlock {
     pub line_height: f64,
     #[serde(default = "solid")]
     pub opacity: f64,
+    /// What a card's text is for, such as "names" or "date", so it can be filled in
+    /// again when the couple's details change. Absent for text typed by hand.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    /// Quarter turns only: 0, 90 or 270. The box keeps its place; the words turn in it.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub rot_deg: f64,
+}
+
+fn is_zero(value: &f64) -> bool {
+    *value == 0.0
+}
+
+/// A flat panel of colour, such as the block a card's message sits on.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Shape {
+    pub id: String,
+    pub rect_mm: RectMm,
+    pub colour: String,
+    #[serde(default = "solid")]
+    pub opacity: f64,
+    /// Ordered with the frames: a panel can sit under or over a photo.
+    #[serde(default)]
+    pub z: i32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -138,6 +162,9 @@ pub struct SpreadDesign {
     /// Absent in albums saved before text existed.
     #[serde(default)]
     pub texts: Vec<TextBlock>,
+    /// Absent in albums saved before cards existed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub shapes: Vec<Shape>,
 }
 
 /// Album formats studios order, as height x open width in inches: a 12x30 is 12 tall
